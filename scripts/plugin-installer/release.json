@@ -1,7 +1,7 @@
 {
-  "version": "0.1.1",
-  "revision": "v0.1.1-r2",
-  "archive": "ds-bot-0.1.1-r2.tgz",
-  "url": "https://github.com/QingJ01/DS-Bot-App/releases/download/v0.1.1/ds-bot-0.1.1-r2.tgz",
-  "sha256": "b79c61fef0f46e4a54c098706b7d578d47f085c10e5c4f111981b829f3da2a8a"
+  "version": "0.1.2",
+  "revision": "v0.1.2-r1",
+  "archive": "ds-bot-0.1.2-r1.tgz",
+  "url": "https://github.com/QingJ01/DS-Bot-App/releases/download/v0.1.2/ds-bot-0.1.2-r1.tgz",
+  "sha256": "e286de25d9b2a1bd9233a28dae8b3e50732b6e3e3913d83e08b6313872ad228f"
 }

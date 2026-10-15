@@ -10,11 +10,13 @@ The official npm integration baseline is DSH `0.2.0-rc.2`; CI also checks `0.2.1
 
 ## Download matching packages
 
-Download matching files from the [v0.1.1 Release](https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.1). Choose the **r2** plugin and APK for the recent-message ordering fix; verify them with `SHA256SUMS-r2`. Original files remain available for existing lockfiles. Actions downloads below are development builds.
+Download matching files from the [v0.1.2 Release](https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.2). Choose the **r1** plugin and APK: this revision repairs a crash that prevented the DS Bot settings window from opening. Verify the files with `SHA256SUMS-r1`. The original v0.1.2 assets remain only for existing lockfiles and are no longer recommended. Actions downloads below are development builds.
 
-Open [Actions → Build plugin and Android](https://github.com/QingJ01/DS-Bot-App/actions/workflows/build.yml). From a successful run for the same commit, download `dsbot-plugin` and `dsbot-android-arm64`; extract the ZIP artifacts first. The Actions plugin is `ds-bot-0.1.1.tgz` (the Release revision is renamed to `ds-bot-0.1.1-r2.tgz`); an installable APK is `dsbot-android-arm64.apk`. Names ending in `-unsigned.apk` are not installable: the maintainer must configure the signing Secret and rebuild. `dsbot-android-x86_64` is for emulators. Each artifact includes `SHA256SUMS`.
+Open [Actions → Build plugin and Android](https://github.com/QingJ01/DS-Bot-App/actions/workflows/build.yml). From a successful run for the same commit, download `dsbot-plugin` and `dsbot-android-arm64`; extract the ZIP artifacts first. The Actions plugin is `ds-bot-0.1.2.tgz` (the published Release revision is `ds-bot-0.1.2-r1.tgz`); an installable Actions APK is `dsbot-android-arm64.apk`, while the signed release phone APK is `dsbot-android-arm64-v0.1.2-r1.apk`. Names ending in `-unsigned.apk` are not installable: the maintainer must configure the signing Secret and rebuild. `dsbot-android-x86_64` is for emulators. Each artifact includes `SHA256SUMS`.
 
-You can also use matching files from [Releases](https://github.com/QingJ01/DS-Bot-App/releases). **The npm package `ds-bot` is upstream and does not contain this fork's complete mobile implementation.** Install this repository's tarball.
+The other signed r1 Release APK is `dsbot-android-x86_64-v0.1.2-r1.apk`, for matching emulators.
+
+You can also use matching r1 files from [Releases](https://github.com/QingJ01/DS-Bot-App/releases). **The npm package `ds-bot` is upstream and does not contain this fork's complete mobile implementation.** Install this repository's tarball.
 
 ## Host installation
 
@@ -22,14 +24,14 @@ You can also use matching files from [Releases](https://github.com/QingJ01/DS-Bo
 2. Open **Plugins → Add plugin**, paste this complete line and install:
 
 ```text
-github:QingJ01/DS-Bot-App#d6b187709b9a1045f63bfb77efff7ff546e39b36&path:ds-bot
+github:QingJ01/DS-Bot-App#2495b96a52836090a5bb458d4fcd40b22d8a9ac8&path:ds-bot
 ```
 
 3. Enable DS Bot, fully quit and restart DSH.
 4. Configure your provider and credential in Harness settings. Choose Chief's model and test a message.
 5. Ask Chief to create Bots/groups, or use the creation pages to set names, roles, instructions and models.
 
-Windows, macOS and Linux use the same installation text. No separate Git, Node.js or pnpm install, archive download or repair script is needed for Desktop. GitHub and dependency registries must be reachable. The source is pinned to the released `0.1.1 r2` commit and includes the mobile bridge.
+Windows, macOS and Linux use the same installation text. No separate Git, Node.js or pnpm install, archive download or repair script is needed for Desktop. GitHub and dependency registries must be reachable. The source is pinned to the released `0.1.2 r1` commit and includes the mobile bridge. If you already use version 0.1.2, install this pin manually; a same-version repair is not guaranteed to trigger an automatic update offer.
 
 ### Updating or recovering a failed install
 
@@ -41,7 +43,7 @@ For DSH Web, install Node.js 24 LTS and pnpm on the server, then run:
 
 ```sh
 npm install -g pnpm
-npx @deepseek-ai/dsh@0.2.0-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#d6b187709b9a1045f63bfb77efff7ff546e39b36&path:ds-bot"
+npx @deepseek-ai/dsh@0.2.0-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#2495b96a52836090a5bb458d4fcd40b22d8a9ac8&path:ds-bot"
 npx @deepseek-ai/dsh@0.2.0-rc.2 web
 ```
 

@@ -23,7 +23,7 @@ on:
       publish:
         type: boolean
         default: false
-        description: Add the tested installer ZIP to v0.1.1 (never replace existing assets)
+        description: Add the tested installer ZIP to v0.1.2 (never replace existing assets)
 
 permissions:
   contents: read
@@ -54,16 +54,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p input
-          gh release download v0.1.1 --repo "$GITHUB_REPOSITORY" --pattern ds-bot-0.1.1-r2.tgz --dir input
-          python scripts/build-plugin-installer.py --archive input/ds-bot-0.1.1-r2.tgz --output out/plugin-installer
+          gh release download v0.1.2 --repo "$GITHUB_REPOSITORY" --pattern ds-bot-0.1.2-r1.tgz --dir input
+          python scripts/build-plugin-installer.py --archive input/ds-bot-0.1.2-r1.tgz --output out/plugin-installer
       - name: Test cold, cached, failed and frozen installs
         env:
-          DSBOT_PLUGIN_ARCHIVE: input/ds-bot-0.1.1-r2.tgz
+          DSBOT_PLUGIN_ARCHIVE: input/ds-bot-0.1.2-r1.tgz
           NO_UPDATE_NOTIFIER: '1'
         run: python scripts/test-plugin-install.py
       - name: Verify the public one-line GitHub installation
         env:
-          DSBOT_PLUGIN_ARCHIVE: input/ds-bot-0.1.1-r2.tgz
+          DSBOT_PLUGIN_ARCHIVE: input/ds-bot-0.1.2-r1.tgz
           NO_UPDATE_NOTIFIER: '1'
         run: python scripts/test-github-install.py
       - uses: actions/upload-artifact@v4
@@ -80,7 +80,7 @@ jobs:
     permissions:
       contents: write
     concurrency:
-      group: publish-plugin-installer-v011-r2
+      group: publish-plugin-installer-v012-r1
       cancel-in-progress: false
     steps:
       - uses: actions/download-artifact@v4
@@ -92,12 +92,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          sha256sum --check SHA256SUMS-installer-v0.1.1-r2
-          gh release view v0.1.1 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > existing.txt
-          for name in dsbot-plugin-installer-v0.1.1-r2.zip SHA256SUMS-installer-v0.1.1-r2; do
+          sha256sum --check SHA256SUMS-installer-v0.1.2-r1
+          gh release view v0.1.2 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > existing.txt
+          for name in dsbot-plugin-installer-v0.1.2-r1.zip SHA256SUMS-installer-v0.1.2-r1; do
             if grep -Fxq "$name" existing.txt; then
               echo "::error::Asset already exists: $name. Use a new installer revision."
               exit 1
             fi
           done
-          gh release upload v0.1.1 --repo "$GITHUB_REPOSITORY" dsbot-plugin-installer-v0.1.1-r2.zip SHA256SUMS-installer-v0.1.1-r2
+          gh release upload v0.1.2 --repo "$GITHUB_REPOSITORY" dsbot-plugin-installer-v0.1.2-r1.zip SHA256SUMS-installer-v0.1.2-r1
