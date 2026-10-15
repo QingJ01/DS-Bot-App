@@ -63,7 +63,9 @@
     }
   },
   "devDependencies": {
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
   },
   "dependencies": {
     "qrcode": "1.5.4",

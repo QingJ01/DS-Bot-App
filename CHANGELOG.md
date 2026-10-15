@@ -14,6 +14,11 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## Unreleased
 
+## DS Bot App [v0.1.2-r1] - 2026-10-15
+
+- Restore the DS Bot settings dialog by supplying the Plugin updates navigation icon; cover the complete navigation with real React rendering tests.
+- Withdraw the original v0.1.2 package from recommended use; publish immutable revision assets instead of replacing existing downloads.
+
 ## DS Bot App [v0.1.2] - 2026-10-15
 
 - Save a group permission override only after every member Session accepts it; report failures and allow retrying a partially applied change.
