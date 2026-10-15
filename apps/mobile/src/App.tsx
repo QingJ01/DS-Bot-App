@@ -5,12 +5,14 @@ import { tr } from "./i18n";
 import React, { useEffect, useRef, useState } from "react";
 import {
   BackHandler,
+  Keyboard,
   Platform,
   ScrollView,
   StatusBar,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { AnimatedPressable as Pressable } from "./components/Motion";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -29,7 +31,7 @@ import {
 } from "./components/UI";
 import { BotAvatar, mainLook, RoomAvatar } from "./components/BotAvatar";
 import { LaunchIntro } from "./components/LaunchIntro";
-import { MotionProvider, PageTransition } from "./components/Motion";
+import { MotionProvider } from "./components/Motion";
 import { AgentDetails } from "./components/AgentDetails";
 import { useWorkspace } from "./hooks/useWorkspace";
 import { ChatScreen } from "./screens/ChatScreen";
@@ -76,6 +78,8 @@ type Route =
     };
 function Shell() {
   const t = useTheme();
+  const { width } = useWindowDimensions();
+  const split = width >= 760;
   const { tr, locale } = useI18n();
   const [classic, setClassic] = useState(false);
   const [host, setHost] = useState<Host | null>(null);
@@ -210,8 +214,8 @@ function Shell() {
     setRoute({ page: "home" });
     setThemePreferences({});
   }
-  const notificationInbox = useNotifications(client, host?.serverId, workspace.online, choose, route.page === "chat" ? selected || undefined : undefined);
   function choose(id: string) {
+    Keyboard.dismiss();
     const found = workspace.conversations.find(
       (item) =>
         item.id === id || item.id === `bot:${id}` || item.id === `room:${id}`,
@@ -221,6 +225,7 @@ function Shell() {
     setRoute({ page: "chat" });
   }
   function navigate(value: Route) {
+    Keyboard.dismiss();
     setNewChat(false);
     setRoute(value);
   }
@@ -237,6 +242,7 @@ function Shell() {
       : workspace.conversations.find(
           (item) => item.sessionId === chief?.sessionId,
         ) || workspace.conversations[0]);
+  const notificationInbox = useNotifications(client, host?.serverId, workspace.online, choose, route.page === "chat" || (split && route.page === "home") ? conversation?.id : undefined);
   function details(item = conversation) {
     if (!item) return;
     if (item.kind === "agent") {
@@ -270,7 +276,7 @@ function Shell() {
       setCreating(false);
     }
   }
-  const showNavigation = () => { navigate({ page: "home" }); void workspace.refresh(); };
+  const showNavigation = () => { navigate({ page: "home" }); };
   useEffect(() => {
     if (route.page !== "chat") return;
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {showNavigation();return true;});
@@ -301,7 +307,7 @@ function Shell() {
     });
   const conversationActivity = JSON.stringify(workspace.conversations.map(item => [item.id, item.sessionId, item.updatedAt]));
   useEffect(() => {
-    if (route.page !== "home" || !host) return;
+    if (!host) return;
     let alive = true;
     const controller = new AbortController();
     void Promise.all(orderConversations(workspace.conversations, previews, () => false).slice(0,20).map(async item => {
@@ -324,12 +330,11 @@ function Shell() {
       });
     }).catch(() => {});
     return () => { alive = false; controller.abort(); };
-  }, [route.page, host, client, workspace.online, conversationActivity, notificationInbox?.cursor]);
+  }, [host, client, workspace.online, conversationActivity, notificationInbox?.cursor]);
   function unread(item:Conversation) {
     return !!notificationInbox?.items.some(event => !event.read && (event.conversationId === item.id || item.id === `bot:${event.conversationId}` || item.id === `room:${event.conversationId}`));
   }
   const unreadAbove = sorted.filter(item => unread(item) && rowPositions.current[item.id] && rowPositions.current[item.id].y + rowPositions.current[item.id].height < homeScroll + 110);
-  useEffect(() => {if (route.page === "home") setHomeScroll(0);},[route.page]);
   function conversationRow(item: Conversation) {
     const bot = workspace.team.bots.find(
       (b) => b.id === item.id || b.sessionId === item.sessionId,
@@ -356,10 +361,10 @@ function Shell() {
           alignItems: "center",
           gap: 18,
           paddingHorizontal: 8,
-          paddingVertical: 24,
-          minHeight: 92,
+          paddingVertical: 16,
+          minHeight: 80,
           borderRadius: 22,
-          backgroundColor: pressed ? t.hover : undefined,
+          backgroundColor: pressed || (split && active) ? t.hover : undefined,
         })}
       >
         {bot ? (
@@ -409,14 +414,13 @@ function Shell() {
           flex: 1,
           opacity: intro ? 0 : 1,
           width: "100%",
-          maxWidth: 860,
+          maxWidth: 1440,
           alignSelf: "center",
           borderLeftWidth: Platform.OS === "web" ? 1 : 0,
           borderRightWidth: Platform.OS === "web" ? 1 : 0,
           borderColor: t.line,
         }}
       >
-        <PageTransition key={`${route.page}:${route.page === "chat" ? selected : route.page === "team" ? `${route.section}:${route.id || ""}:${route.create || ""}` : ""}`}>
         {loading ? (
           <Busy text={tr("Opening your workspace…")} />
         ) : !client || !host ? (
@@ -424,8 +428,13 @@ function Shell() {
             <Notice error text={error} />
             <PairingScreen onConnected={connected} />
           </>
-        ) : route.page === "home" ? (
-          <View style={{flex:1}}>
+        ) : (
+        <View key={host.serverId} style={{flex:1, flexDirection:"row"}}>
+          <View testID="conversation-list-pane" style={{
+            display: route.page === "home" || (split && route.page === "chat") ? "flex" : "none",
+            flex: split ? undefined : 1, width: split ? 300 : undefined,
+            borderRightWidth: split ? 1 : 0, borderColor:t.line,
+          }}>
             <View pointerEvents="box-none" style={{position:"absolute",top:0,left:0,right:0,zIndex:2,flexDirection:"row",alignItems:"center",paddingHorizontal:20,paddingTop:16,paddingBottom:12,gap:10}}>
               <IconButton name="settings" floating label={tr("Open settings")} onPress={() => navigate({page:"settings"})}/>
               <View style={{flex:1}}/>
@@ -441,8 +450,10 @@ function Shell() {
               {!sorted.length && <View style={{padding:24,gap:16}}><Label muted>{tr("No conversations found.")}</Label>{classic ? <Button title={tr("New DSH Agent")} disabled={creating || !workspace.online} onPress={addAgent}/> : <Button secondary title={tr("Reconnect")} onPress={workspace.refresh}/>}</View>}
             </ScrollView>
           </View>
-        ) : route.page === "chat" ? (
-          conversation ? (
+          <View testID="conversation-chat-pane" style={{flex:1, minWidth:0,
+            display: route.page === "chat" || (split && route.page === "home") ? "flex" : "none",
+          }}>
+          {conversation ? (
             <ChatScreen
               key={`${host.serverId}:${conversation.id}`}
               client={client}
@@ -489,8 +500,9 @@ function Shell() {
                 )}
               </View>
             </>
-          )
-        ) : route.page === "team" && route.create ? (
+          )}
+          </View>
+          {route.page === "home" || route.page === "chat" ? null : route.page === "team" && route.create ? (
           <CreationScreen key={route.create} kind={route.create} client={client} team={workspace.team} online={workspace.online} refresh={workspace.refresh} openConversation={choose} onClose={showNavigation}/>
         ) : route.page === "team" ? (
           <TeamScreen
@@ -543,8 +555,9 @@ function Shell() {
               );
             }}
           />
+          )}
+        </View>
         )}
-      </PageTransition>
       </View>
       {intro && <LaunchIntro onComplete={() => setIntro(false)}/>}
       <Sheet title={tr("New chat")} visible={newChat && !!client} onClose={() => setNewChat(false)}>

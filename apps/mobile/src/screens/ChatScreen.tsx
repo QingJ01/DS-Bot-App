@@ -35,6 +35,8 @@ import {
 import { MediaComposer } from "../components/MediaComposer";
 import { MessageBubble } from "../components/MessageBubble";
 import { QuestionCard } from "../components/QuestionCard";
+import { useReadingPosition } from "../hooks/useReadingPosition";
+import { hasNewTail } from "../logic/reading-position";
 import { useConversation } from "../hooks/useConversation";
 import { Host } from "../storage";
 import { errorText, TeamState } from "../types";
@@ -133,28 +135,23 @@ export function ChatScreen({
   const [inputHeight, setInputHeight] = useState(44);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [dismissedMention, setDismissedMention] = useState("");
-  const list = useRef<FlatList<Message>>(null);
+  const reading = useReadingPosition(`${host.serverId}:${conversation.id}`, chat.hydrated, chat.messages);
+  const { list, bottom } = reading;
   const input = useRef<TextInput>(null);
   const displayMessages = useMemo(() => combineTurnReasoning(chat.messages), [chat.messages]);
+  const listMessages = useMemo(() => [...displayMessages].reverse(), [displayMessages]);
   const composer = useMemo(() => referenceDraft(chat.draft), [chat.draft]);
   useEffect(() => {
     const hide = Keyboard.addListener("keyboardDidHide", () => { setComposerFocused(false); setKeyboardVisible(false); });
     const show = Keyboard.addListener("keyboardDidShow", () => { setKeyboardVisible(true); if(input.current?.isFocused()) setComposerFocused(true); });
     return () => { hide.remove(); show.remove(); };
   }, []);
-  const bottom = useRef(true);
-  const positioned = useRef(false);
-  useEffect(() => {
-    if (!chat.messages.length || positioned.current) return;
-    const timer = setTimeout(() => {
-      if (!positioned.current) {
-        list.current?.scrollToEnd({ animated: false });
-        positioned.current = true;
-      }
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [chat.messages.length]);
   const [newMessages, setNewMessages] = useState(false);
+  const lastTail = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!bottom.current && hasNewTail(lastTail.current, displayMessages.map(item => item.id))) setNewMessages(true);
+    lastTail.current = displayMessages.at(-1)?.id;
+  }, [displayMessages]);
   const bot = team.bots.find(
     (item) =>
       item.sessionId === conversation.sessionId ||
@@ -279,48 +276,33 @@ export function ChatScreen({
           <IconButton name="more" floating label={tr("Conversation options")} onPress={() => setOptions(true)} />
         </View>
       </View>
+      {!reading.ready && <View pointerEvents="none" style={{position:"absolute",top:90,left:0,right:0,alignItems:"center"}}><Label muted>{tr("Loading…")}</Label></View>}
       <FlatList
         ref={list}
-        style={{ flex: 1 }}
-        data={displayMessages}
+        testID="message-list"
+        style={{ flex: 1, opacity: reading.ready ? 1 : 0 }}
+        CellRendererComponent={reading.Cell}
+        inverted
+        data={listMessages}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{
           paddingHorizontal: 16,
-          paddingTop: 82,
+          paddingBottom: 82,
           flexGrow: 1,
         }}
         keyboardShouldPersistTaps="handled"
-        onLayout={() => { if (bottom.current) requestAnimationFrame(() => list.current?.scrollToEnd({animated:false})); }}
+        onLayout={reading.onLayout}
         scrollIndicatorInsets={{ top: 76, bottom: dockHeight }}
-        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-        onScrollBeginDrag={() => {
-          positioned.current = true;
-        }}
-        onTouchStart={() => {
-          positioned.current = true;
-        }}
-        {...(Platform.OS === "web"
-          ? {
-              onWheel: () => {
-                positioned.current = true;
-              },
-            }
-          : {})}
-        onScroll={(event) => {
-          if (!positioned.current) return;
-          const { contentOffset, contentSize, layoutMeasurement } =
-            event.nativeEvent;
-          bottom.current =
-            contentSize.height - contentOffset.y - layoutMeasurement.height <
-            120;
+        onScrollBeginDrag={reading.onScrollBeginDrag}
+        onTouchMove={reading.onScrollBeginDrag}
+        {...(Platform.OS === "web" ? { onWheel: reading.onScrollBeginDrag } : {})}
+        onScroll={event => {
+          reading.onScroll(event);
           if (bottom.current) setNewMessages(false);
         }}
-        scrollEventThrottle={100}
-        onContentSizeChange={() => {
-          if (bottom.current) list.current?.scrollToEnd({ animated: false });
-          else setNewMessages(true);
-        }}
-        ListHeaderComponent={
+        scrollEventThrottle={32}
+        onContentSizeChange={reading.onContentSizeChange}
+        ListFooterComponent={
           <View style={{ gap: 8 }}>
           {chat.status === "unauthorized" ? <Notice error text={tr("This device no longer has access. Open Settings, disconnect, then pair again.")} /> : !online ? <Notice text={tr("Host offline. Cached messages and drafts are available. Keep your computer awake, then reconnect to send.")} /> : chat.status !== "connected" ? <Text style={{ color: t.muted, fontSize: 11, textAlign: "center" }}>{tr("Reconnecting…")}</Text> : null}
           {team.readOnly ? <Notice text={team.readOnly} /> : null}
@@ -334,7 +316,7 @@ export function ChatScreen({
           ) : null}
           </View>
         }
-        ListEmptyComponent={
+        ListEmptyComponent={chat.hydrated ?
           <View style={{ flex: 1, justifyContent: "flex-end", paddingVertical: 22, gap: 12 }}>
             <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
               {room && <RoomAvatar room={room} team={team} size={24} />}
@@ -349,11 +331,11 @@ export function ChatScreen({
               </View>)}
               {!team.models.length ? <Notice text={tr("Add a model provider in Harness settings, then refresh.")} /> : null}
             </View> : null}
-          </View>
+          </View> : null
         }
         renderItem={({ item, index }) => {
           if(item.role==="assistant" && !item.text && !item.reasoning && !item.attachments?.length && !item.pending)return null;
-          const previous = chat.messages[index - 1];
+          const previous = listMessages[index + 1];
           const date = messageDate(item);
           const before = messageDate(previous);
           const changedDay = date && (!before || date.toDateString() !== before.toDateString());
@@ -378,7 +360,7 @@ export function ChatScreen({
             />
           </View>;
         }}
-        ListFooterComponent={
+        ListHeaderComponent={
           <View style={{ paddingBottom: dockHeight + 12 }}>
             <ApprovalCards client={client} conversationId={conversation.id} online={online} messages={chat.messages} />
             {bot ? <SecretRequestCards botId={bot.id} client={client} team={team} online={writable} refresh={refresh} /> : null}
@@ -422,7 +404,7 @@ export function ChatScreen({
           compact
           onPress={() => {
             bottom.current = true;
-            list.current?.scrollToEnd({ animated: true });
+            list.current?.scrollToOffset({ offset: 0, animated: true });
             setNewMessages(false);
           }}
         /></View>
