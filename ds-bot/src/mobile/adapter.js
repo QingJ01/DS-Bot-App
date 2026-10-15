@@ -497,8 +497,8 @@ export function createAdapter(rt) {
       const members = new Set(view.rooms.find(room => room.id === body.roomId)?.members ?? [])
       return (Array.isArray(result) ? result : []).filter(round => typeof round?.callId === 'string').slice(0, 100).map(round => ({
         callId: round.callId.slice(0, 256), speaking: members.has(round.speaking) ? round.speaking : null,
-        replies: (Array.isArray(round.replies) ? round.replies : []).filter(reply => members.has(reply?.botId)).slice(0, 200).map(reply => ({
-          botId: reply.botId, ...(typeof reply.kind === 'string' ? { kind: reply.kind.slice(0, 40) } : {}),
+        replies: (Array.isArray(round.replies) ? round.replies : []).map((reply, index) => ({ reply, index })).filter(({ reply }) => members.has(reply?.botId)).slice(0, 200).map(({ reply, index }) => ({
+          groupReplyId: `${round.callId}:${index}`, botId: reply.botId, ...(typeof reply.kind === 'string' ? { kind: reply.kind.slice(0, 40) } : {}),
           ...(typeof reply.text === 'string' ? { text: detail(reply.text, 12000, redact).text } : {}),
           ...(Number.isFinite(reply.time) ? { time: reply.time } : {}),
         })),

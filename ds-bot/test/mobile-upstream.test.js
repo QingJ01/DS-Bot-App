@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { formatSessionReferenceMention, parseSessionReferenceText } from '@deepseek-ai/dsh-session-reference'
 import { createAdapter } from '../src/mobile/adapter.js'
+import { projectEvent } from '../src/mobile/projection.js'
+import { mergeGroupProgress } from '../../apps/mobile/src/logic/group-work.ts'
 import { sessionMention } from '../../apps/mobile/src/logic/composer.ts'
 
 function fixture() {
@@ -96,11 +98,25 @@ test('live mobile group replies are scoped, redacted and bounded before being re
   const rounds=await adapter.action('room-progress',{roomId:'room'})
   assert.equal(rounds[0].speaking,null)
   assert.equal(rounds[0].private,undefined)
-  assert.deepEqual(rounds[0].replies[0],{botId:'a',text:'Working [redacted]',time:123})
+  assert.deepEqual(rounds[0].replies[0],{groupReplyId:'relay:0',botId:'a',text:'Working [redacted]',time:123})
   assert.equal(rounds[0].replies.length,2)
   assert.ok(rounds[0].replies[1].text.length<12100)
   await assert.rejects(adapter.action('room-progress',{roomId:'foreign'}),error=>error.status===404)
 })
+test('formatted live replies match durable identity after filtering earlier entries',async()=>{
+  const {adapter,rt,view}=fixture()
+  const replies=[{botId:'foreign',text:'hidden',time:100},{botId:'a',name:'Alpha',text:'{"count":1,"ok":true}',time:200}]
+  const oldCall=rt.teamCall
+  rt.teamCall=async(endpoint,payload)=>endpoint==='room-progress'?{ok:true,value:[{callId:'relay',speaking:null,replies}]}:oldCall(endpoint,payload)
+  const rounds=await adapter.action('room-progress',{roomId:'room'})
+  assert.equal(rounds[0].replies[0].groupReplyId,'relay:1')
+  assert.notEqual(rounds[0].replies[0].text,replies[1].text)
+  const durable=projectEvent({type:'tool/result',seq:10,time:300,data:{message:{source:{callId:'relay'},content:[{type:'text',text:JSON.stringify({replies})}]}}},
+    {sessionId:'room',kind:'room',calls:new Map([['relay',{name:'group_relay'}]])}).filter(message=>message.author.id==='a')
+  assert.equal(durable[0].groupReplyId,'relay:1')
+  assert.deepEqual(mergeGroupProgress(durable,rounds,view.rooms[0],view),durable)
+})
+
 test('group approvals share the host promise, redact details and settle once without opening hidden history',async()=>{
   const {adapter,calls}=fixture();const requests=(await adapter.action('approvals')).requests;assert.equal(requests[0].conversationId,'room');assert.equal(requests[0].reason,'[redacted]\n\necho [redacted]')
   assert.deepEqual(await adapter.action('approval-resolve',{id:'group:approval-1',decision:'allowed-once'},undefined,{deviceId:'device'}),{accepted:true})

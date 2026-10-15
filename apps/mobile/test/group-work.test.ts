@@ -53,3 +53,18 @@ test("live group replies stay ordered and durable results replace them without r
   assert.equal(finished[1].id,"durable");
   assert.deepEqual(mergeGroupProgress(original,rounds,{...room,members:[]},team),original);
 });
+
+test("reply identity survives formatting and keeps distinct same-time replies", () => {
+  const room: Room={id:"g",name:"Group",members:["a"]};
+  const team: TeamState={bots:[{id:"a",name:"Alpha"}],rooms:[room],models:[]};
+  const durable: Message={id:"stored",groupReplyId:"relay:1",sessionId:"g",seq:10,role:"assistant",text:'{"ok":true}',createdAt:200,author:{id:"a",name:"Alpha"}};
+  const rounds: GroupRound[]=[{callId:"relay",speaking:null,replies:[
+    {botId:"a",groupReplyId:"relay:1",text:'{\n  "ok": true\n}',time:200},
+    {botId:"a",groupReplyId:"relay:2",text:durable.text,time:200},
+  ]}];
+  const merged=mergeGroupProgress([durable],rounds,room,team);
+  assert.equal(merged.length,2);
+  assert.equal(merged[0],durable);
+  assert.equal(merged[1].groupReplyId,"relay:2");
+  assert.deepEqual(mergeGroupProgress(merged,rounds,room,team),merged);
+});

@@ -4,21 +4,23 @@ import type { Message } from "@ds-bot/mobile-sdk";
 export interface GroupRound {
   callId: string;
   speaking: string | null;
-  replies: {botId: string; kind?: string; text?: string; time?: number}[];
+  replies: {botId: string; groupReplyId?: string; kind?: string; text?: string; time?: number}[];
 }
 
 const messageTime = (message: Message) => new Date(message.createdAt ?? 0).getTime();
 
-// Progress is a view of the active relay. The durable reply has the same author,
-// timestamp and text prefix, so it replaces this view without changing stored IDs.
+// Keep durable IDs intact. Reply identity survives progress redaction/formatting;
+// older hosts without that identity fall back to author, timestamp and text.
 export function mergeGroupProgress(messages: Message[], rounds: GroupRound[], room: Room, team: TeamState) {
   const result = [...messages];
   for (const round of rounds) for (const [index, reply] of round.replies.entries()) {
     if (reply.kind || !reply.text || typeof reply.time !== "number" || !Number.isFinite(reply.time) || !room.members.includes(reply.botId)) continue;
     const bot = team.bots.find(bot => bot.id === reply.botId);
     if (!bot) continue;
-    if (result.some(message => typeof message.author === "object" && message.author?.id === bot.id && messageTime(message) === reply.time && message.text.slice(0, 160) === reply.text!.slice(0, 160))) continue;
-    const message: Message = {id:`progress:${room.id}:${round.callId}:${index}`,sessionId:room.id,seq:0,role:"assistant",text:reply.text,createdAt:reply.time,author:{id:bot.id,name:bot.name},pending:true};
+    if (result.some(message => message.groupReplyId && reply.groupReplyId
+      ? message.groupReplyId === reply.groupReplyId
+      : typeof message.author === "object" && message.author?.id === bot.id && messageTime(message) === reply.time && message.text.slice(0, 160) === reply.text!.slice(0, 160))) continue;
+    const message: Message = {id:`progress:${room.id}:${reply.groupReplyId ?? `${round.callId}:${index}`}`,sessionId:room.id,seq:0,role:"assistant",text:reply.text,createdAt:reply.time,author:{id:bot.id,name:bot.name},pending:true,...(reply.groupReplyId ? {groupReplyId:reply.groupReplyId} : {})};
     const next = result.findIndex(message => messageTime(message) > reply.time!);
     if (next < 0) result.push(message);
     else result.splice(next, 0, message);
