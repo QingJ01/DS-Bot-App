@@ -1,5 +1,5 @@
 import { tr, useI18n } from "../i18n";
-import { notificationTitle } from "../logic/notifications";
+import { notificationTitle, markConversationNotificationsRead } from "../logic/notifications";
 import { readCache, writeCache } from "../storage";
 import { useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
@@ -45,7 +45,9 @@ export function useNotifications(client:MobileClient|null,serverId:string|undefi
     if(!client || !online || !serverId)return;
     let active=true,pending=false;
     async function poll(){if(!active || pending || AppState.currentState !== 'active')return;pending=true;
-      try{const value=await client!.action<Inbox>('notifications-list',{});if(!active)return;setInbox(value);
+      try{const value=await client!.action<Inbox>('notifications-list',{});if(!active)return;
+        try { value.items = await markConversationNotificationsRead(value.items, visibleConversationId, ids => client!.action('notifications-read', {ids})); } catch { /* Keep unread indicators until the host acknowledges them; the next poll retries. */ }
+        if(!active)return;setInbox(value);
         await advanceBackgroundCursor(serverId!,value.cursor).catch(()=>{});
         if (!value.pushRegistered && value.preferences.enabled && await readCache<boolean>(serverId!, 'pushOptIn')) {
           try { const token = await registerSystemPush(false); if (active) { await client!.action('notifications-register', {token}); value.pushRegistered = true; setInbox({...value}); } } catch {}

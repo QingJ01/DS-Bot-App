@@ -398,7 +398,9 @@ function Shell() {
             ? new Date(lastActivity).toLocaleTimeString(locale === "zh" ? "zh-CN" : "en-US",{hour:"2-digit",minute:"2-digit"})
             : new Date(lastActivity).toLocaleDateString(locale === "zh" ? "zh-CN" : "en-US",{month:"short",day:"numeric"})}</Text>}
           {notificationInbox?.items.some(event => !event.read && (event.conversationId === item.id || item.id === `bot:${event.conversationId}` || item.id === `room:${event.conversationId}`))
-            ? <View accessibilityLabel={tr("Unread")} style={{width:11,height:11,borderRadius:6,backgroundColor:t.accent}}/>
+            ? <Pressable accessibilityRole="button" accessibilityLabel={`${tr("Unread")} · ${tr("Open {p0}", {p0:String(item.name)})}`} onPress={() => choose(item.id)} style={{minWidth:44,minHeight:44,alignItems:"flex-end",justifyContent:"center"}}>
+                <View pointerEvents="none" style={{width:11,height:11,borderRadius:6,backgroundColor:t.accent}}/>
+              </Pressable>
             : (item.pinned || bot?.pinned || room?.pinned) ? <Icon name="pin" size={14} color={t.muted}/> : null}
         </View>
       </Pressable>

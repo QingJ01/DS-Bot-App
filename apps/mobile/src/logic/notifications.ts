@@ -19,3 +19,14 @@ export function notificationTransportLabel(platform: string, hasCloudConfig: boo
 export function notificationTitle(kind: string) {
   return kind === "reply" ? "New reply from your Bot" : kind === "question" ? "Your Bot has a question" : kind === "approval" ? "A tool needs your approval" : "DS Bot";
 }
+
+export async function markConversationNotificationsRead<T extends { id: number; conversationId: string; read: boolean }>(
+  items: T[], conversationId: string | undefined, markRead: (ids: number[]) => Promise<unknown>,
+): Promise<T[]> {
+  if (!conversationId) return items;
+  const ids = items.filter(item => !item.read && (item.conversationId === conversationId || conversationId === `bot:${item.conversationId}` || conversationId === `room:${item.conversationId}`)).map(item => item.id);
+  if (!ids.length) return items;
+  await markRead(ids);
+  const read = new Set(ids);
+  return items.map(item => read.has(item.id) ? { ...item, read: true } : item);
+}
