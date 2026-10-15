@@ -21,12 +21,19 @@ export const OCR_CACHE_MAX = 500
 export const MAX_AVATAR_IMAGE = 160_000
 export const ROUTE = '/api/bot'
 export const MAX_HOPS = 6
+// Messages the whole team may send each other (message_bot, post_to_group) while
+// nobody outside it speaks: the user, a question card's answer or a scheduled task.
+export const MAX_UNATTENDED_MESSAGES = 40
 // Bot requests a Bot's own chat may hold unread; past this the Bot is most likely
 // stuck, and more messages only pile up behind it.
 export const MAX_UNREAD_REQUESTS = 10
 export const MAX_EXCHANGES = 600
 export const ROOM_REPLY_TIMEOUT_MS = 240_000
+// Lines a member writes less than this apart while it works reach its group together.
+export const ROOM_STEP_GAP_MS = 30_000
 export const SOURCE_KIND = 'bot'
+// The fixed reply that opens a fresh conversation part; it is never shown or sent on.
+export const HANDOFF_ACK = 'Noted. I have my handoff note and carry on from here.'
 // An answer from a question card, in the shape DSH's own late question replies use.
 export const REPLY_KIND = 'user-question-reply'
 // DSH's snapshot of a referenced conversation, logged right after the user's message

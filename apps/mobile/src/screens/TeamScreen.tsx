@@ -107,6 +107,8 @@ export function TeamScreen({
     run: () => Promise<void>;
   } | null>(null);
   const locked = busy || !online || !!team.readOnly;
+  const permissionOptions = team.permissions?.options.filter(option => option.value !== "auto") || [];
+  const groupPermissionDefault = permissionOptions.find(option => option.value === team.permissions?.defaultPreset)?.value || permissionOptions[0]?.value;
   const mainIds = team.mainBotIds?.length
     ? team.mainBotIds
     : team.mainBotId
@@ -575,7 +577,7 @@ export function TeamScreen({
             </Section>
             {botId && <Section title={tr("Capabilities")}><BotCapabilities client={client} bot={team.bots.find(item => item.id === botId) || bot} team={team} online={online} refresh={refresh}/></Section>}
             {botId && <WorkingFolderPicker key={botId} client={client} value={bot.workDir} disabled={locked} choose={async workDir => (await action("update-bot", { id: botId, workDir })) !== undefined} />}
-            {botId && !!team.permissions?.options.length && <Section title={tr("Permissions")} footer={tr("Applies to this Bot’s own chat, group chats and new conversation parts.")}>
+            {botId && !!team.permissions?.options.length && <Section title={tr("Permissions")} footer={tr("Applies to this Bot’s own chat and new parts. Groups can override it with shared permissions.")}>
               <View style={{flexDirection:"row",flexWrap:"wrap",gap:8,padding:12}}>{team.permissions.options.filter(option=>option.value!=="auto").map(option=><Button key={option.value} title={tr(({"read-only":"Read only","workspace-write":"Workspace","danger-full-access":"Full access"} as Record<string,string>)[option.value] || option.name || option.value)} compact danger={option.value==="danger-full-access" && bot.permission===option.value} secondary={(bot.permission || team.permissions?.defaultPreset)!==option.value} disabled={locked} onPress={()=>void saveBot({permission:option.value})}/>)}</View>
             </Section>}
             <Section
@@ -868,6 +870,17 @@ export function TeamScreen({
               </View>
             </Section>
             {roomId && <WorkingFolderPicker key={roomId} client={client} value={room.workDir} group disabled={locked} choose={async workDir => (await action("update-room", { id: roomId, workDir })) !== undefined} />}
+            {roomId && !!permissionOptions.length && <Section title={tr("Permissions")}>
+              <ToggleRow title={tr("Same for every member")} hint={tr("Replaces each member's own permissions in this group.")}
+                value={!!room.permission} disabled={locked} last={!room.permission}
+                onChange={shared => void saveRoom({permission:shared ? groupPermissionDefault : null})}/>
+              {!!room.permission && <View style={{flexDirection:"row",flexWrap:"wrap",gap:8,padding:12}}>
+                {permissionOptions.map(option => <Button key={option.value}
+                  title={tr(({"read-only":"Read only","workspace-write":"Workspace","danger-full-access":"Full access"} as Record<string,string>)[option.value] || option.name || option.value)}
+                  compact danger={option.value === "danger-full-access" && room.permission === option.value} secondary={room.permission !== option.value} disabled={locked}
+                  onPress={() => void saveRoom({permission:option.value})}/>)}
+              </View>}
+            </Section>}
             <Section
               title={tr("Who responds")}
               footer={tr("@mentions always pick who answers.")}

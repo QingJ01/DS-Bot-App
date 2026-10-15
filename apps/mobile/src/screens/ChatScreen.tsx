@@ -2,7 +2,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { dateLocale } from "../i18n";
 import { DesktopBrowser } from "../components/DesktopBrowser";
 import { tr } from "../i18n";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   Keyboard,
@@ -41,6 +41,8 @@ import { errorText, TeamState } from "../types";
 import { useTheme } from "../theme";
 import { BotAvatar, RoomAvatar } from "../components/BotAvatar";
 import { GroupProgress } from "../components/GroupProgress";
+import { WorkCapsule } from "../components/WorkCapsule";
+import { type GroupRound, mergeGroupProgress, ownBotWork, workDescription } from "../logic/group-work";
 import { ConversationExport } from "../components/ConversationExport";
 import { VoiceMode } from "../components/VoiceMode";
 import { HistorySearchPanel, ConversationPartsPanel } from "../features/HistoryPanels";
@@ -135,7 +137,9 @@ export function ChatScreen({
   const [dismissedMention, setDismissedMention] = useState("");
   const list = useRef<FlatList<Message>>(null);
   const input = useRef<TextInput>(null);
-  const displayMessages = useMemo(() => combineTurnReasoning(chat.messages), [chat.messages]);
+  const [progress, setProgress] = useState<{id: string; rounds: GroupRound[]}>({id:"",rounds:[]});
+  const receiveProgress = useCallback((rounds: GroupRound[]) => setProgress({id:conversation.id,rounds}), [conversation.id]);
+  useEffect(() => setProgress({id:"",rounds:[]}), [conversation.id]);
   const composer = useMemo(() => referenceDraft(chat.draft), [chat.draft]);
   useEffect(() => {
     const hide = Keyboard.addListener("keyboardDidHide", () => { setComposerFocused(false); setKeyboardVisible(false); });
@@ -162,6 +166,8 @@ export function ChatScreen({
       `bot:${item.id}` === conversation.id,
   );
   const room = team.rooms.find(item => item.id === conversation.id || `room:${item.id}` === conversation.id);
+  const ownWork = bot && ownBotWork(bot.id, team);
+  const displayMessages = useMemo(() => combineTurnReasoning(room && progress.id === conversation.id ? mergeGroupProgress(chat.messages, progress.rounds, room, team) : chat.messages), [chat.messages, room, team, progress, conversation.id]);
   const questionOwners = new Set([conversation.id, bot?.id, room?.id]);
   const questions = Object.entries(team.questions ?? {})
     .filter(([sessionId, question]) => question.conversationId
@@ -353,7 +359,7 @@ export function ChatScreen({
         }
         renderItem={({ item, index }) => {
           if(item.role==="assistant" && !item.text && !item.reasoning && !item.attachments?.length && !item.pending)return null;
-          const previous = chat.messages[index - 1];
+          const previous = displayMessages[index - 1];
           const date = messageDate(item);
           const before = messageDate(previous);
           const changedDay = date && (!before || date.toDateString() !== before.toDateString());
@@ -413,7 +419,8 @@ export function ChatScreen({
       <View pointerEvents="box-none"
         onLayout={event => { const height = Math.ceil(event.nativeEvent.layout.height); setDockHeight(previous => Math.abs(previous - height) > 1 ? height : previous); }}
         style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 10 }}>
-      {room && <GroupProgress client={client} room={room} team={team} running={chat.running} online={online && chat.status === "connected"} />}
+      {room && <GroupProgress client={client} room={room} team={team} running={chat.running} online={online && chat.status === "connected"} onOpenDetails={onOpenDetails} onProgress={receiveProgress} />}
+      {ownWork && online && chat.status === "connected" && <WorkCapsule label={ownWork.switching ? tr("Moving to a fresh conversation") : workDescription(ownWork) || tr("Working")} onPress={onOpenDetails}/>}
       {newMessages && (
         <View pointerEvents="box-none" style={{alignItems:"center",paddingVertical:4}}><Button
           floating

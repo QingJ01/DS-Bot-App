@@ -81,6 +81,8 @@ App 使用 React Native 与 Expo，共用 SDK 连接 DSH 插件。
 
 主机兼容基线为 DSH `0.2.0-rc.2`，CI 同时检查 `0.2.1-alpha.1`。语音和桌面浏览器控制需要对应的主机服务，详见 [功能说明](docs/mobile-features.zh.md)。
 
+主分支已[同步上游 v0.1.6](docs/mobile-upstream.zh.md#2026-10-15同步正式-v016)：群聊统一权限、实时工作进展和消息链路修复，包含手机适配；这些改动将在下次发布提供。
+
 [本地调试](docs/mobile-local-debug.zh.md) · [上游同步](docs/mobile-upstream.zh.md) · [更新记录](CHANGELOG.md)
 
 ## 致谢与许可

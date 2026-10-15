@@ -2,7 +2,7 @@
 // triggered, the waiters and inboxes of group rounds, and routing a finished turn's reply.
 //
 // Turn tracking: which turns were triggered by another Bot, and what they said.
-import { REFERENCE_KIND, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { HANDOFF_ACK, REFERENCE_KIND, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { textOf } from './text.js'
 import { reminderText } from './schedules.js'
 
@@ -81,6 +81,10 @@ export function install(rt) {
   const queueRoomMessage = (roomId, item) => roomInbox.set(roomId, [...(roomInbox.get(roomId) ?? []), item])
   // Member turns of a group round the user stopped: what they end with stays out of the group.
   const stoppedRoomTurns = new Set()
+  // Bot messages sent since someone outside the team last spoke. Process-local: a
+  // restart is itself a pause, so the count starts afresh.
+  const unattended = { sent: 0 }
+  const userSpoke = () => { unattended.sent = 0 }
 
   // A stopped round stops the member work it started: the turn that answers it, or the
   // delivery still waiting for the member's Session. An earlier turn there keeps going.
@@ -103,7 +107,7 @@ export function install(rt) {
 
   const liveOf = id => {
     let entry = live.get(id)
-    if (entry === undefined) live.set(id, entry = { texts: [] })
+    if (entry === undefined) live.set(id, entry = { texts: [], shown: 0 })
     return entry
   }
 
@@ -162,6 +166,22 @@ export function install(rt) {
   // Roles whose turn owes the sender a reply: a 'stopped' notice asks the Bot to
   // acknowledge, exactly like a request.
   const expectsReply = info => info.role === 'request' || info.role === 'stopped'
+  // A group Session speaks only in its group, so what its turns write goes there, also
+  // for turns that a finished background job or a fresh part starts; a Bot's private
+  // message to it is answered privately.
+  const speaksInGroup = (id, info) => rt.groupOwners.has(id) && !(info !== undefined && expectsReply(info))
+
+  // The group hears what the member says while it works. A text with a tool call goes
+  // on at once; one without may be the turn's last, so it waits for the next text or the
+  // turn's end, which shows the rest as the turn's reply.
+  const showSteps = (id, entry, upTo) => {
+    const info = entry.info
+    if (!speaksInGroup(id, info) || (info?.role === 'room' && stoppedRoomTurns.has(info.exchangeId))) return
+    for (; entry.shown < upTo; entry.shown += 1) {
+      const text = stripWrittenCalls(entry.texts[entry.shown])
+      if (text !== '') void rt.roomStepText?.(id, info, text, entry.shown === 0)?.catch(error => rt.warn('ds-bot: step text from %s not posted: %s', id, error))
+    }
+  }
 
   // A group Session is hidden as a whole, so its turns need no marking. A handoff
   // package that only opens a part is acknowledged with a fixed line, also hidden.
@@ -196,7 +216,26 @@ export function install(rt) {
     return merged
   }
 
-  // Per Bot, the turn it is running and its current tool; its own chat wins over a group.
+  // What the newest running call does, in its own words: what the Bot said in the step
+  // that made it, the call's description, or the file, search or site it works on.
+  const doingOf = (entry) => {
+    const call = [...(entry.calls?.values() ?? [])].at(-1)
+    if (call === undefined) return {}
+    const said = entry.step?.replace(/\s+/g, ' ').trim().slice(0, 160)
+    let args
+    try { args = JSON.parse(call.args || '{}') } catch { args = {} }
+    const first = keys => keys.map(key => args?.[key]).find(value => typeof value === 'string' && value.trim() !== '')?.replace(/\s+/g, ' ').trim()
+    const note = first(['description', 'justification'])
+    const path = first(['file_path', 'path'])
+    const url = first(['url'])
+    let site
+    try { site = url && new URL(url).host } catch { site = undefined }
+    const target = path?.split(/[\\/]/).filter(Boolean).at(-1) ?? first(['query', 'pattern']) ?? site
+    return { tool: call.name, ...(said ? { said } : {}), ...(note ? { note: note.slice(0, 120) } : {}), ...(target ? { target: target.slice(0, 80) } : {}) }
+  }
+
+  // Per Bot, the turn it is running and what it is doing; its own chat wins over a
+  // group. A Bot writing its handoff note shows that.
   const workView = () => {
     const bots = {}
     for (const [id, entry] of live) {
@@ -204,25 +243,31 @@ export function install(rt) {
       const owner = rt.groupOwners.get(id)
       const botId = owner?.botId ?? rt.chatOwners.get(id)
       if (botId === undefined || (owner !== undefined && bots[botId] !== undefined)) continue
-      bots[botId] = { since: entry.since, ...(entry.tool ? { tool: entry.tool } : {}), ...(owner ? { roomId: owner.roomId } : {}) }
+      bots[botId] = { since: entry.since, ...doingOf(entry), ...(owner ? { roomId: owner.roomId } : {}) }
+    }
+    for (const job of rt.switchJobs()) {
+      const work = { since: job.since, switching: true, ...(job.roomId ? { roomId: job.roomId } : {}) }
+      if (job.roomId === undefined) bots[job.botId] = work
+      else bots[job.botId] ??= work
     }
     return bots
   }
 
-  // Per group, the members whose turn there is running; the round's current speaker is
-  // marked, since its round shows it.
+  // Per group, the members whose turn there is running or who move on to a fresh part;
+  // the round's current speaker is marked, since its round shows it.
   const roomWorkView = () => {
     const speaking = new Set([...roomProgress.values()].map(round => `${round.roomId}:${round.speaking}`))
     const rooms = {}
+    const add = (roomId, botId, work) => {
+      if (rooms[roomId]?.some(item => item.botId === botId)) return
+      rooms[roomId] = [...(rooms[roomId] ?? []), { botId, ...work, ...(speaking.has(`${roomId}:${botId}`) ? { speaking: true } : {}) }]
+    }
     for (const [id, entry] of live) {
       const owner = rt.groupOwners.get(id)
-      if (entry.turn === undefined || owner === undefined) continue
-      rooms[owner.roomId] = [...(rooms[owner.roomId] ?? []), {
-        botId: owner.botId,
-        since: entry.since,
-        ...(entry.tool ? { tool: entry.tool } : {}),
-        ...(speaking.has(`${owner.roomId}:${owner.botId}`) ? { speaking: true } : {}),
-      }]
+      if (entry.turn !== undefined && owner !== undefined) add(owner.roomId, owner.botId, { since: entry.since, ...doingOf(entry) })
+    }
+    for (const job of rt.switchJobs()) {
+      if (job.roomId !== undefined) add(job.roomId, job.botId, { since: job.since, switching: true })
     }
     return rooms
   }
@@ -287,6 +332,8 @@ export function install(rt) {
         entry.turn = event.data.turn
         entry.since = event.time ?? Date.now()
         entry.texts = []
+        entry.shown = 0
+        entry.step = undefined
         entry.info = undefined
         // A turn turned away before its first step may end without a turn/end.
         entry.switched = false
@@ -300,6 +347,7 @@ export function install(rt) {
         break
       case 'user/message': {
         const source = event.data?.source
+        if (source?.kind === 'user' || source?.kind === REPLY_KIND || source?.kind === 'schedule') userSpoke()
         // A message that shares a step with a bare handoff package is what the turn
         // answers, so the turn is not a hidden acknowledgement.
         const bare = info => info?.handoff === true && info.resume !== true
@@ -330,6 +378,7 @@ export function install(rt) {
             reportBack: source.reportBack === true,
             hop: source.hop ?? 0,
             ...(source.late ? { late: true } : {}),
+            ...(source.progress ? { progress: true } : {}),
             ...(source.quiet ? { quiet: true } : {}),
             ...(source.failed ? { failed: source.failed } : {}),
             ...(source.resumed ? { resumed: true } : {}),
@@ -378,22 +427,30 @@ export function install(rt) {
       case 'assistant/message': {
         const content = event.data?.message?.content
         const text = textOf(content)
-        if (text !== '') entry.texts.push(text)
+        const called = Array.isArray(content) && content.some(block => block?.type === 'tool-call')
+        if (text !== '' && text !== HANDOFF_ACK) {
+          entry.texts.push(text)
+          if (entry.turn !== undefined) showSteps(id, entry, called ? entry.texts.length : entry.texts.length - 1)
+        }
         entry.lastText = text
-        entry.lastCalled = Array.isArray(content) && content.some(block => block?.type === 'tool-call')
+        entry.lastCalled = called
+        entry.step = called && text !== HANDOFF_ACK ? stripWrittenCalls(text) || undefined : undefined
         break
       }
       case 'turn/end': {
         setActivity(id, undefined)
         const info = entry.info
         const joined = entry.joined ?? []
-        const texts = entry.texts
+        // What the group already saw of the turn is not posted again.
+        const texts = entry.texts.slice(entry.shown)
         const { lastText, lastCalled } = entry
         // A turn stopped for a switch goes on in the next part, which answers instead.
         const switched = entry.switched === true
         entry.turn = undefined
         entry.info = undefined
         entry.texts = []
+        entry.shown = 0
+        entry.step = undefined
         entry.switched = false
         entry.joined = []
         entry.since = undefined
@@ -404,6 +461,7 @@ export function install(rt) {
         const reason = event.data?.reason
         const failure = reason?.kind === 'error' && !switched ? turnFailure(reason.error) : undefined
         if (failure !== undefined) noteTurnFailure(id, failure)
+        const held = rt.groupOwners.has(id) ? rt.takeRoomSteps?.(id) ?? '' : ''
         if (switched) break
         // A model that writes its tool call as text ends the turn as if it were done,
         // though nothing ran. It gets one more turn on the same trigger, so a waiting
@@ -416,6 +474,7 @@ export function install(rt) {
           const reply = (wroteCall ? texts.map(stripWrittenCalls) : texts).join('\n\n').trim()
           return wroteCall && reply === '' ? 'Tried to run a tool but wrote the call as text, so it did not run.' : reply
         }
+        const groupReply = () => rt.withRoomSteps?.(held, replyText()) ?? replyText()
         // Whoever the turn answers gets the same three-way rule: a failure notice,
         // the turn's text (or a stopped-before-answer line), or nothing.
         const answer = (source, reply) => {
@@ -432,7 +491,7 @@ export function install(rt) {
               ...(back ? { sessionId: back } : {}),
               text: `${name} could not answer your message: its model call failed (${failureLine(failure)}). Tell the user if it matters; do not retry right away.`,
               role: 'reply',
-              hop: (source.hop ?? 0) + 1,
+              hop: source.hop ?? 0,
               replyTo: source.exchangeId,
             }).catch(error => rt.warn('ds-bot: failure notice delivery failed: %s', error))
           } else if (reply !== '' || reason?.kind === 'aborted') {
@@ -444,7 +503,7 @@ export function install(rt) {
               ...(back ? { sessionId: back } : {}),
               text: reply !== '' ? reply : `${name} was stopped before it could answer your message.`,
               role: 'reply',
-              hop: (source.hop ?? 0) + 1,
+              hop: source.hop ?? 0,
               replyTo: source.exchangeId,
             }).catch(error => rt.warn('ds-bot: reply delivery failed: %s', error))
           }
@@ -456,21 +515,17 @@ export function install(rt) {
           const stopped = stoppedRoomTurns.delete(info.exchangeId)
           if (waiter !== undefined) {
             if (failure !== undefined) waiter.fail(failure)
-            else waiter.resolve(reason?.kind === 'aborted' ? null : replyText())
+            else waiter.resolve(reason?.kind === 'aborted' ? null : groupReply())
           } else if (!stopped && reason?.kind !== 'aborted') {
             // The round moved on without this member; how its turn ends still reaches the group.
             if (failure !== undefined) void rt.lateRoomFailure?.(id, info, failure)
-            else void rt.lateRoomReply?.(id, info, replyText())
+            else void rt.lateRoomReply?.(id, info, groupReply())
           }
+        } else if (!retry && speaksInGroup(id, info)) {
+          if (failure !== undefined) void rt.lateRoomFailure?.(id, info ?? {}, failure)
+          else if (reason?.kind !== 'aborted') void rt.lateRoomReply?.(id, info ?? {}, groupReply())
         } else if (!retry && info !== undefined) {
-          // A group Session speaks only in its group: the turn that takes a reply to a
-          // message it sent from there posts what it ends with.
-          if (rt.groupOwners.has(id) && (info.role === 'reply' || info.role === 'retry')) {
-            if (failure !== undefined) void rt.lateRoomFailure?.(id, info, failure)
-            else if (reason?.kind !== 'aborted') void rt.lateRoomReply?.(id, info, replyText())
-          } else {
-            answer(info, replyText())
-          }
+          answer(info, replyText())
         }
         for (const request of joined) {
           // A failed or stopped turn closes the request like any other; a finished
@@ -496,5 +551,5 @@ export function install(rt) {
     }
   })
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, callDetail, stopRoomTurn })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, callDetail, stopRoomTurn, unattended, userSpoke })
 }

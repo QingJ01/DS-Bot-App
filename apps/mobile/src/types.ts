@@ -27,6 +27,7 @@ export interface Room {
   pinned?: boolean;
   hidden?: boolean;
   workDir?: string;
+  permission?: string;
 }
 export interface Model {
   ref: string;
@@ -51,10 +52,11 @@ export interface Question {
   [key: string]: unknown;
 }
 export interface Reasoning { efforts: { id: string; name: string; description?: string }[]; defaultEffort?: string }
-export interface MemberWork { botId: string; since?: number; tool?: string; speaking?: boolean }
+export interface WorkStatus { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; since?: number }
+export interface MemberWork extends WorkStatus { botId: string; speaking?: boolean }
 export interface Capability { name: string; kind: "mcp" | "skill" | "pack"; description?: string; transport?: string; approved?: boolean; items?: string[] }
 export interface CapabilityStatus { state: "ready" | "connecting" | "needs-approval" | "error"; error?: string }
-export interface TeamWork { bots: Record<string, { tool?: string; since?: number; roomId?: string }>; rooms?: Record<string, MemberWork[]>; approvals: { id: string; botId: string; roomId?: string; sessionId?: string; answerable?: boolean }[] }
+export interface TeamWork { bots: Record<string, WorkStatus & { roomId?: string }>; rooms?: Record<string, MemberWork[]>; approvals: { id: string; botId: string; roomId?: string; sessionId?: string; answerable?: boolean }[] }
 export interface TeamState {
   bots: Bot[];
   rooms: Room[];

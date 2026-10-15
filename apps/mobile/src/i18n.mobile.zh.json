@@ -1,4 +1,10 @@
 {
+  "Same for every member": "全员统一",
+  "Replaces each member's own permissions in this group.": "在这个群里代替各成员自己的权限。",
+  "Applies to this Bot’s own chat and new parts. Groups can override it with shared permissions.": "适用于这个 Bot 的个人对话和新分段。群聊可单独设置统一权限。",
+  "Moving to a fresh conversation": "正在切换新对话分段",
+  "Group is responding": "群成员正在回复",
+  "Choose a permission preset offered by this host": "请选择这台主机提供的权限预设",
   " KB": " KB",
   " details": "详情",
   " in team memory": "（团队记忆中）",

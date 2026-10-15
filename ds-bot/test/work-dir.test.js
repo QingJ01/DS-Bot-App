@@ -29,7 +29,7 @@ const TEAM = {
 // DSH_HOME, the team's data inside it, and a project folder beside it. Every Session
 // starts in the team workspace unless it is made with a cwd. `services` are what
 // ctx.get finds, such as the sandbox policy and approvals.
-async function start({ services = {}, workspaces = [] } = {}) {
+async function start({ services = {}, workspaces = [], llm, team: saved = TEAM } = {}) {
   // The native realpath, as fs/promises uses: on Windows the JS one keeps 8.3 short names.
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-work-dir-')))
   const dsh = join(root, 'dsh')
@@ -37,7 +37,7 @@ async function start({ services = {}, workspaces = [] } = {}) {
   const team = join(home, 'workspace')
   const project = join(root, 'project')
   for (const dir of [team, project]) mkdirSync(dir, { recursive: true })
-  writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(saved))
   const previousHome = process.env.DSH_HOME
   process.env.DSH_HOME = dsh
 
@@ -66,7 +66,7 @@ async function start({ services = {}, workspaces = [] } = {}) {
   }
   const registry = new Map([['w1', { id: 'w1', path: team, title: 'DS Bot' }], ...workspaces.map(workspace => [workspace.id, workspace])])
   Object.assign(ctx, {
-    llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
+    llm: llm ?? { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
     workspaceRegistry: {
       get: id => registry.get(id),
       list: () => [...registry.values()],
@@ -298,6 +298,50 @@ test('a group\'s folder holds for every member there; only the user or a Main Bo
   assert.equal(requests[0].displayReason.zh, `允许群聊「Ops」的成员在 ${project} 中工作吗？之后可以修改这个文件夹里的文件。`)
 })
 
+test('a group\'s permissions hold for every member there in place of its own, until the user clears them', async (t) => {
+  // The preset each Session runs on, as DSH keeps it.
+  const presetOf = new Map()
+  const PRESETS = ['read-only', 'workspace-write', 'danger-full-access']
+  const permissionPresets = {
+    catalog: () => ({ options: PRESETS.map(value => ({ value, name: value })), defaultPreset: 'workspace-write' }),
+    resolve: (name) => { if (!PRESETS.includes(name)) throw new Error(`permission: unknown preset "${name}"`) },
+    set: (session, name) => { presetOf.set(session.id, name) },
+  }
+  const { call, tool, preStep, project, state, stop } = await start({ services: { ...approvalServices('allowed-once').services, permissionPresets } })
+  t.after(stop)
+
+  // A preset DSH does not offer changes nothing, not even the rest of the change; the
+  // next change that saves would keep it.
+  assert.equal((await call('update-room', { id: 'r1', notice: 'Ship it', permission: 'everything' })).ok, false)
+  assert.equal(presetOf.size, 0)
+
+  const set = await call('update-room', { id: 'r1', permission: 'read-only' })
+  assert.deepEqual(set.value.changes, ['every member now works with the read-only permissions here'])
+  assert.equal(state().rooms.r1.notice, undefined)
+  assert.equal(set.value.room.permission, 'read-only')
+  assert.equal(presetOf.get('gb'), 'read-only')
+  assert.match(await tool('list_bots', {}, 'a'), /"Ops" — .*; members work with the read-only permissions here/)
+
+  // Writer has no preset of its own, so its group Session goes back to DSH's default.
+  assert.deepEqual((await call('update-room', { id: 'r1', permission: null })).value.changes, ['every member uses its own permissions again'])
+  assert.equal(state().rooms.r1.permission, undefined)
+  assert.equal(presetOf.get('gb'), 'workspace-write')
+
+  // While the group sets one, Writer's own preset reaches its own chat only.
+  await call('update-room', { id: 'r1', permission: 'read-only' })
+  assert.equal((await call('update-bot', { id: 'b', permission: 'danger-full-access' })).ok, true)
+  assert.deepEqual([presetOf.get('b'), presetOf.get('gb')], ['danger-full-access', 'read-only'])
+
+  // A fresh part of the group conversation starts on the group's preset.
+  await call('update-room', { id: 'r1', workDir: project })
+  assert.deepEqual(await preStep('gb'), { kind: 'reject' })
+  await until(() => state().rooms.r1.sessions.b === 's1')
+  assert.equal(presetOf.get('s1'), 'read-only')
+
+  await call('update-room', { id: 'r1', permission: null })
+  assert.equal(presetOf.get('s1'), 'danger-full-access')
+})
+
 test('the approval counts every Session that would work in the folder', async (t) => {
   // Writer's own chat and new Sessions only read; its conversation in Ops may write.
   const group = approvalServices('allowed-once', { mode: 'read-only', modes: { gb: 'workspace-write' } })
@@ -379,3 +423,23 @@ test('the folder menu browses through the DSH folder picker', async (t) => {
 function rootless() {
   return join(tmpdir(), `ds-bot-work-dir-none-${process.pid}`)
 }
+
+test('a Bot the Main Bot creates runs on its creator\'s model unless one is named', async (t) => {
+  // The DSH default is a provider without a key; the Main Bot runs on one that works.
+  const providers = { deepseek: ['v4'], official: ['pro'] }
+  const env = await start({
+    services: { agentDefaultModel: { currentSelection: () => ({ provider: 'official', model: 'pro' }) } },
+    team: { ...TEAM, bots: { ...TEAM.bots, a: { ...TEAM.bots.a, model: 'deepseek/v4' } } },
+    llm: {
+      listProviders: () => Object.keys(providers).map(id => ({ id, name: id })),
+      listModels: async id => providers[id].map(model => ({ id: model })),
+      resolveModelInfo: async () => ({}),
+    },
+  })
+  t.after(env.stop)
+  const made = name => Object.values(env.state().bots).find(bot => bot.name === name)
+  assert.equal(await env.tool('create_bot', { name: 'Editor', role: 'Edit', instructions: 'Edit' }, 'a'), 'Created Editor. It is greeting the user now.')
+  assert.equal(made('Editor').model, 'deepseek/v4')
+  assert.equal(await env.tool('create_bot', { name: 'Tester', role: 'Test', instructions: 'Test', model: 'official/pro' }, 'a'), 'Created Tester. It is greeting the user now.')
+  assert.equal(made('Tester').model, 'official/pro')
+})

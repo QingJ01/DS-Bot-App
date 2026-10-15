@@ -81,6 +81,8 @@ Use Node.js 24 for development. See [Contributing](CONTRIBUTING.md) for setup, t
 
 The host integration baseline is DSH `0.2.0-rc.2`; CI also checks `0.2.1-alpha.1`. Voice and desktop browser control require the corresponding host services; see [feature configuration](docs/mobile-features.zh.md).
 
+The main branch includes the [upstream v0.1.6 sync](docs/mobile-upstream.md): group permission presets, live work progress and message-chain fixes, with mobile support. These changes await the next release.
+
 [Local debugging](docs/mobile-local-debug.zh.md) · [Upstream sync](docs/mobile-upstream.zh.md) · [Changelog](CHANGELOG.md)
 
 ## Credits and license

@@ -449,6 +449,45 @@ try {
     const state = await mobile.state()
     assert.equal(list.length, state.bots.length + state.rooms.length + (state.agents ?? []).reduce((sum, agent) => sum + agent.sessions.length, 0))
   })
+  await step('group permission overrides persist and clear through the mobile API', async () => {
+    const options = (await mobile.state()).permissions?.options ?? []
+    const preset = options.find(option => option.value === 'workspace-write') ?? options.find(option => option.value !== 'auto')
+    assert.ok(preset, 'The host did not expose a persistent permission preset')
+    const roomId = createdRooms[0]
+    await mobile.action('update-room', { id: roomId, permission: preset.value })
+    assert.equal((await mobile.state()).rooms.find(room => room.id === roomId).permission, preset.value)
+    await mobile.action('update-room', { id: roomId, permission: null })
+    assert.equal((await mobile.state()).rooms.find(room => room.id === roomId).permission, undefined)
+    await rejected(() => mobile.action('update-room', { id: roomId, permission: 'auto' }), [400], 'Auto review was accepted as a permanent group preset')
+  })
+  await step('group members expose their current task and post progress before their final result', async () => {
+    const members = []
+    for (const botName of ['SyncAdmin', 'SyncWorker']) {
+      const bot = await mobile.action('create-bot', { name: botName, model: model.ref })
+      members.push(bot.id)
+      createdBots.push(bot.id)
+    }
+    const room = await mobile.action('create-room', { name: 'Mobile Progress Group', members, admin: members[0] })
+    createdRooms.push(room.id)
+    await settle()
+    await send(room.id, '分步 2')
+    const working = await waitFor(async () => {
+      const state = await mobile.state()
+      return state.work?.rooms?.[room.id]?.find(entry => entry.botId === members[1] && entry.said)
+    }, 'The member never exposed actual task progress')
+    assert.ok(working.said.includes('目录') || working.said.includes('整理'), 'Work status did not describe the task')
+    const live = await waitFor(async () => {
+      const rounds = await mobile.action('room-progress', { roomId: room.id })
+      return rounds.flatMap(round => round.replies).find(reply => reply.text?.includes('收到，我先看看目录。'))
+    }, 'The group did not expose progress before completion')
+    assert.equal(live.botId, members[1])
+    assert.ok(Object.keys((await mobile.state()).activity ?? {}).length, 'Progress arrived only after work completed')
+    await settle()
+    const { messages } = await mobile.messages(room.id)
+    const progress = messages.findIndex(message => message.role === 'assistant' && message.text.includes('收到，我先看看目录。'))
+    const final = messages.findIndex(message => message.role === 'assistant' && message.text.includes('分步干完了：'))
+    assert.ok(progress >= 0 && final > progress, 'The group did not receive progress followed by the final result')
+  })
   if (process.env.MOBILE_PARITY === '1') await parity(createdBots[0])
   await step('cancel parks the queue; a later send resumes the retained request', async () => {
     await settle()

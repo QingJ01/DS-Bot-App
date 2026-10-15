@@ -19,7 +19,7 @@ const ACTIONS = {
   'update-bot': ['id', 'name', 'role', 'instructions', 'brief', 'color', 'avatar', 'model', 'effort', 'permission', 'workDir'],
   'duplicate-bot': ['id'], 'delete-bot': ['id'], 'set-main': ['id', 'main', 'primary', 'replace'],
   'create-room': ['name', 'members', 'admin', 'greet'],
-  'update-room': ['id', 'name', 'notice', 'mode', 'admin', 'members', 'add', 'remove', 'workDir'], 'delete-room': ['id'],
+  'update-room': ['id', 'name', 'notice', 'mode', 'admin', 'members', 'add', 'remove', 'workDir', 'permission'], 'delete-room': ['id'],
   folders: [], 'folder-list': ['path'],
   'memory-view': ['botId', 'summarize', 'regenerate'], 'memory-forget': ['botId', 'scope', 'topic', 'text'], 'memory-ask': ['botId', 'text'],
   'answer-question': ['sessionId', 'questionId', 'answer'], 'dismiss-question': ['sessionId'],
@@ -233,6 +233,8 @@ export function createAdapter(rt) {
     selected.work = {
       bots: Object.fromEntries(Object.entries(value.work?.bots ?? {}).filter(([id]) => botIds.has(id)).map(([id, work]) => [id, {
         ...(typeof work.tool === 'string' ? { tool: redact(work.tool) } : {}),
+        ...Object.fromEntries(['said', 'note', 'target'].filter(key => typeof work[key] === 'string').map(key => [key, detail(work[key], 300, redact).text])),
+        ...(work.switching === true ? { switching: true } : {}),
         ...(Number.isFinite(work.since) ? { since: work.since } : {}),
         ...(roomIds.has(work.roomId) ? { roomId: work.roomId } : {}),
       }])),
@@ -240,6 +242,8 @@ export function createAdapter(rt) {
         (Array.isArray(work) ? work : []).filter(entry => botIds.has(entry.botId) && selected.rooms.find(room => room.id === id)?.members?.includes(entry.botId)).map(entry => ({
           botId: entry.botId, ...(Number.isFinite(entry.since) ? { since: entry.since } : {}),
           ...(typeof entry.tool === 'string' ? { tool: detail(entry.tool, 300, redact).text } : {}),
+          ...Object.fromEntries(['said', 'note', 'target'].filter(key => typeof entry[key] === 'string').map(key => [key, detail(entry[key], 300, redact).text])),
+          ...(entry.switching === true ? { switching: true } : {}),
           ...(entry.speaking === true ? { speaking: true } : {}),
         })),
       ])),
@@ -455,6 +459,9 @@ export function createAdapter(rt) {
     if (endpoint.startsWith('memory-')) requireBot(body.botId)
     if (body.replace !== undefined) requireBot(body.replace)
     if (['update-room', 'delete-room', 'room-progress'].includes(endpoint) && !rooms.has(body.id ?? body.roomId)) throw error(404, 'mobile/not-found', 'This group is not on the team')
+    if (endpoint === 'update-room' && body.permission !== undefined && body.permission !== null) {
+      if (typeof body.permission !== 'string' || body.permission === 'auto' || !view.permissions?.options?.some(option => option.value === body.permission)) throw error(400, 'mobile/invalid', 'Choose a permission preset offered by this host')
+    }
     for (const key of ['members', 'add', 'remove']) {
       if (body[key] !== undefined) {
         if (!Array.isArray(body[key]) || body[key].length > 30) throw error(400, 'mobile/invalid', 'Invalid group members')
@@ -486,6 +493,17 @@ export function createAdapter(rt) {
     if (endpoint.startsWith('schedule') && Array.isArray(result?.tasks)) return { available: result.available === true,
       tasks: result.tasks.filter(task => bots.has(task.botId) || rooms.has(task.roomId)) }
     if (endpoint === 'update-room' && result?.room) return { ...result, room: { ...result.room, parts: [] } }
+    if (endpoint === 'room-progress') {
+      const members = new Set(view.rooms.find(room => room.id === body.roomId)?.members ?? [])
+      return (Array.isArray(result) ? result : []).filter(round => typeof round?.callId === 'string').slice(0, 100).map(round => ({
+        callId: round.callId.slice(0, 256), speaking: members.has(round.speaking) ? round.speaking : null,
+        replies: (Array.isArray(round.replies) ? round.replies : []).filter(reply => members.has(reply?.botId)).slice(0, 200).map(reply => ({
+          botId: reply.botId, ...(typeof reply.kind === 'string' ? { kind: reply.kind.slice(0, 40) } : {}),
+          ...(typeof reply.text === 'string' ? { text: detail(reply.text, 12000, redact).text } : {}),
+          ...(Number.isFinite(reply.time) ? { time: reply.time } : {}),
+        })),
+      }))
+    }
     if (endpoint === 'usage' && Array.isArray(result?.owners)) {
       const keep = new Map()
       const owners = result.owners.filter((owner, index) => {

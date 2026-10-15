@@ -21,6 +21,16 @@ export function install(rt) {
     return workspace.id
   }
 
+  // Under the PTC preset (DSH Desktop's default) a model may call only run_code, which
+  // turns down the group_relay call that a group chat's Session is given. A Session
+  // keeps the preset it is made with.
+  async function botPreset() {
+    const presets = ctx.get?.('agentPresets')
+    if (presets === undefined) return {}
+    const standard = (await presets.list()).some(preset => preset.id === 'standard' && preset.broken === undefined)
+    return standard ? { agentPreset: 'standard' } : {}
+  }
+
   // `dir` is a working folder outside the team workspace. Such a Session is made by cwd
   // alone, so it joins no DSH workspace and the user's own project lists stay as they are.
   async function createSession(title, { dir } = {}) {
@@ -30,7 +40,8 @@ export function install(rt) {
     if (readOnly !== undefined) throw new Error(readOnly)
     const usable = dir !== undefined && await rt.isFolder(dir)
     if (dir !== undefined && !usable) rt.warn('ds-bot: the working folder %s is gone; %s starts in the team workspace', dir, title)
-    const { sessionId } = await ctx.sessionController.create(usable ? { cwd: dir } : { workspaceId: await ensureWorkspace() })
+    const place = usable ? { cwd: dir } : { workspaceId: await ensureWorkspace() }
+    const { sessionId } = await ctx.sessionController.create({ ...place, ...await botPreset() })
     const agent = await rt.resolveAgent(sessionId)
     await ctx.sessionTitle.rename(agent.session, title)
     return sessionId
@@ -333,6 +344,9 @@ export function install(rt) {
     const moving = patch.workDir !== undefined
     if (moving && byAdmin) throw new Error(`Only the user or a Main Bot can set the folder of "${room.name}"`)
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
+    // A Bot's own permissions are the user's to set, so a group's are too.
+    if (patch.permission !== undefined && actorId !== undefined) throw new Error(`Only the user can set the permissions of "${room.name}"`)
+    const permission = patch.permission === undefined ? undefined : rt.cleanRoomPermission(patch.permission)
 
     const changes = []
     const names = ids => ids.map(member => rt.botOf(member)?.name).filter(Boolean).join(', ')
@@ -361,6 +375,9 @@ export function install(rt) {
       if (workDir === undefined) delete room.workDir
       else room.workDir = workDir
       changes.push(workDir ? `every member now works in ${workDir} here` : 'every member works in its own folder again')
+    }
+    if (permission !== undefined && await rt.setRoomPermission(room, permission)) {
+      changes.push(permission ? `every member now works with the ${permission} permissions here` : 'every member uses its own permissions again')
     }
     const before = room.name
     if (name !== undefined) {

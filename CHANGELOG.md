@@ -14,6 +14,12 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## Unreleased
 
+- Sync upstream [v0.1.6](https://github.com/Fei2411/DeepSeek-Bot/releases/tag/v0.1.6), source `9411ac3629f4c0494c7963a371dee703c2cfd7aa`, retaining the fork's mobile bridge, IPv6, UI and installation flow.
+- Add group-wide permission presets on desktop and mobile. Only the user can override member permissions; clearing the override restores each Bot's own preset, including in future conversation parts.
+- Post group work progress before final results, show the current task and conversation switching, and use one mobile work capsule that opens member details and Stop controls.
+- Count forwarded and group messages toward Bot chain limits and cap unattended runs at 40 messages; prevent handoff acknowledgements from starting reply loops.
+- Resolve secret references in HTTP MCP URLs with URL encoding and authorization checks. Use the standard agent preset for new Bot/group/part sessions, relay group messages under PTC, and stop DSH goals in Bot sessions.
+- Improve desktop details-panel animation on long conversations and preserve composer/sidebar layout under other host skins.
 - Restore update checks for full-commit GitHub plugin installs; keep upgrades pinned to the source of the newest complete release revision instead of returning to tarball URLs.
 - Return update status to every concurrent desktop/mobile check, and recover from synchronous plugin-manager install failures.
 - Validate coordinated plugin, App, Expo and lockfile versions on PRs and main builds, before tagging. Revising an older release no longer forces it to become GitHub's latest release.

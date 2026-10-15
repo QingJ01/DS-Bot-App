@@ -45,6 +45,55 @@ test('mobile exposes thinking levels and permission presets and forwards only su
   await adapter.action('update-bot',{id:'a',effort:'low',permission:'workspace-write',untrusted:'drop'})
   assert.deepEqual(calls.find(([kind,endpoint])=>kind==='team'&&endpoint==='update-bot')[2],{id:'a',effort:'low',permission:'workspace-write'})
 })
+test('mobile group permissions use only the host presets and can restore individual permissions',async()=>{
+  const {adapter,calls,view}=fixture()
+  view.rooms[0].permission='workspace-write'
+  assert.equal((await adapter.state()).rooms[0].permission,'workspace-write')
+  await adapter.action('update-room',{id:'room',permission:'workspace-write',untrusted:'drop'})
+  await adapter.action('update-room',{id:'room',permission:null})
+  assert.deepEqual(calls.filter(([kind,endpoint])=>kind==='team'&&endpoint==='update-room').map(([, , body])=>body),[
+    {id:'room',permission:'workspace-write'},{id:'room',permission:null},
+  ])
+  for(const permission of ['auto','danger-full-access','unknown',false,{},123])
+    await assert.rejects(adapter.action('update-room',{id:'room',permission}),error=>error.status===400)
+  await assert.rejects(adapter.action('update-room',{id:'foreign',permission:'workspace-write'}),error=>error.status===404)
+  assert.equal(calls.filter(([kind,endpoint])=>kind==='team'&&endpoint==='update-room').length,2)
+})
+test('mobile work status carries bounded redacted progress and switching without private or foreign fields',async()=>{
+  const {adapter,view}=fixture()
+  const progress={tool:'read_file',said:'Checking ds-bot-test-key',note:'ds-bot-test-key '+ 'x'.repeat(500),target:'ds-bot-test-key.txt',switching:true,since:100,private:'never expose'}
+  view.work.bots.a={...progress,roomId:'room'}
+  view.work.rooms={room:[{...progress,botId:'a',speaking:true},{botId:'foreign',said:'hidden'}],outside:[{botId:'b',said:'hidden'}]}
+  const work=(await adapter.state()).work
+  assert.equal(work.bots.a.said,'Checking [redacted]')
+  assert.equal(work.bots.a.target,'[redacted].txt')
+  assert.equal(work.bots.a.switching,true)
+  assert.equal(work.bots.a.note,'[redacted] '+'x'.repeat(289)+'\n[Detail truncated]')
+  assert.equal(work.rooms.room.length,1)
+  assert.equal(work.rooms.room[0].said,work.bots.a.said)
+  assert.equal(work.rooms.room[0].switching,true)
+  assert.equal(work.rooms.room[0].speaking,true)
+  assert.equal(work.bots.a.private,undefined)
+  assert.equal(work.rooms.room[0].private,undefined)
+  assert.equal(work.bots.foreign,undefined)
+  assert.equal(work.rooms.outside,undefined)
+  assert.ok(!JSON.stringify(work).includes('ds-bot-test-key'))
+})
+test('live mobile group replies are scoped, redacted and bounded before being returned',async()=>{
+  const {adapter,rt}=fixture()
+  const oldCall=rt.teamCall
+  rt.teamCall=async(endpoint,payload)=>endpoint==='room-progress'?{ok:true,value:[{callId:'relay',speaking:'foreign',private:'hidden',replies:[
+    {botId:'a',name:'private metadata',text:'Working ds-bot-test-key',time:123,internal:'hidden'},
+    {botId:'b',text:'x'.repeat(20000),time:124}, {botId:'foreign',text:'never show'},
+  ]}]}:oldCall(endpoint,payload)
+  const rounds=await adapter.action('room-progress',{roomId:'room'})
+  assert.equal(rounds[0].speaking,null)
+  assert.equal(rounds[0].private,undefined)
+  assert.deepEqual(rounds[0].replies[0],{botId:'a',text:'Working [redacted]',time:123})
+  assert.equal(rounds[0].replies.length,2)
+  assert.ok(rounds[0].replies[1].text.length<12100)
+  await assert.rejects(adapter.action('room-progress',{roomId:'foreign'}),error=>error.status===404)
+})
 test('group approvals share the host promise, redact details and settle once without opening hidden history',async()=>{
   const {adapter,calls}=fixture();const requests=(await adapter.action('approvals')).requests;assert.equal(requests[0].conversationId,'room');assert.equal(requests[0].reason,'[redacted]\n\necho [redacted]')
   assert.deepEqual(await adapter.action('approval-resolve',{id:'group:approval-1',decision:'allowed-once'},undefined,{deviceId:'device'}),{accepted:true})

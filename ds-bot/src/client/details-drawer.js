@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useEffect, useRef, useState } from 'react
 import { isMainOf } from './sources.js'
 import { HEADER, currentPart, stripHeader, usageOf } from './text.js'
 import { PlusIcon, ShareIcon, CloseIcon, ChevronLeftIcon, GearIcon } from './icons.js'
-import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
+import { botState, BotMark, BotAvatar } from './mark.js'
 import { GlobeIcon, Favicon } from './browser-pane.js'
 import { useEscape } from './overlay-hooks.js'
 import { BotSettingsForm } from './bot-settings.js'
@@ -11,8 +11,9 @@ import { ModelMenu, modelOf } from './model-menu.js'
 import { FolderMenu } from './folder-menu.js'
 import { MemoryRow } from './memory-panel.js'
 import { ScheduleSummary } from './schedules.js'
-import { Segmented, useGlide, useMorph } from './motion.js'
-import { MemberWork, useMemberWork } from './member-status.js'
+import { useGlide, useMorph } from './motion.js'
+import { MemberApprovals, MemberState, StopMemberWork, useMemberWork, workState } from './member-status.js'
+import { PermissionPicker, presetDanger, presetName } from './permission-picker.js'
 import { t } from './i18n.js'
 
 function transcriptOf(list, id, name, hiddenTurns = []) {
@@ -33,35 +34,18 @@ const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, '
 const shortUrl = url => String(url ?? '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/$/, '')
 const EMPTY_TABS = { ids: [], active: null }
 
-// The Bot's browser inside the details page: its tabs as small window cards on
-// Desktop, a pointer there on web.
-const PERMISSION_LABELS = { 'read-only': 'Read only', 'workspace-write': 'Workspace', 'danger-full-access': 'Full access' }
-const DANGER = new Set(['danger-full-access'])
-
 // The Bot's permission preset, from the presets DeepSeek Harness offers.
 function PermissionRow({ bot, roster, actions, run }) {
-  const [pending, setPending] = useState(null)
   const catalog = roster.permissions
-  const saved = bot.permission ?? catalog?.defaultPreset
-  useEffect(() => { if (pending === saved) setPending(null) }, [pending, saved])
   if (!catalog?.options?.length) return null
-  const current = pending ?? saved
-  const pick = (value) => {
-    // A Bot without its own preset may run on another one set in DSH, so its first pick always applies.
-    if (value === current && bot.permission !== undefined) return
-    setPending(value)
-    void run(actions.updateBot(bot.id, { permission: value })).catch(() => setPending(null))
-  }
   return h('div', { className: 'bt-drawer-permission' },
     h('div', { className: 'bt-section-title' }, t('Permissions')),
-    h(Segmented, { label: t('Permissions'), value: current },
-      catalog.options.map(option => h('button', {
-        key: option.value, type: 'button', 'aria-pressed': option.value === current,
-        title: option.description, onClick: () => pick(option.value),
-        className: DANGER.has(option.value) ? 'bt-perm-danger' : undefined,
-      }, PERMISSION_LABELS[option.value] ? t(PERMISSION_LABELS[option.value]) : option.name))))
+    // A Bot without its own preset may run on another one set in DSH, so its first pick always applies.
+    h(PermissionPicker, { catalog, saved: bot.permission ?? catalog.defaultPreset, repick: bot.permission === undefined, onPick: permission => run(actions.updateBot(bot.id, { permission })) }))
 }
 
+// The Bot's browser inside the details page: its tabs as small window cards on
+// Desktop, a pointer there on web.
 function BrowserCards({ bot, sessionId, roster, actions, useBrowserTabs, useBrowserPages }) {
   const state = useBrowserTabs(map => map[bot.id] ?? EMPTY_TABS)
   const pages = useBrowserPages(map => map)
@@ -111,6 +95,36 @@ function About({ text, title = 'About' }) {
     long ? h('button', { type: 'button', className: 'bt-more', onClick: () => setOpen(value => !value) }, open ? t('Show less') : t('Show more')) : null)
 }
 
+// A group's face in its details: its first members side by side, each on a disc that
+// cuts into the one before, and how many more there are.
+const PILE_MAX = 4
+function MemberPile({ room, roster }) {
+  const members = room.members.map(id => roster.byId[id]).filter(Boolean)
+  const shown = members.length > PILE_MAX ? members.slice(0, PILE_MAX - 1) : members
+  const more = members.length - shown.length
+  return h('span', { className: 'bt-pile', 'aria-hidden': true },
+    shown.map((bot, index) => h('span', { key: bot.id, className: 'bt-pile-face', style: { animationDelay: `${index * 40}ms` } }, h(BotMark, { bot, size: 44, live: true }))),
+    more > 0 ? h('span', { key: 'more', className: 'bt-pile-face bt-pile-more', style: { animationDelay: `${shown.length * 40}ms` } }, `+${more}`) : null)
+}
+
+const markOf = entry => (entry?.state === 'ask' ? 'alert' : entry?.state === 'work' ? workState(entry.doing) : 'idle')
+
+// One member: its mark, name and what it is doing on one surface that opens its chat;
+// Stop beside it while it works here, and the approvals it waits on below.
+function MemberRow({ member, entry, room, roster, actions, now }) {
+  return h('div', { role: 'listitem', className: 'bt-member' },
+    h('div', { className: 'bt-member-row' },
+      h('button', { type: 'button', className: 'bt-member-open', title: t("Open {name}'s chat", { name: member.name }), onClick: () => actions.openSession(member.id) },
+        h(BotMark, { bot: member, size: 32, state: markOf(entry) }),
+        h('span', { className: 'bt-member-text' },
+          h('span', { className: 'bt-member-line' },
+            h('span', { className: 'bt-member-name' }, member.name),
+            room.admin === member.id ? h('span', { className: 'bt-tag' }, t('Admin')) : null),
+          h(MemberState, { entry, bot: member, room, roster, now }))),
+      h(StopMemberWork, { entry, bot: member, room, actions })),
+    h(MemberApprovals, { entry, bot: member, actions }))
+}
+
 // A group's overview: what members read, who is in it, and who answers. Changes are
 // made in its settings.
 function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) {
@@ -122,18 +136,13 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
       : h('button', { key: 'notice', type: 'button', className: 'bt-more', onClick: openSettings }, t('Add a notice in group settings')),
     h('div', { key: 'members' },
       h('div', { className: 'bt-section-title' }, t('Members · {count}', { count: members.length })),
-      h('div', { className: 'bt-members', role: 'list' }, members.map((member) => {
-        const entry = entries.find(item => item.id === member.id)
-        return h('div', { key: member.id, role: 'listitem' },
-          h('div', { className: 'bt-member' },
-            h('button', { type: 'button', className: 'bt-member-name', title: t("Open {name}'s chat", { name: member.name }), onClick: () => actions.openSession(member.id) },
-              h(BotAvatar, { bot: member, size: 26, main: isMainOf(roster, member.id), admin: room.admin === member.id, live: false }),
-              h('span', null, member.name)),
-            room.admin === member.id ? h('span', { className: 'bt-chip bt-chip-admin' }, t('Admin')) : null),
-          entry ? h(MemberWork, { entry, bot: member, room, roster, actions, now }) : null)
-      }))),
+      h('div', { className: 'bt-members', role: 'list' }, members.map(member => h(MemberRow, {
+        key: member.id, member, entry: entries.find(item => item.id === member.id), room, roster, actions, now,
+      })))),
     h('div', { key: 'mode' }, h('div', { className: 'bt-section-title' }, t('Who answers')),
       h('div', { className: 'bt-kv' }, h('span', null, t(ROOM_MODES.find(([id]) => id === shownMode(room, roster))?.[1] ?? 'Everyone')))),
+    room.permission ? h('div', { key: 'permission' }, h('div', { className: 'bt-section-title' }, t('Permissions')),
+      h('div', { className: 'bt-kv' }, h('span', { className: presetDanger(room.permission) ? 'bt-perm-danger' : undefined }, presetName(room.permission, roster.permissions)))) : null,
     usage ? h('div', { key: 'usage' }, h('div', { className: 'bt-section-title' }, t('Usage')),
       h('div', { className: 'bt-kv' }, h('span', null, room.name), h('span', null, usage))) : null,
   ]
@@ -207,12 +216,12 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
     if (room) await run(actions.updateRoom(room.id, { name: next }))
   }
   const subtitle = bot ? bot.role : roomSubtitle(room, roster)
-  // Tab sets: a 1:1 Bot has Details and Browser; a group has Details.
+  // Tab sets: a 1:1 Bot has Details and Browser; a group has only Details, so no tab row.
   const tabs = bot ? ['details', 'browser'] : ['details']
   return [h(Fragment, { key: 'top' }, top),
     h('div', { key: 'id', className: 'bt-drawer-id', 'data-move': side },
       bot ? h(BotAvatar, { bot, size: 64, state: botState(running, doing, roster.questions?.[part] !== undefined), main: isMainBot, badge: false, gaze: true, pokeable: true })
-        : h(RoomAvatar, { room, roster, size: 64 }),
+        : h(MemberPile, { room, roster }),
       editing
         ? h('input', {
             className: 'bt-drawer-name-input', autoFocus: true, value: draftName, 'aria-label': bot ? t('Bot name') : t('Group name'),
@@ -222,9 +231,9 @@ export function DetailsDrawer({ sessionId, startRenaming, startTab, hasStrip, ro
           })
         : h('button', { type: 'button', className: 'bt-drawer-name', 'aria-label': t('Rename {name}', { name: current }), title: t('Rename'), onClick: () => { setDraftName(room && !room.named ? '' : current); setEditing(true) } }, current),
       subtitle ? h('span', { className: 'bt-drawer-role' }, subtitle) : null),
-    h('div', { key: 'tabs', ref: glide.box, className: 'bt-tabs', role: 'tablist', 'data-move': side },
+    tabs.length > 1 ? h('div', { key: 'tabs', ref: glide.box, className: 'bt-tabs', role: 'tablist', 'data-move': side },
       h('span', { ref: glide.thumb, className: 'bt-thumb', 'aria-hidden': true }),
-      tabs.map(key => h('button', { key, type: 'button', role: 'tab', className: 'bt-tab', 'aria-selected': tab === key, onClick: () => setTab(key) }, t(TAB_LABELS[key])))),
+      tabs.map(key => h('button', { key, type: 'button', role: 'tab', className: 'bt-tab', 'aria-selected': tab === key, onClick: () => setTab(key) }, t(TAB_LABELS[key])))) : null,
     h('div', { key: `body:${tab}`, className: 'bt-drawer-body', 'data-move': move },
       errorLine,
       room && tab === 'details' ? h(GroupOverview, { room, roster, actions, usage, useWork, openSettings: () => setView('settings') }) : null,

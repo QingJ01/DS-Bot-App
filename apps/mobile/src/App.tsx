@@ -54,6 +54,7 @@ import {
   useI18n,
 } from "./i18n";
 import { conversationTime, orderConversations } from "./logic/conversation-order";
+import { groupWorkMembers, ownBotWork, workDescription } from "./logic/group-work";
 type Route =
   | {
       page: "home";
@@ -339,6 +340,8 @@ function Shell() {
     const active = item.id === conversation?.id;
     const lastActivity = conversationTime(item, previews[item.id]);
     const needsApproval = workspace.team.work?.approvals.some(entry => bot ? entry.botId === bot.id && !entry.roomId : room ? entry.roomId === room.id : false);
+    const work = bot ? ownBotWork(bot.id, workspace.team) : room ? groupWorkMembers(room, workspace.team).find(member => member.work)?.work : undefined;
+    const workPreview = needsApproval ? tr("Waiting for approval") : work?.switching ? tr("Moving to a fresh conversation") : workDescription(work) || (work ? tr("Working") : "");
       return (
       <Pressable
         key={item.id}
@@ -384,7 +387,7 @@ function Shell() {
             {needsApproval ? " · " + tr("Waiting for approval") : ""}
           </Text>
           <Text numberOfLines={1} style={{fontSize:17,lineHeight:24,color:t.muted}}>
-            {previews[item.id]?.text.replace(/\s+/g," ").trim() || (previews[item.id]?.attachments?.length ? tr("Attachment message") : "") || (typeof item.preview === "string" && item.preview) ||
+            {workPreview || previews[item.id]?.text.replace(/\s+/g," ").trim() || (previews[item.id]?.attachments?.length ? tr("Attachment message") : "") || (typeof item.preview === "string" && item.preview) ||
               (item.waiting ? tr("Waiting for your answer") : bot?.role || (room ? room.members.map(id => workspace.team.bots.find(b => b.id === id)?.name || id).join(" · ") : tr("DSH Agent")))}
           </Text>
         </View>
