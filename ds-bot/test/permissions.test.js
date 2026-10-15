@@ -69,3 +69,43 @@ test('a preset the Bot\'s own chat refuses is not kept', async () => {
   await assert.rejects(rt.setPermission(bot, 'danger-full-access'), /rejected/)
   assert.equal(bot.permission, 'workspace-write')
 })
+
+test('group permission resolution fails before changing any member and can be retried', async () => {
+  const { rt, writes } = runtime()
+  const room = { permission: 'danger-full-access', sessions: { a: 'a-group', b: 'b-group' } }
+  rt.botOf = id => ({ id, name: id })
+  let failing = true
+  rt.resolveAgent = async session => {
+    if (session === 'b-group' && failing) throw new Error('Session unavailable')
+    return { session }
+  }
+  await assert.rejects(rt.setRoomPermission(room, 'workspace-write'), /Session unavailable/)
+  assert.equal(room.permission, 'danger-full-access')
+  assert.deepEqual(writes, [])
+  failing = false
+  assert.equal(await rt.setRoomPermission(room, 'workspace-write'), true)
+  assert.equal(room.permission, 'workspace-write')
+  assert.deepEqual(writes, ['a-group=workspace-write', 'b-group=workspace-write'])
+})
+
+test('partial group permission writes report failure and even the saved preset can be reapplied', async () => {
+  const { rt } = runtime()
+  const room = { permission: 'danger-full-access', sessions: { a: 'a-group', b: 'b-group' } }
+  rt.botOf = id => ({ id, name: id, permission: 'workspace-write' })
+  const applied = { 'a-group': 'danger-full-access', 'b-group': 'danger-full-access' }
+  let failing = true
+  rt.ctx.get('permissionPresets').set = async (session, name) => {
+    if (session === 'b-group' && failing) throw new Error('write failed')
+    applied[session] = name
+  }
+  await assert.rejects(rt.setRoomPermission(room, null), /Some members may already have changed/)
+  assert.equal(room.permission, 'danger-full-access')
+  assert.equal(applied['a-group'], 'workspace-write')
+  assert.equal(applied['b-group'], 'danger-full-access')
+  failing = false
+  assert.equal(await rt.setRoomPermission(room, 'danger-full-access'), false)
+  assert.deepEqual(applied, { 'a-group': 'danger-full-access', 'b-group': 'danger-full-access' })
+  assert.equal(await rt.setRoomPermission(room, null), true)
+  assert.equal(room.permission, undefined)
+  assert.deepEqual(applied, { 'a-group': 'workspace-write', 'b-group': 'workspace-write' })
+})

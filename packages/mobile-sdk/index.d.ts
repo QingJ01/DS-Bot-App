@@ -25,6 +25,7 @@ export interface Attachment {
   [key: string]: unknown;
 }
 export interface Message {
+  groupReplyId?: string;
   id: string;
   sessionId: string;
   seq: number;

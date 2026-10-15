@@ -91,6 +91,7 @@ export function projectEvent(event, { sessionId, kind = 'bot', hiddenTurns = [],
       const text = event ? event.replace('{name}', name) : typeof reply.text === 'string' ? visible(reply.text) : ''
       if (!text) return []
       return [{ ...base, id: `${base.id}:reply:${index}`, role: reply.kind ? 'system' : 'assistant', text,
+        groupReplyId: `${callId}:${index}`,
         ...(event ? { systemEvent: { kind: reply.kind, name } } : {}),
         createdAt: reply.time ?? base.createdAt, author: { id: typeof reply.botId === 'string' ? reply.botId : '', name } }]
     })

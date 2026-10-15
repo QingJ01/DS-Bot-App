@@ -60,20 +60,27 @@ export function install(rt) {
   // group's preset when its first turn there makes one. Returns whether it changed.
   async function setRoomPermission(room, name) {
     const wanted = cleanRoomPermission(name) ?? undefined
-    if (wanted === room.permission) return false
-    if (wanted === undefined) delete room.permission
-    else room.permission = wanted
+    const changed = wanted !== room.permission
     const service = presets()
-    if (service === undefined) return true
+    if (service === undefined) throw new Error('Permissions are not available in this DeepSeek Harness')
+    const members = []
     for (const [botId, sessionId] of Object.entries(room.sessions ?? {})) {
       const bot = rt.botOf(botId)
       if (bot === undefined) continue
-      // A member without a preset of its own goes back to the default its Session started on.
       const next = wanted ?? bot.permission ?? service.catalog().defaultPreset
-      await setPreset(sessionId, next)
-        .catch(error => rt.warn('ds-bot: permission for %s in %s not applied: %s', bot.name, room.name, error))
+      service.resolve(next)
+      const agent = await rt.resolveAgent(sessionId)
+      members.push({ bot, session: agent.session, next })
     }
-    return true
+    // Resolve every Session first. Do not roll back already applied restrictions if a
+    // later write fails; leave the setting uncommitted and allow any preset to retry.
+    for (const { bot, session, next } of members) {
+      try { await service.set(session, next) }
+      catch (cause) { throw new Error(`Could not apply group permissions to ${bot.name}. Some members may already have changed; retry the permission setting.`, { cause }) }
+    }
+    if (wanted === undefined) delete room.permission
+    else room.permission = wanted
+    return changed
   }
 
   Object.assign(rt, { permissionCatalog, applyPermission, setPermission, cleanRoomPermission, setRoomPermission })
