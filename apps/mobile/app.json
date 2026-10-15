@@ -2,7 +2,7 @@
   "expo": {
     "name": "DS Bot",
     "slug": "ds-bot-mobile",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "orientation": "portrait",
     "scheme": "dsbot",
     "userInterfaceStyle": "automatic",
