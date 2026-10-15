@@ -107,6 +107,22 @@ class GitHubInstallationTests(unittest.TestCase):
         self.pnpm("add", INSTALL["spec"])
         self.assert_installed()
 
+    def test_named_updater_spec_replaces_a_broken_tarball_without_resolving_it(self):
+        self.pnpm("add", INSTALL["spec"])
+        manifest_path = self.profile / "package.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        broken = "https://127.0.0.1:1/ds-bot-legacy.tgz"
+        manifest["dependencies"]["ds-bot"] = broken
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        lock_path = self.profile / "pnpm-lock.yaml"
+        lock = lock_path.read_text(encoding="utf-8")
+        lock_path.write_text(lock.replace(INSTALL["spec"], broken), encoding="utf-8")
+        self.pnpm("add", "ds-bot@" + INSTALL["spec"])
+        self.assert_installed()
+        self.assertNotIn(broken, lock_path.read_text(encoding="utf-8"))
+        self.pnpm("install", "--frozen-lockfile")
+        self.assert_installed()
+
     def test_no_git_or_build_approval_is_required(self):
         node = shutil.which("node")
         self.assertIsNotNone(node)

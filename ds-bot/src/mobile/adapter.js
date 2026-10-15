@@ -39,7 +39,7 @@ const ACTIONS = {
   diagnostics: ['client', 'clientErrors'], 'diagnostics-log': [], 'diagnostics-clear': [],
   'settings-describe': [], 'settings-update': ['ns', 'patch', 'expectedRevision'], 'settings-mutate': ['ns', 'ops', 'expectedRevision'],
   'credentials-describe': ['refs'], 'credentials-set': ['ref', 'value'], 'credentials-unset': ['ref'],
-  'update-check': ['fresh'], 'update-install': [], 'dsh-update-install': [], 'repo-stars': [],
+  'update-check': ['fresh'], 'update-install': ['targetId', 'repair'], 'dsh-update-install': [], 'repo-stars': [],
   approvals: [], 'approval-resolve': ['id', 'decision'],
   ...MANAGEMENT_ACTIONS,
 }

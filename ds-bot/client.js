@@ -42,6 +42,32 @@ module.exports = __toCommonJS(index_exports);
 // src/client/i18n.js
 var NAMESPACE = "ds-bot";
 var ZH = {
+  "Plugin updates": "插件更新",
+  "Installed version": "已安装版本",
+  "Repair installation": "修复安装",
+  "Reinstall release": "重新安装发布版",
+  "Reload window": "重新加载窗口",
+  "Update installed. Reload this window.": "更新已安装，请重新加载此窗口。",
+  "Updates come from this project’s releases. Your team and conversations are kept.": "更新来自本项目的正式发布，保留你的团队和对话。",
+  "Reinstall the latest release without removing your team or conversations.": "重新安装最新发布版，保留团队和对话。",
+  "Reinstall DS Bot {version} from the latest release?": "重新安装 DS Bot {version} 发布版？",
+  "Restart Harness on your computer to finish the plugin update.": "请在电脑上重启 Harness，以完成插件更新。",
+  "Plugin update installed. Reconnect if the host connection closed.": "插件更新已安装；如果与主机的连接断开，请重新连接。",
+  "The installation source changed. Check for updates again.": "安装来源已改变，请重新检查更新。",
+  "The available update changed. Check for updates again.": "可用更新已改变，请重新检查更新。",
+  "The release is incomplete or its source could not be verified. Try checking again later.": "发布尚不完整或源码验证失败，请稍后重新检查。",
+  "The installed version does not match the checked release. Open Harness Plugins to inspect it.": "实际安装版本与检查到的发布版不一致，请打开 Harness 插件页查看。",
+  "Package verification failed. Retry the update; if it still fails, open Harness Plugins for installation details.": "安装包校验失败，请重试更新；如果仍失败，请在 Harness 插件页查看安装详情。",
+  "GitHub limited update requests. Wait a few minutes and check again.": "GitHub 暂时限制更新请求，请几分钟后重试。",
+  "Harness requires build approval. Review it in Harness Plugins, then retry the update.": "Harness 需要批准构建脚本，请在插件页审核后重试更新。",
+  "This release needs a different Harness version. Open Harness Plugins for compatibility details.": "此版本与当前 Harness 不兼容，请在插件页查看兼容性说明。",
+  "There is not enough disk space. Free some space and retry the update.": "磁盘空间不足，请释放空间后重试更新。",
+  "Harness could not write the update. Close programs locking the plugin files and retry.": "Harness 无法写入更新，请关闭占用插件文件的程序后重试。",
+  "The update request timed out. Check the connection and retry.": "更新请求超时，请检查网络后重试。",
+  "The update could not finish. Check the connection or open Harness Plugins for installation details.": "更新未能完成，请检查网络，或在 Harness 插件页查看安装详情。",
+  "Update this development checkout using Git.": "这是开发目录，请使用 Git 更新。",
+  "This installation uses a custom source. Update it through Harness Plugins.": "此安装使用自定义来源，请通过 Harness 插件页更新。",
+  "The DSH plugin manager is not available in this profile": "当前配置无法使用 DSH 插件管理器",
   "Mobile access could not start. Check its port, HTTPS settings, and the Bot team lock.": "无法启动手机连接，请检查端口、HTTPS 设置及 Bot 团队锁定状态。",
   "Mobile connection setup is unavailable.": "当前主机无法设置手机连接。",
   "Enable phone connection on this computer first.": "请先在此电脑上启用手机连接。",
@@ -5263,13 +5289,13 @@ function UpdateButton({ useUpdate, actions }) {
   };
   const start = () => {
     setError("");
-    void actions.installUpdate().catch((failure) => setError(hostText(failure?.message ?? String(failure))));
+    void actions.installUpdate({ targetId: update.targetId }).catch((failure) => setError(hostText(failure?.message ?? String(failure))));
   };
   const startDsh = () => {
     setDshError("");
     void actions.installDshUpdate().catch((failure) => setDshError(hostText(failure?.message ?? String(failure))));
   };
-  const label = phase === "installing" ? t("Updating DS Bot…") : dshPhase === "installing" ? t("Updating DSH…") : phase === "installed" ? t("DS Bot {version} is installed. Restart DSH to use it.", { version: update.installed ?? update.latest }) : dshPhase === "installed" ? t("Restart DSH to start using DSH {version}.", { version: dsh.installed ?? dsh.verified }) : update?.available ? t("DS Bot {version} is available", { version: update.latest }) : t("DSH {version} is available", { version: dsh?.verified });
+  const label = phase === "installing" ? t("Updating DS Bot…") : dshPhase === "installing" ? t("Updating DSH…") : phase === "installed" ? update.restartRequired ? t("DS Bot {version} is installed. Restart DSH to use it.", { version: update.installed ?? update.latest }) : t("Update installed. Reload this window.") : dshPhase === "installed" ? t("Restart DSH to start using DSH {version}.", { version: dsh.installed ?? dsh.verified }) : update?.available ? t("DS Bot {version} is available", { version: update.latestRef ?? update.latest }) : t("DSH {version} is available", { version: dsh?.verified });
   const message = error || (phase === "failed" ? update.error : "");
   const dshMessage = dshError || (dshPhase === "failed" ? dsh?.error : "");
   const dshText = dshPhase === "installed" ? t("Restart DSH to start using DSH {version}.", { version: dsh.installed ?? dsh.verified }) : dsh?.available === false && dsh?.blockedBy ? t("Update DS Bot {version} first.", { version: dsh.blockedBy }) : t("You have {version}.", { version: dsh?.current });
@@ -5293,8 +5319,8 @@ function UpdateButton({ useUpdate, actions }) {
       update?.available || phase !== "idle" ? (0, import_react8.createElement)(
         import_react8.Fragment,
         null,
-        (0, import_react8.createElement)("div", { className: "bt-update-title" }, phase === "installed" ? t("Update installed") : t("DS Bot {version}", { version: update.latest })),
-        (0, import_react8.createElement)("div", { className: "bt-update-text" }, phase === "installed" ? t("Restart DSH to start using DS Bot {version}.", { version: update.installed ?? update.latest }) : t("You have {version}.", { version: update.current })),
+        (0, import_react8.createElement)("div", { className: "bt-update-title" }, phase === "installed" ? t("Update installed") : t("DS Bot {version}", { version: update.latestRef ?? update.latest })),
+        (0, import_react8.createElement)("div", { className: "bt-update-text" }, phase === "installed" ? update.restartRequired ? t("Restart DSH to start using DS Bot {version}.", { version: update.installed ?? update.latest }) : t("Update installed. Reload this window.") : t("You have {version}.", { version: update.current })),
         message ? (0, import_react8.createElement)("div", { className: "bt-update-error", role: "alert" }, t("The update did not finish: {reason}", { reason: message })) : null,
         (0, import_react8.createElement)(
           "div",
@@ -10647,9 +10673,11 @@ var CHEER_MS = 1800;
 var starCount = (count) => new Intl.NumberFormat(dateLocale(), { notation: "compact", maximumFractionDigits: 1 }).format(count);
 function botHint(update) {
   if (update.phase === "installing") return t("Updating DS Bot…");
-  if (update.phase === "installed") return t("Restart DSH to start using DS Bot {version}.", { version: update.installed ?? update.latest });
+  if (update.phase === "installed") return update.restartRequired ? t("Restart DSH to start using DS Bot {version}.", { version: update.installed ?? update.latest }) : t("Update installed. Reload this window.");
   if (update.phase === "failed") return t("The update did not finish: {reason}", { reason: hostText(update.error ?? "") });
-  if (update.available) return t("DS Bot {version} is available", { version: update.latest });
+  if (update.available) return t("DS Bot {version} is available", { version: update.latestRef ?? update.latest });
+  if (update.checkError) return hostText(update.checkError);
+  if (update.blockedReason) return hostText(update.blockedReason);
   if (update.enabled === false) return t("Update checks are off.");
   if (update.source === "path") return t("Installed from a local folder; update it there.");
   if (!update.checkedAt) return null;
@@ -10666,13 +10694,14 @@ function dshHint(dsh, shown) {
   return t("Version {version}", { version: dsh.current });
 }
 var linkProps = (href) => ({ className: "bt-soft bt-soft-sm bt-about-link", href, target: "_blank", rel: "noopener noreferrer" });
-function AboutPage({ useUpdate, actions, run, Section, Row: Row3 }) {
+function AboutPage({ useUpdate, actions, run, Section, Row: Row3, updatesOnly = false }) {
   const update = useUpdate((value) => value) ?? {};
   const [checking, setChecking] = (0, import_react28.useState)(false);
   const [stars, setStars] = (0, import_react28.useState)(null);
+  const [repair, setRepair] = (0, import_react28.useState)(null);
   (0, import_react28.useEffect)(() => {
     let live = true;
-    actions.repoStars().then((count) => {
+    if (!updatesOnly) actions.repoStars().then((count) => {
       if (live && Number.isInteger(count)) setStars(count);
     }, () => {
     });
@@ -10704,9 +10733,9 @@ function AboutPage({ useUpdate, actions, run, Section, Row: Row3 }) {
   const dshShown = dshNew && dsh.available;
   const botControl = phase === "installed" ? null : update.available || phase === "installing" ? (0, import_react28.createElement)(
     "button",
-    { type: "button", className: "bt-fb-primary", disabled: phase === "installing", onClick: () => run(actions.installUpdate()) },
+    { type: "button", className: "bt-fb-primary", disabled: phase === "installing", onClick: () => run(actions.installUpdate({ targetId: update.targetId })) },
     phase === "installing" ? t("Updating…") : phase === "failed" ? t("Try again") : t("Update")
-  ) : (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: checking || update.enabled === false, onClick: check }, checking ? t("Checking…") : t("Check for updates"));
+  ) : null;
   const dshControl = !dshNew || dshPhase === "installed" ? null : dsh.kind === "app" ? dsh.available ? (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => run(actions.openAppUpdates(dsh.verified)) }, t("Open updates")) : null : dsh.available || dshPhase !== "idle" ? (0, import_react28.createElement)(
     "button",
     { type: "button", className: "bt-fb-primary", disabled: dshPhase === "installing", onClick: () => run(actions.installDshUpdate()) },
@@ -10714,7 +10743,7 @@ function AboutPage({ useUpdate, actions, run, Section, Row: Row3 }) {
   ) : null;
   const repo = update.repoUrl;
   return [
-    (0, import_react28.createElement)(
+    updatesOnly ? null : (0, import_react28.createElement)(
       "div",
       { key: "hero", className: "bt-about-hero" },
       (0, import_react28.createElement)("span", { className: "bt-about-mark" }, (0, import_react28.createElement)(BotMark, { look: MAIN_LOOK, bot: { id: "about" }, size: 52, state: markState, live: true, gaze: true, pokeable: true })),
@@ -10738,14 +10767,37 @@ function AboutPage({ useUpdate, actions, run, Section, Row: Row3 }) {
         stars === null ? null : (0, import_react28.createElement)("span", { className: "bt-star-count" }, starCount(stars))
       ) : null
     ),
-    repo ? (0, import_react28.createElement)("p", { key: "ask", className: "bt-about-ask" }, t("If DS Bot helps you, a star on GitHub helps more people find it.")) : null,
+    repo && !updatesOnly ? (0, import_react28.createElement)("p", { key: "ask", className: "bt-about-ask" }, t("If DS Bot helps you, a star on GitHub helps more people find it.")) : null,
     (0, import_react28.createElement)(
       Section,
       { key: "updates", title: t("Updates") },
+      (0, import_react28.createElement)("p", { className: "bt-note" }, t("Updates come from this project’s releases. Your team and conversations are kept.")),
+      (0, import_react28.createElement)(
+        Row3,
+        { label: t("Installed version"), hint: `${update.current ?? ""}${update.currentRevision ? ` · r${update.currentRevision}` : ""}` },
+        update.phase !== "installing" && update.phase !== "installed" ? (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", disabled: checking || update.enabled === false, onClick: check }, checking ? t("Checking…") : t("Check for updates")) : null
+      ),
       (0, import_react28.createElement)(Row3, { label: "DS Bot", hint: botHint(update) }, botControl, update.available && update.notesUrl ? (0, import_react28.createElement)("a", linkProps(update.notesUrl), t("What's new")) : null),
+      update.canRepair && !update.available && phase !== "installed" && phase !== "installing" ? (0, import_react28.createElement)(
+        Row3,
+        { label: t("Repair installation"), hint: t("Reinstall the latest release without removing your team or conversations.") },
+        (0, import_react28.createElement)("button", { type: "button", className: "bt-soft bt-soft-sm", onClick: () => setRepair({ id: update.targetId, label: update.latestRef ?? update.latest }) }, t("Repair installation"))
+      ) : null,
+      repair ? (0, import_react28.createElement)(
+        "div",
+        { role: "group", "aria-label": t("Repair installation") },
+        (0, import_react28.createElement)("p", { className: "bt-note" }, t("Reinstall DS Bot {version} from the latest release?", { version: repair.label })),
+        (0, import_react28.createElement)("button", { type: "button", className: "bt-fb-primary", disabled: phase === "installing", onClick: () => {
+          const chosen = repair;
+          setRepair(null);
+          void run(actions.installUpdate({ repair: true, targetId: chosen.id }));
+        } }, t("Reinstall release")),
+        (0, import_react28.createElement)("button", { type: "button", className: "bt-soft", onClick: () => setRepair(null) }, t("Cancel"))
+      ) : null,
+      phase === "installed" && !update.restartRequired ? (0, import_react28.createElement)("button", { type: "button", className: "bt-soft", onClick: () => window.location.reload() }, t("Reload window")) : null,
       dsh?.current ? (0, import_react28.createElement)(Row3, { label: "DeepSeek Harness", hint: dshHint(dsh, dshShown) }, dshControl) : null
     ),
-    (0, import_react28.createElement)(
+    updatesOnly ? null : (0, import_react28.createElement)(
       Section,
       { key: "links", title: t("Links") },
       repo ? (0, import_react28.createElement)(Row3, { label: t("Source code"), hint: repo.replace(/^https:\/\//, "") }, (0, import_react28.createElement)("a", linkProps(repo), (0, import_react28.createElement)(GitHubMark), t("Open"))) : null,
@@ -10978,7 +11030,7 @@ function MobileDevicesPage() {
 // src/client/settings.js
 var import_react30 = require("react");
 var capitalize2 = (word) => word[0].toUpperCase() + word.slice(1);
-var SETTINGS_PAGES = [["general", "General"], ["bots", "Bots"], ["groups", "Group chats"], ["mobile", "Mobile devices"], ["connectors", "Connectors"], ["capabilities", "Capabilities"], ["schedules", "Scheduled tasks"], ["usage", "Usage"], ["secrets", "Secrets"], ["feedback", "Feedback"], ["about", "About DS Bot"]];
+var SETTINGS_PAGES = [["general", "General"], ["bots", "Bots"], ["groups", "Group chats"], ["mobile", "Mobile devices"], ["connectors", "Connectors"], ["capabilities", "Capabilities"], ["schedules", "Scheduled tasks"], ["usage", "Usage"], ["secrets", "Secrets"], ["feedback", "Feedback"], ["updates", "Plugin updates"], ["about", "About DS Bot"]];
 var PAGE_ICONS = { ...SETTINGS_ICONS, mobile: PhoneIcon, connectors: ConnectorIcon, capabilities: PlugIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, about: InfoIcon };
 function SetSection({ title, children }) {
   return (0, import_react30.createElement)("section", { className: "bt-set-section" }, (0, import_react30.createElement)("h3", null, title), (0, import_react30.createElement)("div", { className: "bt-set-card" }, children));
@@ -11252,7 +11304,7 @@ function SettingsDialog({ page, id, roster, actions, useUpdate, leaving = false 
           shown === "schedules" ? (0, import_react30.createElement)(SchedulesPage, { roster, actions, start: id ?? void 0 }) : null,
           shown === "secrets" ? (0, import_react30.createElement)(SecretsPage, { roster, actions, run, Section: SetSection }) : null,
           shown === "feedback" ? (0, import_react30.createElement)(FeedbackPage, { actions, run, Section: SetSection, Row: SetRow }) : null,
-          shown === "about" ? (0, import_react30.createElement)(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow }) : null
+          shown === "about" || shown === "updates" ? (0, import_react30.createElement)(AboutPage, { useUpdate, actions, run, Section: SetSection, Row: SetRow, updatesOnly: shown === "updates" }) : null
         ),
         usageOpened ? (0, import_react30.createElement)(
           "div",
@@ -14593,8 +14645,8 @@ function apply(ctx) {
     return navigation ? () => navigation.openBundle(VOICE_BUNDLE) : null;
   };
   actions.seatAccount = (on) => ui2.set((state) => state.accountSeated === on ? state : { ...state, accountSeated: on });
-  actions.installUpdate = async () => {
-    const value = await call("update-install");
+  actions.installUpdate = async ({ repair = false, targetId = update.getSnapshot().targetId } = {}) => {
+    const value = await call("update-install", { targetId, repair });
     update.set((previous) => ({ ...previous, ...value }));
     wakeUpdate();
   };

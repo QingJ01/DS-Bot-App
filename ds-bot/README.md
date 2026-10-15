@@ -59,6 +59,8 @@ pnpm -s dsh --profile web --no-open
 
 The first time the team opens, the plugin creates a Main Bot called Chief.
 
+**Updates:** Settings → Plugin updates checks this fork's complete GitHub releases, including same-version revisions. Install directly through DSH's plugin manager; Repair installation reinstalls the latest release explicitly. Archive installations migrate to immutable source without deleting conversations or disabling integrity checks. See the [update guide](../docs/plugin-updates.md) ([中文](../docs/plugin-updates.zh.md)) for supported sources and recovery.
+
 **Upgrading from the legacy `dsh-bot` package**: earlier builds used the package name `dsh-bot`. Remove `dsh-bot` from the profile before you add `ds-bot`, because both use the plugin id `bot`. Your team, chats and secrets stay where they are (see [Data and backups](#data-and-backups)); saved browser settings, the theme and Bot colors move over the first time DS Bot opens.
 
 ## Configuration
@@ -76,8 +78,7 @@ Options go in the profile's `cordis.patch.yml`, under the `bot` entry. All of th
     memory: true                    # false turns memory off: no memory tools, section or panel
     memoryReview: true              # false leaves memory to the Bots' own remember calls
     diagnosticsFile: false          # keep the error log in memory only; default <home>/logs/diagnostics.jsonl
-    updateCheck: true               # look for a newer DS Bot when a window opens; default true
-    updateRegistry: https://registry.example/   # ask only this npm registry for updates
+    updateCheck: true               # check this fork's GitHub releases; default true
     github: false                   # hide the GitHub connector; default shown in Connectors
 ```
 

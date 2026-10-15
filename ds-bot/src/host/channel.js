@@ -298,7 +298,7 @@ export function install(rt) {
           return ok({ ...(await rt.updateCheck({ fresh })), dsh: (await rt.dshUpdateCheck?.({ fresh })) ?? null })
         }
         case 'update-install':
-          return ok(rt.updateStart())
+          return ok(rt.updateStart({ targetId: body.targetId, repair: body.repair === true }))
         case 'dsh-update-install':
           return ok(rt.dshUpdateStart?.())
         case 'repo-stars':

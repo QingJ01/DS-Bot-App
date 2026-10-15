@@ -67,6 +67,8 @@ iOS source is available; no IPA is currently provided. See the [iOS guide](docs/
 
 [Installation](docs/getting-started.md) · [Features and notifications](docs/mobile-features.zh.md) · [Remote access](docs/mobile-install.zh.md)
 
+Host plugin upgrades and repair: [Plugin updates](docs/plugin-updates.md).
+
 ## Development
 
 The App uses React Native and Expo, with a shared SDK connecting it to the DSH plugin.

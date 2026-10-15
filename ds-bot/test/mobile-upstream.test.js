@@ -45,6 +45,11 @@ test('mobile exposes thinking levels and permission presets and forwards only su
   await adapter.action('update-bot',{id:'a',effort:'low',permission:'workspace-write',untrusted:'drop'})
   assert.deepEqual(calls.find(([kind,endpoint])=>kind==='team'&&endpoint==='update-bot')[2],{id:'a',effort:'low',permission:'workspace-write'})
 })
+test('mobile update requests can select only a checked target and repair mode, never an arbitrary install source',async()=>{
+  const {adapter,calls}=fixture()
+  await adapter.action('update-install',{targetId:'verified-release:commit',repair:true,spec:'https://untrusted.invalid/plugin.tgz',registry:'https://untrusted.invalid'})
+  assert.deepEqual(calls.find(([kind,endpoint])=>kind==='team'&&endpoint==='update-install')[2],{targetId:'verified-release:commit',repair:true})
+})
 test('mobile group permissions use only the host presets and can restore individual permissions',async()=>{
   const {adapter,calls,view}=fixture()
   view.rooms[0].permission='workspace-write'

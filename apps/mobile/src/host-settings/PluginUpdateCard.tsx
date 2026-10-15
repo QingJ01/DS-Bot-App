@@ -14,11 +14,19 @@ interface Update {
   installed?: string | null;
   error?: string | null;
   notesUrl?: string;
+  latestRef?: string | null;
+  currentRevision?: number | null;
+  targetId?: string | null;
+  canRepair?: boolean;
+  restartRequired?: boolean;
+  checkError?: string | null;
+  blockedReason?: string | null;
 }
 export function PluginUpdateCard(props: PanelProps) {
   const action = usePanelAction(props);
   const [status, setStatus] = useState<Update | null>(null);
-  const [confirm, setConfirm] = useState<"bot"|"dsh"|null>(null);
+  const [confirm, setConfirm] = useState<"bot"|"repair"|"dsh"|null>(null);
+  const [chosenTarget, setChosenTarget] = useState<{id?: string | null; label: string}>({label:""});
   const [restartNotice, setRestartNotice] = useState(false);
   async function check(fresh = false) {
     setStatus(await props.client.action<Update>("update-check", { fresh }));
@@ -41,12 +49,14 @@ export function PluginUpdateCard(props: PanelProps) {
           "This updates the plugin installed in Harness. It does not update this mobile app.",
         )}
       </Label>
-      <Notice error text={action.error || status?.error || status?.dsh?.error} />
+      <Notice error text={action.error ? tr(action.error) : status?.error ? tr(status.error) : status?.checkError ? tr(status.checkError) : status?.dsh?.error || undefined} />
+      {status?.blockedReason && <Notice text={tr(status.blockedReason)}/>}
+      <Label muted>{tr("Updates come from this project’s releases. Your team and conversations are kept.")}</Label>
       {status && (
         <Label muted>
           {tr("Installed:")}
-          {status.current}
-          {status.latest ? tr(" · Latest: {p0}", { p0: String(status.latest) }) : ""}
+          {status.current}{status.currentRevision ? ` · r${status.currentRevision}` : ""}
+          {status.latest ? tr(" · Latest: {p0}", { p0: String(status.latestRef || status.latest) }) : ""}
         </Label>
       )}
       {status?.dsh?.current && <Label muted>{tr("Harness installed: {version}",{version:status.dsh.current})}{status.dsh.verified ? tr(" · Verified: {version}",{version:status.dsh.verified}) : ""}</Label>}
@@ -59,10 +69,10 @@ export function PluginUpdateCard(props: PanelProps) {
       )}
       {status?.phase === "installed" && (
         <Notice
-          text={tr("Installed {p0}. Reload Harness on the host if prompted.", { p0: String(status.installed || status.latest || tr("the update")) })}
+          text={status.restartRequired ? tr("Restart Harness on your computer to finish the plugin update.") : tr("Plugin update installed. Reconnect if the host connection closed.")}
         />
       )}
-      {restartNotice && (
+      {restartNotice && status?.phase !== "failed" && (
         <Notice
           text={tr(
             "If the host disconnects during the update, wait for Harness to restart and reconnect.",
@@ -98,17 +108,19 @@ export function PluginUpdateCard(props: PanelProps) {
       )}
       {status?.available && (
         <Button
-          title={tr("Update host plugin")}
+          title={tr(status.phase === "failed" ? "Try again" : "Update host plugin")}
           disabled={blocked}
-          onPress={() => setConfirm("bot")}
+          onPress={() => {setChosenTarget({id:status.targetId,label:status.latestRef || status.latest || ""});setConfirm("bot");}}
         />
       )}
+      {status?.canRepair && !status.available && status.phase !== "installed" && <Button title={tr("Repair installation")} secondary disabled={blocked}
+        onPress={()=>{setChosenTarget({id:status.targetId,label:status.latestRef || status.latest || ""});setConfirm("repair");}}/>}
       {status?.dsh?.available && status.dsh.kind === "npm" && <Button title={tr("Update Harness on host")} disabled={blocked} onPress={()=>setConfirm("dsh")}/>}
       {status?.dsh?.available && status.dsh.kind !== "npm" && <Notice text={tr("Use the Desktop app’s updater for the verified Harness version.")}/>}
       {confirm && (
         <>
           <Notice
-            text={confirm === "dsh" ? tr("Install Harness {version} on your host? The connection may restart.",{version:status?.dsh?.verified || ""}) : tr("Install DS Bot {p0} on your host? This may restart the plugin and interrupt the phone connection.", { p0: String(status?.latest || tr("the available update")) })}
+            text={confirm === "dsh" ? tr("Install Harness {version} on your host? The connection may restart.",{version:status?.dsh?.verified || ""}) : confirm === "repair" ? tr("Reinstall DS Bot {version} from the latest release?",{version:chosenTarget.label}) : tr("Install DS Bot {p0} on your host? This may restart the plugin and interrupt the phone connection.", { p0: chosenTarget.label })}
           />
           <Button
             title={tr("Install update")}
@@ -120,7 +132,7 @@ export function PluginUpdateCard(props: PanelProps) {
                 if(confirm === "dsh") {
                   const dsh=await props.client.action<HarnessUpdate>("dsh-update-install",{});
                   setStatus(previous=>previous ? {...previous,dsh} : previous);
-                } else setStatus(await props.client.action<Update>("update-install", {}));
+                } else setStatus(await props.client.action<Update>("update-install", {targetId:chosenTarget.id,repair:confirm === "repair"}));
               })
             }
           />

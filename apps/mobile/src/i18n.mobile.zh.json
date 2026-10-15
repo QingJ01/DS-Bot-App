@@ -1,4 +1,5 @@
 {
+  "Plugin updates": "插件更新",
   "Same for every member": "全员统一",
   "Replaces each member's own permissions in this group.": "在这个群里代替各成员自己的权限。",
   "Applies to this Bot’s own chat and new parts. Groups can override it with shared permissions.": "适用于这个 Bot 的个人对话和新分段。群聊可单独设置统一权限。",

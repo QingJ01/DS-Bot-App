@@ -13,6 +13,7 @@
 # same place in the main worktree). MOBILE_PORT enables the optional mobile bridge on
 # loopback only. MOBILE_WEB_ORIGIN allows one local Expo web preview origin.
 # PARITY_APPROVAL=1 loads the harmless, bench-only public approval test tool.
+# UPDATE_SMOKE=1 allows the isolated update smoke to replace its own test profile.
 # DSH_CLI selects an installed public dsh executable instead of the checkout runner.
 set -eu
 NAME=${1:?usage: bench.sh <name> <web-port> <mock-port> [start|stop|reset|status]}
@@ -115,6 +116,9 @@ write_overlay() {
   if [ "${PARITY_UI:-}" = 1 ]; then cat "$PLUGIN/dev/desktop-linux/onboarding.patch.yml" >> "$overlay"; fi
   if [ "${PARITY_APPROVAL:-}" = 1 ]; then
     printf -- '- insert:\n    - id: ds-bot-parity-approval-fixture\n      name: "%s/dev/parity-approval-fixture.mjs"\n      config: {bench: "%s"}\n' "$PLUGIN" "$NAME" >> "$overlay"
+  fi
+  if [ "${UPDATE_SMOKE:-}" = 1 ]; then
+    printf -- '- insert:\n    - id: ds-bot-update-smoke\n      name: "%s/dev/update-fixture.mjs"\n      config: {bench: "%s"}\n' "$PLUGIN" "$NAME" >> "$overlay"
   fi
   if [ "${PARITY_VOICE:-}" = 1 ]; then
     printf -- '- insert:\n    - id: ds-bot-parity-voice-fixture\n      name: "%s/dev/parity-voice-fixture.mjs"\n      config: {bench: "%s"}\n' "$PLUGIN" "$NAME" >> "$overlay"

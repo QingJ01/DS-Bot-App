@@ -1,287 +1,117 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'node:test'
-import { cleanVersion, install, newer, releaseRef, sourceOf } from '../src/host/update.js'
-
-const PKG = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
-const flush = async () => { for (let index = 0; index < 8; index += 1) await Promise.resolve() }
-const realFetch = globalThis.fetch
-afterEach(() => { globalThis.fetch = realFetch })
-
-// The update module alone, on a stub plugin manager and a scripted fetch.
-function start({ source, registries, answers = {}, result = { application: 'restart-required' }, config = {}, profileDir, installBundle }) {
-  const fetched = []
-  const installs = []
-  const warnings = []
-  globalThis.fetch = async (url) => {
-    fetched.push(url)
-    const answer = answers[url]
-    if (answer === undefined) return { ok: false, status: 404, json: async () => ({}) }
-    if (answer instanceof Error) throw answer
-    return { ok: true, status: 200, json: async () => answer }
-  }
-  const pluginManager = {
-    listBundles: async () => [{ name: 'other', source: 'other@^1.0.0' }, ...(source === undefined ? [] : [{ name: PKG.name, source }])],
-    registries: async () => registries ?? { registry: null, fallbackRegistries: ['https://registry.npmmirror.com/'], resolved: 'https://registry.npmjs.org/' },
-    installBundle: installBundle ?? (async (spec, options) => { installs.push([spec, options]); return typeof result === 'function' ? result() : result }),
-  }
-  const rt = {
-    ctx: { get: name => (name === 'pluginManager' ? pluginManager : name === 'profileContext' && profileDir ? { dir: profileDir } : undefined), effect() {} },
-    config,
-    warn: (...args) => warnings.push(args),
-  }
-  install(rt)
-  return { rt, fetched, installs, warnings }
+import { cleanVersion, install, newer, registryPlan, releaseRef, sourceOf, updateFailure } from '../src/host/update.js'
+const PKG=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8'))
+const API='https://api.github.com/repos/QingJ01/DS-Bot-App/',SHA='b'.repeat(40),OLD='a'.repeat(40)
+const spec=sha=>`github:QingJ01/DS-Bot-App#${sha}&path:ds-bot`
+const original=globalThis.fetch,dirs=[]
+afterEach(()=>{globalThis.fetch=original;for(const dir of dirs.splice(0))rmSync(dir,{recursive:true,force:true,maxRetries:5})})
+const flush=async()=>{for(let i=0;i<30;i++)await Promise.resolve()}
+function fixture({source=spec(OLD),version='9.0.0',revision=2,result={application:'restart-required',version},installBundle,config={},home}={}){
+ let current=source;const calls=[],fetched=[],warnings=[],ref=`v${version}${revision?`-r${revision}`:''}`
+ const manifest=`https://raw.githubusercontent.com/QingJ01/DS-Bot-App/${SHA}/ds-bot/package.json`
+ const answers={
+  [API+'releases/latest']:{tag_name:`v${version}`,assets:[`ds-bot-${version}${revision?`-r${revision}`:''}.tgz`,revision?`SHA256SUMS-r${revision}`:'SHA256SUMS'].map(name=>({name}))},
+  [API+'commits/'+ref]:{sha:SHA},[manifest]:{...PKG,version},
+  [API+`git/matching-refs/tags/v${PKG.version}`]:[{ref:`refs/tags/v${PKG.version}`,object:{type:'commit',sha:OLD}}],
+ }
+ globalThis.fetch=async url=>{fetched.push(url);const value=answers[url];if(value instanceof Error)throw value;return{ok:value!==undefined,status:value===undefined?404:200,json:async()=>value}}
+ const manager={listBundles:async()=>[{name:PKG.name,source:current}],installBundle:installBundle??(async(...args)=>{calls.push(args);return result})}
+ const rt={home,ctx:{get:key=>key==='pluginManager'?manager:undefined,effect(){}},config,warn:(...args)=>warnings.push(args)}
+ install(rt);return{rt,manager,answers,manifest,calls,fetched,warnings,setSource:value=>{current=value}}
 }
-
-test('versions compare in semver order and lose their v and build metadata', () => {
-  assert.equal(cleanVersion('v1.2.3+build.5'), '1.2.3')
-  assert.equal(cleanVersion('latest'), null)
-  assert.equal(newer('0.2.0', '0.1.9'), true)
-  assert.equal(newer('0.10.0', '0.9.0'), true)
-  assert.equal(newer('1.0.0', '1.0.0'), false)
-  assert.equal(newer('1.0.0', '1.0.0-beta.2'), true)
-  assert.equal(newer('1.0.0-beta.10', '1.0.0-beta.2'), true)
-  assert.equal(newer('0.1.0', '0.2.0'), false)
+test('semver helpers preserve numeric and prerelease ordering',()=>{
+ assert.equal(cleanVersion('v1.2.3+build.5'),'1.2.3');assert.equal(cleanVersion('main'),null)
+ for(const[a,b,result]of[['0.10.0','0.9.0',true],['1.0.0','1.0.0-beta.2',true],['1.0.0-beta.10','1.0.0-beta.2',true],['0.1.0','0.2.0',false]])assert.equal(newer(a,b),result)
 })
-
-test('the install source decides where a newer version is looked for', () => {
-  assert.deepEqual(sourceOf('ds-bot@^0.1.0'), { kind: 'registry' })
-  assert.deepEqual(sourceOf('@scope/ds-bot@latest'), { kind: 'registry' })
-  // A profile's own dependency entry says the same without the package name.
-  assert.deepEqual(sourceOf('^0.1.0'), { kind: 'registry' })
-  assert.deepEqual(sourceOf('npm:ds-bot@^0.1.0'), { kind: 'registry' })
-  assert.deepEqual(sourceOf('link:E:/项目库/My Bots/ds-bot'), { kind: 'path' })
-  assert.deepEqual(sourceOf('/home/user/ds-bot'), { kind: 'path' })
-  assert.deepEqual(sourceOf('github:Fei2411/DeepSeek-Bot#v0.1.0&path:/ds-bot'),
-    { kind: 'git', owner: 'Fei2411', repo: 'DeepSeek-Bot', ref: 'v0.1.0', rest: ['path:/ds-bot'] })
-  assert.deepEqual(sourceOf('git+https://github.com/Fei2411/DeepSeek-Bot.git#main'),
-    { kind: 'git', owner: 'Fei2411', repo: 'DeepSeek-Bot', rest: [] })
-  assert.deepEqual(sourceOf('https://example.com/ds-bot-0.1.0.tgz'), { kind: 'tarball' })
-  assert.deepEqual(sourceOf(undefined), { kind: 'unknown' })
+test('archive sources and named GitHub aliases are distinct from development links',()=>{
+ for(const value of ['file:C:\\Downloads\\ds-bot.tgz','https://host/a.tgz','/tmp/a.tgz'])assert.equal(sourceOf(value).kind,'tarball')
+ for(const value of ['link:/work/a','link:/work/a.tgz','file:/work/a'])assert.equal(sourceOf(value).kind,'path')
+ assert.deepEqual(sourceOf('ds-bot@'+spec(SHA)),sourceOf(spec(SHA)))
 })
-
-test('a registry install finds the newest version on the next registry and installs it from there', async () => {
-  const { rt, fetched, installs } = start({
-    source: `${PKG.name}@^${PKG.version}`,
-    answers: {
-      [`https://registry.npmjs.org/${PKG.name}/latest`]: new Error('offline'),
-      [`https://registry.npmmirror.com/${PKG.name}/latest`]: { version: '9.0.0' },
-    },
-    result: { application: 'restart-required', version: '9.0.0' },
-  })
-  const view = await rt.updateCheck()
-  assert.deepEqual(fetched, [`https://registry.npmjs.org/${PKG.name}/latest`, `https://registry.npmmirror.com/${PKG.name}/latest`])
-  assert.equal(view.available, true)
-  assert.equal(view.latest, '9.0.0')
-  assert.equal(view.current, PKG.version)
-  assert.equal(view.source, 'registry')
-  assert.equal(view.notesUrl, 'https://github.com/QingJ01/DS-Bot-App/releases')
-  assert.equal(rt.updateStart().phase, 'installing')
-  await flush()
-  assert.deepEqual(installs, [[`${PKG.name}@9.0.0`, { registry: 'https://registry.npmmirror.com/' }]])
-  const done = await rt.updateCheck()
-  assert.equal(done.phase, 'installed')
-  assert.equal(done.installed, '9.0.0')
-  assert.equal(done.available, false)
+test('registry planning remains compatible with the separate DSH updater',async()=>{
+ assert.deepEqual(await registryPlan({updateRegistry:'https://private.example'},{}),['https://private.example/'])
 })
-
-test('a private registry of pnpm\'s own is asked alone, and an answer stands for a while', async () => {
-  const { rt, fetched } = start({
-    source: `${PKG.name}@^${PKG.version}`,
-    registries: { registry: null, fallbackRegistries: ['https://registry.npmmirror.com/'], resolved: 'https://npm.corp.example/' },
-    answers: { [`https://npm.corp.example/${PKG.name}/latest`]: { version: PKG.version } },
-  })
-  const view = await rt.updateCheck()
-  assert.equal(view.available, false)
-  assert.deepEqual(fetched, [`https://npm.corp.example/${PKG.name}/latest`])
-  await rt.updateCheck()
-  assert.equal(fetched.length, 1)
-  await rt.updateCheck({ fresh: true })
-  assert.equal(fetched.length, 2)
+test('release installation forms migrate to an explicitly named immutable source in this fork',async()=>{
+ for(const source of [spec(OLD),'ds-bot@^0.1.0','file:C:\\Downloads\\ds-bot-0.1.0.tgz','https://host/ds-bot.tgz','github:QingJ01/DeepSeek-Bot#v0.1.0&path:/ds-bot']){
+  const f=fixture({source}),view=await f.rt.updateCheck();assert.equal(view.available,true,source)
+  f.rt.updateStart({targetId:view.targetId});await flush();assert.deepEqual(f.calls,[[`ds-bot@${spec(SHA)}`,{enabled:true}]])
+  assert.equal(f.rt.updateView().phase,'installed');assert.equal(f.rt.updateView().restartRequired,true)
+  assert.ok(f.fetched.every(url=>!url.includes('registry.npm')))
+ }
 })
-
-test('a versioned GitHub install follows the latest release tag and keeps its path', async () => {
-  const { rt, installs } = start({
-    source: 'github:Fei2411/DeepSeek-Bot#v0.1.0&path:/ds-bot',
-    answers: { 'https://api.github.com/repos/Fei2411/DeepSeek-Bot/releases/latest': { tag_name: 'v9.1.0' } },
-  })
-  const view = await rt.updateCheck()
-  assert.equal(view.available, true)
-  assert.equal(view.latest, '9.1.0')
-  rt.updateStart()
-  await flush()
-  assert.deepEqual(installs, [['github:Fei2411/DeepSeek-Bot#v9.1.0&path:/ds-bot', {}]])
+test('same-version revisions are offered from the installed tag identity',async()=>{
+ const f=fixture({version:PKG.version,revision:3}),view=await f.rt.updateCheck()
+ assert.equal(view.currentRevision,0);assert.equal(view.latestRevision,3);assert.equal(view.available,true)
+ const archive=fixture({version:PKG.version,revision:3,source:`file:C:\\Downloads\\ds-bot-${PKG.version}-r2.tgz`})
+ assert.equal((await archive.rt.updateCheck()).currentRevision,2)
 })
-
-test('a versioned GitHub install follows the release to the repository\'s current address', async () => {
-  const { rt, installs } = start({
-    source: 'github:old-owner/DeepSeek-Bot#v0.1.0&path:/ds-bot',
-    answers: {
-      'https://api.github.com/repos/old-owner/DeepSeek-Bot/releases/latest': {
-        tag_name: 'v9.1.0',
-        html_url: 'https://github.com/Fei2411/DeepSeek-Bot/releases/tag/v9.1.0',
-      },
-    },
-  })
-  const view = await rt.updateCheck()
-  assert.equal(view.available, true)
-  assert.equal(view.latest, '9.1.0')
-  rt.updateStart()
-  await flush()
-  assert.deepEqual(installs, [['github:Fei2411/DeepSeek-Bot#v9.1.0&path:/ds-bot', {}]])
+test('current releases require explicit repair; unknown commits are not silently replaced',async()=>{
+ for(const source of [spec(SHA),spec('c'.repeat(40))]){
+  const f=fixture({source,version:PKG.version}),view=await f.rt.updateCheck();assert.equal(view.available,false);assert.equal(view.canRepair,true)
+  assert.throws(()=>f.rt.updateStart(),/No DS Bot update/);f.rt.updateStart({repair:true});await flush();assert.equal(f.calls.length,1)
+ }
+ const f=fixture({version:'0.0.1'}),view=await f.rt.updateCheck();assert.equal(view.available,false);assert.equal(view.canRepair,false)
+ const newerRevision=fixture({version:PKG.version,revision:2,source:`file:/tmp/ds-bot-${PKG.version}-r3.tgz`})
+ assert.equal((await newerRevision.rt.updateCheck()).canRepair,false)
 })
-
-test('a linked checkout, an unversioned git install, or a disabled check never asks the network', async () => {
-  for (const source of [`link:/work/${PKG.name}`, 'github:Fei2411/DeepSeek-Bot#main', undefined]) {
-    const { rt, fetched } = start({ source })
-    const view = await rt.updateCheck()
-    assert.equal(view.available, false)
-    assert.deepEqual(fetched, [])
-    assert.throws(() => rt.updateStart(), /No DS Bot update/)
-  }
-  const { rt, fetched } = start({ source: `${PKG.name}@^${PKG.version}`, config: { updateCheck: false } })
-  assert.equal((await rt.updateCheck({ fresh: true })).available, false)
-  assert.deepEqual(fetched, [])
+test('development folders, custom forks and disabled checks never ask the network',async()=>{
+ for(const source of ['link:/work/a','file:/work/a','github:QingJ01/DS-Bot-App#main','github:other/project#v0.1.0',undefined]){
+  const f=fixture();f.setSource(source);assert.equal((await f.rt.updateCheck()).available,false);assert.deepEqual(f.fetched,[])
+ }
+ const f=fixture({config:{updateCheck:false}});await f.rt.updateCheck({fresh:true});assert.deepEqual(f.fetched,[])
 })
-
-test('the star count comes from the repository, is kept for an hour, and survives a failed answer', async () => {
-  const repo = 'https://api.github.com/repos/QingJ01/DS-Bot-App'
-  const answers = { [repo]: new Error('offline') }
-  const { rt, fetched } = start({ source: `${PKG.name}@^${PKG.version}`, answers })
-  assert.equal(rt.updateView().repoUrl, 'https://github.com/QingJ01/DS-Bot-App')
-  assert.equal(await rt.repoStars(), null)
-  answers[repo] = { stargazers_count: 42 }
-  assert.equal(await rt.repoStars(), 42)
-  answers[repo] = new Error('offline')
-  assert.equal(await rt.repoStars(), 42)
-  assert.deepEqual(fetched, [repo, repo])
+test('release validation rejects incomplete assets, moving commits, drafts and foreign manifests',async()=>{
+ for(const change of [f=>{f.answers[API+'releases/latest'].assets=[]},f=>{f.answers[API+'releases/latest'].draft=true},f=>{f.answers[API+'commits/v9.0.0-r2']={sha:'main'}},f=>{f.answers[f.manifest]={...PKG,version:'8.0.0'}},f=>{f.answers[f.manifest]={...PKG,version:'9.0.0',repository:'https://github.com/other/project'}}]){
+  const f=fixture();change(f);const view=await f.rt.updateCheck();assert.equal(view.available,false);assert.equal(view.checkErrorCode,'release-invalid');assert.equal(f.calls.length,0)
+ }
 })
-
-test('without a source from the plugin manager, the profile\'s own dependency entry decides', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-update-'))
-  writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: { [PKG.name]: `^${PKG.version}` } }))
-  const { rt } = start({
-    profileDir: dir,
-    answers: { [`https://registry.npmjs.org/${PKG.name}/latest`]: { version: '9.0.0' } },
-  })
-  const view = await rt.updateCheck()
-  assert.equal(view.source, 'registry')
-  assert.equal(view.available, true)
-  writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: { [PKG.name]: 'link:/work/ds-bot' } }))
-  assert.equal((await rt.updateCheck({ fresh: true })).source, 'path')
-  rmSync(dir, { recursive: true, force: true, maxRetries: 5 })
+test('concurrent checks share one lookup and network failures clear a stale offer',async()=>{
+ const f=fixture(),views=await Promise.all([f.rt.updateCheck(),f.rt.updateCheck(),f.rt.updateCheck({fresh:true})])
+ assert.ok(views.every(view=>view.available));assert.equal(f.fetched.filter(url=>url.endsWith('releases/latest')).length,1)
+ f.answers[API+'releases/latest']=Object.assign(Error('limited'),{status:403});const failed=await f.rt.updateCheck({fresh:true})
+ assert.equal(failed.available,false);assert.equal(failed.checkErrorCode,'rate-limit');assert.throws(()=>f.rt.updateStart(),/No DS Bot update/)
 })
-
-test('a check that finds nothing clears the version a check before it found', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-update-'))
-  const setSource = source => writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: { [PKG.name]: source } }))
-  setSource(`^${PKG.version}`)
-  const latest = `https://registry.npmjs.org/${PKG.name}/latest`
-  const answers = { [latest]: { version: '9.0.0' } }
-  const { rt } = start({ profileDir: dir, answers })
-  const offered = await rt.updateCheck()
-  assert.equal(offered.available, true)
-  assert.equal(offered.latest, '9.0.0')
-  // The profile now links a local checkout: the old registry offer must go.
-  setSource('link:/work/ds-bot')
-  const linked = await rt.updateCheck({ fresh: true })
-  assert.equal(linked.available, false)
-  assert.equal(linked.latest, null)
-  assert.throws(() => rt.updateStart(), /No DS Bot update/)
-  // Back on the registry with no copy answering: the offer stays cleared.
-  delete answers[latest]
-  setSource(`^${PKG.version}`)
-  const gone = await rt.updateCheck({ fresh: true })
-  assert.equal(gone.available, false)
-  assert.equal(gone.latest, null)
-  rmSync(dir, { recursive: true, force: true, maxRetries: 5 })
+test('stale UI targets and changed installation sources cannot replace a checkout',async()=>{
+ const f=fixture();await f.rt.updateCheck();assert.throws(()=>f.rt.updateStart({targetId:'stale'}),/available update changed/)
+ f.setSource('link:/work/a');f.rt.updateStart();await flush();assert.equal(f.rt.updateView().errorCode,'source-changed');assert.equal(f.calls.length,0)
 })
-
-test('a failed install reports why and can be tried again', async () => {
-  let attempt = 0
-  const { rt, installs } = start({
-    source: `${PKG.name}@^${PKG.version}`,
-    config: { updateRegistry: 'https://registry.example' },
-    answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
-    result: () => (++attempt === 1
-      ? { application: 'failed', error: { code: 'incompatible-version', diagnostic: 'needs a newer DSH' } }
-      : { application: 'restart-required', version: '9.0.0' }),
-  })
-  await rt.updateCheck()
-  rt.updateStart()
-  await flush()
-  const failed = await rt.updateCheck()
-  assert.equal(failed.phase, 'failed')
-  assert.equal(failed.error, 'needs a newer DSH')
-  assert.equal(failed.available, true)
-  rt.updateStart()
-  await flush()
-  assert.equal((await rt.updateCheck()).phase, 'installed')
-  assert.equal(installs.length, 2)
-  assert.deepEqual(installs[0][1], { registry: 'https://registry.example/' })
+test('duplicate clicks and checks during installation start exactly one operation',async()=>{
+ let done,count=0;const f=fixture({installBundle:()=>{count++;return new Promise(resolve=>{done=resolve})}})
+ await f.rt.updateCheck();f.rt.updateStart();f.rt.updateStart();await flush();assert.equal((await f.rt.updateCheck({fresh:true})).phase,'installing');assert.equal(count,1)
+ done({application:'applied',version:'9.0.0'});await flush();assert.equal(f.rt.updateView().restartRequired,false);assert.equal(f.rt.updateView().phase,'installed')
 })
-
-test('concurrent update checks all receive a status, sharing one lookup', async () => {
-  const { rt, fetched } = start({ source: `ds-bot@${PKG.version}`, answers: {
-    'https://registry.npmjs.org/ds-bot/latest': { version: '9.0.0' },
-  } })
-  const views = await Promise.all([rt.updateCheck(), rt.updateCheck(), rt.updateCheck({ fresh: true })])
-  for (const view of views) { assert.equal(view.latest, '9.0.0'); assert.equal(view.available, true) }
-  assert.equal(fetched.length, 1)
+test('integrity failures and synchronous errors remain retryable without weakening verification',async()=>{
+ let attempt=0;const f=fixture({installBundle:()=>{if(++attempt===1)throw Error('ERR_PNPM_MISSING_TARBALL_INTEGRITY');return{application:'restart-required',version:'9.0.0'}}})
+ await f.rt.updateCheck();f.rt.updateStart();await flush();assert.equal(f.rt.updateView().errorCode,'integrity')
+ f.rt.updateStart();await flush();assert.equal(f.rt.updateView().phase,'installed');assert.equal(attempt,2)
 })
-
-test('a synchronous plugin manager failure leaves the install retryable', async () => {
-  const { rt } = start({ source: `ds-bot@${PKG.version}`, answers: {
-    'https://registry.npmjs.org/ds-bot/latest': { version: '9.0.0' },
-  }, installBundle: () => { throw new Error('manager stopped') } })
-  await rt.updateCheck()
-  assert.equal(rt.updateStart().phase, 'installing')
-  await flush()
-  assert.equal(rt.updateView().phase, 'failed')
-  assert.equal(rt.updateView().error, 'manager stopped')
-  assert.equal(rt.updateStart().phase, 'installing')
-  await flush()
+test('compatibility, build approval and version mismatches cannot report success',async()=>{
+ for(const[result,code]of[[{application:'failed',error:{code:'incompatible-version'}},'incompatible-version'],[{application:'failed',pendingBuilds:['x']},'build-blocked'],[{application:'applied',version:'8.0.0'},'version-mismatch']]){
+  const f=fixture({result});await f.rt.updateCheck();f.rt.updateStart();await flush();assert.equal(f.rt.updateView().phase,'failed');assert.equal(f.rt.updateView().errorCode,code)
+ }
 })
-
-test('release source follows the highest complete revision, not the base tag', () => {
-  assert.equal(releaseRef({ tag_name: 'v9.0.0', assets: [
-    'ds-bot-9.0.0-r2.tgz', 'SHA256SUMS-r2', 'ds-bot-9.0.0-r10.tgz', 'SHA256SUMS-r10',
-    'ds-bot-9.0.0-r11.tgz', 'ds-bot-8.0.0-r12.tgz', 'SHA256SUMS-r12',
-  ].map(name => ({ name })) }), 'v9.0.0-r10')
+test('receipt records only immutable release identity after success',async()=>{
+ const home=mkdtempSync(join(tmpdir(),'ds-bot-update-'));dirs.push(home)
+ const f=fixture({home});await f.rt.updateCheck();f.rt.updateStart()
+ for(let i=0;i<50;i++){try{readFileSync(join(home,'update-receipt.json'));break}catch{}await new Promise(resolve=>setTimeout(resolve,10))}
+ const receipt=JSON.parse(readFileSync(join(home,'update-receipt.json'),'utf8'));assert.equal(receipt.spec,spec(SHA));assert.equal(receipt.ref,'v9.0.0-r2')
+ assert.deepEqual(Object.keys(receipt).sort(),['commit','installedAt','ref','spec','version'])
+ const reloaded=fixture({home,source:spec(SHA)})
+ const pending=await reloaded.rt.updateCheck()
+ assert.equal(pending.phase,'installed');assert.equal(pending.restartRequired,true);assert.equal(pending.available,false)
 })
-
-test('a pinned GitHub install upgrades to the immutable source of the released revision', async () => {
-  const source = 'github:QingJ01/DS-Bot-App#' + 'a'.repeat(40) + '&path:ds-bot'
-  assert.equal(sourceOf(source).ref, 'a'.repeat(40))
-  const { rt, installs } = start({ source, answers: {
-    'https://api.github.com/repos/QingJ01/DS-Bot-App/releases/latest': { tag_name: 'v9.0.0', assets: [{ name: 'ds-bot-9.0.0-r2.tgz' }, { name: 'SHA256SUMS-r2' }] },
-    'https://api.github.com/repos/QingJ01/DS-Bot-App/commits/v9.0.0-r2': { sha: 'b'.repeat(40) },
-  } })
-  assert.equal((await rt.updateCheck()).available, true)
-  rt.updateStart()
-  await flush()
-  assert.deepEqual(installs, [[`github:QingJ01/DS-Bot-App#${'b'.repeat(40)}&path:ds-bot`, {}]])
+test('failure hints describe recovery without exposing raw diagnostics',()=>{
+ for(const[cause,code]of[[{message:'ENOSPC'},'disk-full'],[{message:'EPERM'},'permission'],[{name:'TimeoutError'},'timeout'],[{message:'https://user:password@private.example/?token=hidden'},'network']]){
+  const value=updateFailure(cause);assert.equal(value.code,code);assert.ok(!value.message.includes('private.example'))
+ }
 })
-
-test('a pinned GitHub install on the current release reports it without resolving a commit', async () => {
-  const releaseUrl = 'https://api.github.com/repos/QingJ01/DS-Bot-App/releases/latest'
-  const { rt, fetched } = start({ source: `github:QingJ01/DS-Bot-App#${'a'.repeat(40)}&path:ds-bot`, answers: {
-    [releaseUrl]: { tag_name: `v${PKG.version}` },
-  } })
-  const view = await rt.updateCheck()
-  assert.equal(view.latest, PKG.version)
-  assert.equal(view.available, false)
-  assert.deepEqual(fetched, [releaseUrl])
+test('revision selection is numeric and requires matching checksums',()=>{
+ assert.equal(releaseRef({tag_name:'v9.0.0',assets:['ds-bot-9.0.0-r2.tgz','SHA256SUMS-r2','ds-bot-9.0.0-r10.tgz','SHA256SUMS-r10','ds-bot-9.0.0-r11.tgz'].map(name=>({name}))}),'v9.0.0-r10')
 })
-
-test('a missing immutable commit cannot fall back to a moving ref or tarball', async () => {
-  const { rt } = start({ source: `github:QingJ01/DS-Bot-App#${'a'.repeat(40)}&path:ds-bot`, answers: {
-    'https://api.github.com/repos/QingJ01/DS-Bot-App/releases/latest': { tag_name: 'v9.0.0' },
-    'https://api.github.com/repos/QingJ01/DS-Bot-App/commits/v9.0.0': { sha: 'main' },
-  } })
-  assert.equal((await rt.updateCheck()).available, false)
-  assert.throws(() => rt.updateStart(), /No DS Bot update/)
+test('star count remains lazy and cached',async()=>{
+ const f=fixture();f.answers[API.slice(0,-1)]={stargazers_count:42};assert.equal(await f.rt.repoStars(),42);assert.equal(await f.rt.repoStars(),42);assert.equal(f.fetched.length,1)
 })

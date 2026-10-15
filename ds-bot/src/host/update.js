@@ -1,8 +1,8 @@
-// Updates: compare this package's version with the newest release where it was
-// installed from (the npm registry, or a GitHub tag for a versioned git install)
-// and, when the user asks, reinstall it through DSH's plugin manager. A new version
-// runs from the next DSH start. A linked or local checkout is never offered one.
+// This fork updates from its own immutable GitHub release source through DSH's
+// public plugin manager. Development checkouts are never replaced.
 import { readFileSync } from 'node:fs'
+import { mkdir, rename, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
 const PKG = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
@@ -40,8 +40,10 @@ export function newer(a, b) {
  * `tarball`, or `unknown`.
  */
 export function sourceOf(spec) {
-  const text = typeof spec === 'string' ? spec.trim() : ''
+  const text = typeof spec === 'string' ? spec.trim().replace(/^ds-bot@(?=(?:github:|git\+|https?:|file:))/, '') : ''
   if (text === '') return { kind: 'unknown' }
+  if (/^link:/i.test(text)) return { kind: 'path' }
+  if (/\.(?:tgz|tar\.gz)(?:[?#].*)?$/i.test(text)) return { kind: 'tarball' }
   if (/^(link|file):/i.test(text) || /^([a-z]:[\\/]|[\\/]|~|\.)/i.test(text)) return { kind: 'path' }
   const github = /^(?:github:|git\+https:\/\/github\.com\/|https:\/\/github\.com\/|git@github\.com:)?([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:#(.*))?$/i.exec(text)
   const gitLike = /^(git\+|git:|git@|github:|gitlab:|bitbucket:)/i.test(text) || /\.git(#|$)/i.test(text)
@@ -63,8 +65,8 @@ const normalizeRegistry = url => `${String(url).trim().replace(/\/+$/, '')}/`
 export const encodeName = name => (name.startsWith('@') ? `@${encodeURIComponent(name.slice(1))}` : encodeURIComponent(name))
 
 export const fetchJson = async (url, headers = {}) => {
-  const response = await fetch(url, { headers: { accept: 'application/json', ...headers }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
-  if (!response.ok) throw new Error(`${url} answered ${response.status}`)
+  const response = await fetch(url, { cache: 'no-store', headers: { accept: 'application/json', ...headers }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+  if (!response.ok) throw Object.assign(new Error(`Update service answered ${response.status}`), { status: response.status })
   return response.json()
 }
 
@@ -124,28 +126,52 @@ export function releaseRef(release) {
 
 export const STARS_TTL_MS = 60 * 60_000
 
+const revisionOf = (ref, version) => ref === `v${version}` || ref === version ? 0
+  : ref?.startsWith(`v${version}-r`) && /^[1-9]\d*$/.test(ref.slice(`v${version}-r`.length)) ? Number(ref.slice(`v${version}-r`.length)) : null
+const slugOf = value => /github\.com[/:]([\w.-]+\/[\w.-]+?)(?:\.git)?$/i.exec(String(value?.url ?? value ?? ''))?.[1]
+const failure = (code, message) => Object.assign(new Error(message), { updateCode: code })
+const ownSource = source => {
+  const [owner, repo] = (repoSlug() ?? '').split('/')
+  return source.owner?.toLowerCase() === owner?.toLowerCase() && [repo, 'DS-Bot', 'DeepSeek-Bot'].some(name => name?.toLowerCase() === source.repo?.toLowerCase())
+}
+
+export function updateFailure(cause) {
+  const text = String(cause?.packageResult?.output ?? cause?.error?.diagnostic ?? cause?.message ?? '')
+  const code = cause?.updateCode ?? cause?.packageResult?.kind ?? cause?.error?.code
+  if (code === 'source-changed') return { code, message: 'The installation source changed. Check for updates again.' }
+  if (code === 'release-invalid') return { code, message: 'The release is incomplete or its source could not be verified. Try checking again later.' }
+  if (code === 'version-mismatch') return { code, message: 'The installed version does not match the checked release. Open Harness Plugins to inspect it.' }
+  if (/ERR_PNPM_(?:MISSING_TARBALL_INTEGRITY|TARBALL_INTEGRITY)|EINTEGRITY/.test(text) || code === 'integrity') return { code: 'integrity', message: 'Package verification failed. Retry the update; if it still fails, open Harness Plugins for installation details.' }
+  if (cause?.status === 403 || cause?.status === 429) return { code: 'rate-limit', message: 'GitHub limited update requests. Wait a few minutes and check again.' }
+  if (code === 'build-blocked' || cause?.pendingBuilds?.length) return { code: 'build-blocked', message: 'Harness requires build approval. Review it in Harness Plugins, then retry the update.' }
+  if (code === 'incompatible-version') return { code, message: 'This release needs a different Harness version. Open Harness Plugins for compatibility details.' }
+  if (code === 'disk-full' || /ENOSPC/.test(text)) return { code: 'disk-full', message: 'There is not enough disk space. Free some space and retry the update.' }
+  if (code === 'permission' || /EACCES|EPERM/.test(text)) return { code: 'permission', message: 'Harness could not write the update. Close programs locking the plugin files and retry.' }
+  if (code === 'timeout' || cause?.name === 'TimeoutError') return { code: 'timeout', message: 'The update request timed out. Check the connection and retry.' }
+  return { code: 'network', message: 'The update could not finish. Check the connection or open Harness Plugins for installation details.' }
+}
+
 export function install(rt) {
   const { ctx, config } = rt
   const enabled = config.updateCheck !== false
   const manager = () => ctx.get?.('pluginManager')
-
+  const receiptPath = typeof rt.home === 'string' ? join(rt.home, 'update-receipt.json') : null
+  let receipt
+  try { receipt = JSON.parse(readFileSync(receiptPath, 'utf8')) } catch { /* first install */ }
   const status = {
     name: PKG.name, current: PKG.version, latest: null, source: 'unknown', notesUrl: releasesUrl(),
-    checkedAt: 0, phase: 'idle', installed: null, error: null,
+    currentRevision: null, latestRevision: null, latestRef: null, checkedAt: 0, phase: 'idle',
+    installed: null, error: null, errorCode: null, checkError: null, checkErrorCode: null,
+    blockedReason: null, restartRequired: false, stage: null,
   }
-  // Where the newest version was found, and the spec that installs it.
   let target = null
   let checking = null
-
-  const view = () => ({
-    name: status.name, current: status.current, latest: status.latest, source: status.source, notesUrl: status.notesUrl,
-    repoUrl: repoUrl(), enabled,
-    checkedAt: status.checkedAt, phase: status.phase, installed: status.installed, error: status.error,
-    available: status.phase !== 'installed' && target !== null && status.latest !== null && newer(status.latest, status.current),
+  const view = () => ({ ...status, enabled, repoUrl: repoUrl(),
+    available: status.phase !== 'installed' && target?.upgrade === true,
+    canRepair: status.phase !== 'installed' && target?.repair === true,
+    targetId: target?.id ?? null,
   })
 
-  // Asked only while the About page is open, so a closed page never calls GitHub.
-  // A failed answer keeps the last count and is asked again next time.
   let stars = { count: null, at: 0 }
   let starring = null
   async function repoStars() {
@@ -153,70 +179,88 @@ export function install(rt) {
     if (repo === null) return null
     if (Date.now() - stars.at < STARS_TTL_MS) return stars.count
     starring ??= fetchJson(`https://api.github.com/repos/${repo}`, { 'user-agent': `${PKG.name}/${PKG.version}` })
-      .then((info) => { if (Number.isInteger(info?.stargazers_count)) stars = { count: info.stargazers_count, at: Date.now() } })
+      .then(info => { if (Number.isInteger(info?.stargazers_count)) stars = { count: info.stargazers_count, at: Date.now() } })
       .catch(error => rt.warn('ds-bot: star count failed: %s', error?.message ?? error))
       .finally(() => { starring = null })
     await starring
     return stars.count
   }
 
-  async function newestFromRegistry() {
-    for (const registry of await registryPlan(config, manager())) {
-      try {
-        const version = cleanVersion((await fetchJson(`${registry}${encodeName(PKG.name)}/latest`)).version)
-        if (version) return { version, spec: `${PKG.name}@${version}`, registry }
-      } catch { /* unreachable, or no copy there yet: ask the next one */ }
+  const github = path => fetchJson(`https://api.github.com/repos/${repoSlug()}/${path}`, { 'user-agent': `${PKG.name}/${PKG.version}` })
+  async function currentRevision(source, spec, latest) {
+    if (source.ref === latest.commit) return latest.revision
+    if (receipt?.version === PKG.version && receipt?.commit === source.ref) return revisionOf(receipt.ref, PKG.version)
+    if (source.kind === 'git' && source.ref) {
+      const named = revisionOf(source.ref, PKG.version)
+      if (named !== null) return named
+      if (/^[a-f0-9]{40}$/i.test(source.ref) && latest.version === PKG.version) {
+        const tags = await github(`git/matching-refs/tags/v${PKG.version}`)
+        if (Array.isArray(tags)) for (const tag of tags.slice(0, 100)) {
+          const ref = String(tag.ref ?? '').replace(/^refs\/tags\//, '')
+          const revision = revisionOf(ref, PKG.version)
+          if (revision === null) continue
+          const commit = tag.object?.type === 'commit' ? tag.object.sha : (await github(`commits/${encodeURIComponent(ref)}`))?.sha
+          if (commit === source.ref) return revision
+        }
+        return null
+      }
     }
-    return null
-  }
-
-  async function newestFromGitHub(source) {
-    if (!source.ref) return null
-    const release = await fetchJson(`https://api.github.com/repos/${source.owner}/${source.repo}/releases/latest`, { 'user-agent': `${PKG.name}/${PKG.version}` })
-    const version = cleanVersion(release?.tag_name)
-    if (!version) return null
-    // The API answers through redirects, so the release's html_url names the
-    // repository's current address; the install moves to it.
-    const current = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/releases\//.exec(release.html_url ?? '')
-    const [owner, repo] = current ? [current[1], current[2]] : [source.owner, source.repo]
-    let ref = releaseRef(release)
-    if (/^[a-f0-9]{40}$/i.test(source.ref)) {
-      if (newer(version, status.current)) {
-        const commit = await fetchJson(`https://api.github.com/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}`, { 'user-agent': `${PKG.name}/${PKG.version}` })
-        if (!/^[a-f0-9]{40}$/i.test(commit?.sha ?? '')) throw new Error('The release has no immutable source commit')
-        ref = commit.sha
-      } else ref = source.ref
+    if (source.kind === 'tarball') {
+      const file = String(spec).split(/[\\/]/).at(-1).split(/[?#]/)[0]
+      if (file === `ds-bot-${PKG.version}.tgz`) return 0
+      const suffix = file.startsWith(`ds-bot-${PKG.version}-r`) ? file.slice(`ds-bot-${PKG.version}-r`.length).replace(/\.tgz$/, '') : ''
+      if (/^[1-9]\d*$/.test(suffix)) return Number(suffix)
     }
-    const fragment = [ref, ...source.rest].join('&')
-    return { version, spec: `github:${owner}/${repo}#${fragment}` }
+    return source.kind === 'registry' ? 0 : null
   }
 
   async function runCheck() {
-    const source = sourceOf(await installSpecOf(ctx))
-    status.source = source.kind
-    let found = null
+    target = null
+    Object.assign(status, { phase: 'idle', error: null, errorCode: null, latest: null, latestRef: null, latestRevision: null, currentRevision: null, checkError: null, checkErrorCode: null, blockedReason: null })
     try {
-      if (source.kind === 'registry') found = await newestFromRegistry()
-      else if (source.kind === 'git') found = await newestFromGitHub(source)
-    } catch (error) {
-      rt.warn('ds-bot: update check failed: %s', error?.message ?? error)
-    }
-    status.checkedAt = Date.now()
-    // Nothing found now (a linked checkout, a moved tag, an unreachable registry)
-    // retires the version a check before it found; offering it would install over
-    // a source that never updates.
-    if (found === null) {
-      status.latest = null
-      target = null
-      return
-    }
-    status.latest = found.version
-    target = newer(found.version, status.current) ? found : null
+      const spec = await installSpecOf(ctx)
+      const source = sourceOf(spec)
+      status.source = source.kind
+      if (source.kind === 'path' || (source.kind === 'git' && !source.ref)) {
+        status.blockedReason = 'Update this development checkout using Git.'
+        return
+      }
+      if (source.kind === 'unknown' || (source.kind === 'git' && !ownSource(source))) {
+        status.blockedReason = 'This installation uses a custom source. Update it through Harness Plugins.'
+        return
+      }
+      if (typeof manager()?.installBundle !== 'function') {
+        status.blockedReason = 'The DSH plugin manager is not available in this profile'
+        return
+      }
+      const release = await github('releases/latest')
+      const version = cleanVersion(release?.tag_name)
+      if (!version || release.draft || release.prerelease) throw failure('release-invalid')
+      const ref = releaseRef(release)
+      const revision = revisionOf(ref, version)
+      const suffix = revision ? `-r${revision}` : ''
+      const names = new Set((release.assets ?? []).map(asset => asset.name))
+      if (!names.has(`ds-bot-${version}${suffix}.tgz`) || !names.has(revision ? `SHA256SUMS-r${revision}` : 'SHA256SUMS')) throw failure('release-invalid')
+      const commit = (await github(`commits/${encodeURIComponent(ref)}`))?.sha
+      if (!/^[a-f0-9]{40}$/i.test(commit ?? '')) throw failure('release-invalid')
+      const manifest = await fetchJson(`https://raw.githubusercontent.com/${repoSlug()}/${commit}/ds-bot/package.json`)
+      if (manifest?.name !== PKG.name || cleanVersion(manifest.version) !== version || slugOf(manifest.repository)?.toLowerCase() !== repoSlug()?.toLowerCase() || !manifest.dsh?.bundle) throw failure('release-invalid')
+      const installedRevision = await currentRevision(source, spec, { version, revision, commit })
+      Object.assign(status, { latest: version, latestRef: ref, latestRevision: revision, currentRevision: installedRevision })
+      const upgrade = newer(version, PKG.version) || (version === PKG.version && installedRevision !== null && revision > installedRevision)
+      const repair = version === PKG.version && (installedRevision === null || installedRevision <= revision)
+      target = { id: `${ref}:${commit}`, sourceSpec: spec, version, revision, ref, commit, upgrade, repair,
+        spec: `github:${repoSlug()}#${commit}&path:ds-bot` }
+      if (receipt?.commit === source.ref && receipt?.version === version && newer(version, PKG.version)) Object.assign(status, { phase: 'installed', installed: receipt.ref, restartRequired: true })
+    } catch (cause) {
+      const error = updateFailure(cause)
+      Object.assign(status, { checkError: error.message, checkErrorCode: error.code })
+      rt.warn('ds-bot: update check failed: %s', cause?.message ?? cause)
+    } finally { status.checkedAt = Date.now() }
   }
 
-  /** Ask where the package came from for its newest version; a fresh check ignores the last answer. */
   async function check({ fresh = false } = {}) {
-    if (!enabled) return view()
+    if (!enabled || status.phase === 'installing' || status.phase === 'installed') return view()
     if (checking) { await checking; return view() }
     if (!fresh && Date.now() - status.checkedAt < CHECK_TTL_MS) return view()
     checking = runCheck().finally(() => { checking = null })
@@ -224,36 +268,45 @@ export function install(rt) {
     return view()
   }
 
-  /** Start reinstalling the newest version; the answer comes back through `check`. */
-  function start() {
-    if (status.phase === 'installing') return view()
-    if (target === null) throw new Error('No DS Bot update is available')
-    const service = manager()
-    if (typeof service?.installBundle !== 'function') throw new Error('The DSH plugin manager is not available in this profile')
+  function start({ targetId, repair = false } = {}) {
+    if (status.phase === 'installing' || status.phase === 'installed') return view()
+    if (!enabled || !target || (!target.upgrade && !(repair && target.repair))) throw new Error('No DS Bot update is available')
+    if (targetId !== undefined && targetId !== target.id) throw new Error('The available update changed. Check for updates again.')
     const chosen = target
-    Object.assign(status, { phase: 'installing', error: null })
-    void Promise.resolve().then(() => service.installBundle(chosen.spec, chosen.registry ? { registry: chosen.registry } : {}))
-      .then((result) => {
-        if (result?.error || !['applied', 'restart-required'].includes(result?.application)) {
-          throw new Error(result?.error?.diagnostic ?? result?.error?.code ?? `install ${result?.application ?? 'failed'}`)
-        }
-        Object.assign(status, { phase: 'installed', installed: cleanVersion(result.version) ?? chosen.version })
-      })
-      .catch((error) => {
-        rt.warn('ds-bot: update to %s failed: %s', chosen.spec, error?.message ?? error)
-        Object.assign(status, { phase: 'failed', error: String(error?.message ?? error).slice(0, 600) })
-      })
+    Object.assign(status, { phase: 'installing', stage: 'preparing', error: null, errorCode: null })
+    void (async () => {
+      if (await installSpecOf(ctx) !== chosen.sourceSpec) throw failure('source-changed')
+      const service = manager()
+      if (typeof service?.installBundle !== 'function') throw failure('source-changed')
+      status.stage = 'installing'
+      // Naming the dependency replaces an old tarball BEFORE pnpm resolves it.
+      // The bare GitHub spec can otherwise revisit a broken legacy lock entry.
+      const result = await service.installBundle(`${PKG.name}@${chosen.spec}`, { enabled: true })
+      if (result?.error || !['applied', 'restart-required'].includes(result?.application)) throw result ?? new Error('Install failed')
+      if (result.version !== undefined && cleanVersion(result.version) !== chosen.version) throw failure('version-mismatch')
+      Object.assign(status, { phase: 'installed', stage: 'done', installed: chosen.ref, restartRequired: result.application === 'restart-required' })
+      if (receiptPath) {
+        const record = { spec: chosen.spec, version: chosen.version, ref: chosen.ref, commit: chosen.commit, installedAt: Date.now() }
+        const temp = `${receiptPath}.${randomUUID()}.tmp`
+        try {
+          await mkdir(rt.home, { recursive: true })
+          await writeFile(temp, JSON.stringify(record), { mode: 0o600 })
+          await rename(temp, receiptPath)
+          receipt = record
+        } catch (error) { rt.warn('ds-bot: update receipt could not be saved: %s', error?.message ?? error) }
+      }
+    })().catch(cause => {
+      const error = updateFailure(cause)
+      Object.assign(status, { phase: 'failed', stage: null, error: error.message, errorCode: error.code })
+      rt.warn('ds-bot: update to %s failed: %s', chosen.ref, cause?.error?.code ?? cause?.message ?? cause?.packageResult?.kind ?? 'installation failed')
+    })
     return view()
   }
 
-  if (enabled) {
-    ctx.effect(() => {
-      const timer = setTimeout(() => { void check() }, STARTUP_DELAY_MS)
-      // A pending first check never keeps the process alive.
-      timer.unref?.()
-      return () => clearTimeout(timer)
-    }, 'ds-bot: update check')
-  }
-
+  if (enabled) ctx.effect(() => {
+    const timer = setTimeout(() => { void check() }, STARTUP_DELAY_MS)
+    timer.unref?.()
+    return () => clearTimeout(timer)
+  }, 'ds-bot: update check')
   Object.assign(rt, { updateCheck: check, updateStart: start, updateView: view, repoStars })
 }

@@ -17,9 +17,11 @@ const starCount = count => new Intl.NumberFormat(dateLocale(), { notation: 'comp
 
 function botHint(update) {
   if (update.phase === 'installing') return t('Updating DS Bot…')
-  if (update.phase === 'installed') return t('Restart DSH to start using DS Bot {version}.', { version: update.installed ?? update.latest })
+  if (update.phase === 'installed') return update.restartRequired ? t('Restart DSH to start using DS Bot {version}.', { version: update.installed ?? update.latest }) : t('Update installed. Reload this window.')
   if (update.phase === 'failed') return t('The update did not finish: {reason}', { reason: hostText(update.error ?? '') })
-  if (update.available) return t('DS Bot {version} is available', { version: update.latest })
+  if (update.available) return t('DS Bot {version} is available', { version: update.latestRef ?? update.latest })
+  if (update.checkError) return hostText(update.checkError)
+  if (update.blockedReason) return hostText(update.blockedReason)
   if (update.enabled === false) return t('Update checks are off.')
   if (update.source === 'path') return t('Installed from a local folder; update it there.')
   if (!update.checkedAt) return null
@@ -39,13 +41,14 @@ function dshHint(dsh, shown) {
 
 const linkProps = href => ({ className: 'bt-soft bt-soft-sm bt-about-link', href, target: '_blank', rel: 'noopener noreferrer' })
 
-export function AboutPage({ useUpdate, actions, run, Section, Row }) {
+export function AboutPage({ useUpdate, actions, run, Section, Row, updatesOnly = false }) {
   const update = useUpdate(value => value) ?? {}
   const [checking, setChecking] = useState(false)
   const [stars, setStars] = useState(null)
+  const [repair, setRepair] = useState(null)
   useEffect(() => {
     let live = true
-    actions.repoStars().then((count) => { if (live && Number.isInteger(count)) setStars(count) }, () => {})
+    if (!updatesOnly) actions.repoStars().then((count) => { if (live && Number.isInteger(count)) setStars(count) }, () => {})
     return () => { live = false }
   }, [])
   // The whale hops when the page opens, after a check, and when an update is in.
@@ -69,9 +72,9 @@ export function AboutPage({ useUpdate, actions, run, Section, Row }) {
   const dshShown = dshNew && dsh.available
   const botControl = phase === 'installed' ? null
     : update.available || phase === 'installing'
-      ? h('button', { type: 'button', className: 'bt-fb-primary', disabled: phase === 'installing', onClick: () => run(actions.installUpdate()) },
+      ? h('button', { type: 'button', className: 'bt-fb-primary', disabled: phase === 'installing', onClick: () => run(actions.installUpdate({ targetId: update.targetId })) },
           phase === 'installing' ? t('Updating…') : phase === 'failed' ? t('Try again') : t('Update'))
-      : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: checking || update.enabled === false, onClick: check }, checking ? t('Checking…') : t('Check for updates'))
+      : null
   const dshControl = !dshNew || dshPhase === 'installed' ? null
     : dsh.kind === 'app'
       ? dsh.available ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.openAppUpdates(dsh.verified)) }, t('Open updates')) : null
@@ -81,7 +84,7 @@ export function AboutPage({ useUpdate, actions, run, Section, Row }) {
         : null
   const repo = update.repoUrl
   return [
-    h('div', { key: 'hero', className: 'bt-about-hero' },
+    updatesOnly ? null : h('div', { key: 'hero', className: 'bt-about-hero' },
       h('span', { className: 'bt-about-mark' }, h(BotMark, { look: MAIN_LOOK, bot: { id: 'about' }, size: 52, state: markState, live: true, gaze: true, pokeable: true })),
       h('div', { className: 'bt-about-copy' },
         h('span', { className: 'bt-about-name' }, 'DS Bot'),
@@ -92,11 +95,21 @@ export function AboutPage({ useUpdate, actions, run, Section, Row }) {
       },
       h('span', { className: 'bt-star-main' }, h('span', { className: 'bt-star-icon' }, h(StarLineIcon)), 'Star'),
       stars === null ? null : h('span', { className: 'bt-star-count' }, starCount(stars))) : null),
-    repo ? h('p', { key: 'ask', className: 'bt-about-ask' }, t('If DS Bot helps you, a star on GitHub helps more people find it.')) : null,
+    repo && !updatesOnly ? h('p', { key: 'ask', className: 'bt-about-ask' }, t('If DS Bot helps you, a star on GitHub helps more people find it.')) : null,
     h(Section, { key: 'updates', title: t('Updates') },
+      h('p', { className: 'bt-note' }, t('Updates come from this project’s releases. Your team and conversations are kept.')),
+      h(Row, { label: t('Installed version'), hint: `${update.current ?? ''}${update.currentRevision ? ` · r${update.currentRevision}` : ''}` },
+        update.phase !== 'installing' && update.phase !== 'installed' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: checking || update.enabled === false, onClick: check }, checking ? t('Checking…') : t('Check for updates')) : null),
       h(Row, { label: 'DS Bot', hint: botHint(update) }, botControl, update.available && update.notesUrl ? h('a', linkProps(update.notesUrl), t("What's new")) : null),
+      update.canRepair && !update.available && phase !== 'installed' && phase !== 'installing' ? h(Row, { label: t('Repair installation'), hint: t('Reinstall the latest release without removing your team or conversations.') },
+        h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setRepair({ id: update.targetId, label: update.latestRef ?? update.latest }) }, t('Repair installation'))) : null,
+      repair ? h('div', { role: 'group', 'aria-label': t('Repair installation') },
+        h('p', { className: 'bt-note' }, t('Reinstall DS Bot {version} from the latest release?', { version: repair.label })),
+        h('button', { type: 'button', className: 'bt-fb-primary', disabled: phase === 'installing', onClick: () => { const chosen = repair; setRepair(null); void run(actions.installUpdate({ repair: true, targetId: chosen.id })) } }, t('Reinstall release')),
+        h('button', { type: 'button', className: 'bt-soft', onClick: () => setRepair(null) }, t('Cancel'))) : null,
+      phase === 'installed' && !update.restartRequired ? h('button', { type: 'button', className: 'bt-soft', onClick: () => window.location.reload() }, t('Reload window')) : null,
       dsh?.current ? h(Row, { label: 'DeepSeek Harness', hint: dshHint(dsh, dshShown) }, dshControl) : null),
-    h(Section, { key: 'links', title: t('Links') },
+    updatesOnly ? null : h(Section, { key: 'links', title: t('Links') },
       repo ? h(Row, { label: t('Source code'), hint: repo.replace(/^https:\/\//, '') }, h('a', linkProps(repo), h(GitHubMark), t('Open'))) : null,
       update.notesUrl ? h(Row, { label: t('Release notes') }, h('a', linkProps(update.notesUrl), t('Open'))) : null,
       h(Row, { label: t('Report a problem') }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.openSettings('feedback') }, t('Open')))),

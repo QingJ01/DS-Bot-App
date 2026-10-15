@@ -631,8 +631,8 @@ export function apply(ctx) {
   }
   actions.seatAccount = on => ui.set(state => (state.accountSeated === on ? state : { ...state, accountSeated: on }))
   // The install runs on the host; the check loop follows it every two seconds.
-  actions.installUpdate = async () => {
-    const value = await call('update-install')
+  actions.installUpdate = async ({ repair = false, targetId = update.getSnapshot().targetId } = {}) => {
+    const value = await call('update-install', { targetId, repair })
     update.set(previous => ({ ...previous, ...value }))
     wakeUpdate()
   }

@@ -320,7 +320,7 @@ function UpdateButton({ useUpdate, actions }) {
   }
   const start = () => {
     setError('')
-    void actions.installUpdate().catch(failure => setError(hostText(failure?.message ?? String(failure))))
+    void actions.installUpdate({ targetId: update.targetId }).catch(failure => setError(hostText(failure?.message ?? String(failure))))
   }
   const startDsh = () => {
     setDshError('')
@@ -328,9 +328,9 @@ function UpdateButton({ useUpdate, actions }) {
   }
   const label = phase === 'installing' ? t('Updating DS Bot…')
     : dshPhase === 'installing' ? t('Updating DSH…')
-      : phase === 'installed' ? t('DS Bot {version} is installed. Restart DSH to use it.', { version: update.installed ?? update.latest })
+      : phase === 'installed' ? (update.restartRequired ? t('DS Bot {version} is installed. Restart DSH to use it.', { version: update.installed ?? update.latest }) : t('Update installed. Reload this window.'))
         : dshPhase === 'installed' ? t('Restart DSH to start using DSH {version}.', { version: dsh.installed ?? dsh.verified })
-          : update?.available ? t('DS Bot {version} is available', { version: update.latest })
+          : update?.available ? t('DS Bot {version} is available', { version: update.latestRef ?? update.latest })
             : t('DSH {version} is available', { version: dsh?.verified })
   const message = error || (phase === 'failed' ? update.error : '')
   const dshMessage = dshError || (dshPhase === 'failed' ? dsh?.error : '')
@@ -346,9 +346,9 @@ function UpdateButton({ useUpdate, actions }) {
     }, h(CloudDownloadIcon, { done: phase === 'installed' }), phase === 'failed' || dshPhase === 'failed' ? h('span', { className: 'bt-update-dot', 'aria-hidden': true }) : null),
     open && box ? createPortal(h('div', { className: 'bt-update-pop', role: 'dialog', 'aria-label': update?.available || phase !== 'idle' ? t('DS Bot update') : t('DSH update'), style: box },
       update?.available || phase !== 'idle' ? h(Fragment, null,
-        h('div', { className: 'bt-update-title' }, phase === 'installed' ? t('Update installed') : t('DS Bot {version}', { version: update.latest })),
+        h('div', { className: 'bt-update-title' }, phase === 'installed' ? t('Update installed') : t('DS Bot {version}', { version: update.latestRef ?? update.latest })),
         h('div', { className: 'bt-update-text' }, phase === 'installed'
-          ? t('Restart DSH to start using DS Bot {version}.', { version: update.installed ?? update.latest })
+          ? (update.restartRequired ? t('Restart DSH to start using DS Bot {version}.', { version: update.installed ?? update.latest }) : t('Update installed. Reload this window.'))
           : t('You have {version}.', { version: update.current })),
         message ? h('div', { className: 'bt-update-error', role: 'alert' }, t('The update did not finish: {reason}', { reason: message })) : null,
         h('div', { className: 'bt-update-actions' },

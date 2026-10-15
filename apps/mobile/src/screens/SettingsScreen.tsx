@@ -1,4 +1,5 @@
 import { AboutPanel } from "../host-settings/AboutPanel";
+import { PluginUpdateCard } from "../host-settings/PluginUpdateCard";
 import { CapabilitiesPanel } from "../host-settings/CapabilitiesPanel";
 import { SkillsPanel } from "../host-settings/SkillsPanel";
 import { PluginsPanel } from "../host-settings/PluginsPanel";
@@ -45,6 +46,7 @@ export type SettingsPage =
   | "secrets"
   | "feedback"
   | "about"
+  | "updates"
   | "harness";
 const pages: {
   id: SettingsPage | "bots" | "groups";
@@ -62,6 +64,7 @@ const pages: {
   { id: "secrets", title: "Secrets", icon: "secrets" },
   { id: "feedback", title: "Feedback", icon: "feedback" },
   { id: "about", title: "About DS Bot", icon: "feedback" },
+  { id: "updates", title: "Plugin updates", icon: "download" },
   { id: "harness", title: "Harness settings", icon: "settings" },
 ];
 export function SettingsScreen({
@@ -190,6 +193,7 @@ export function SettingsScreen({
               <SettingRow title={tr("Notifications")} onPress={() => setPage("notifications")}/>
               <SettingRow title={tr("Appearance")} onPress={() => setPage("general")}/>
               <SettingRow title={tr("Language")} onPress={() => setPage("general")}/>
+              <SettingRow title={tr("Plugin updates")} onPress={() => setPage("updates")}/>
               <SettingRow title={tr("About DS Bot")} onPress={() => setPage("about")} last/>
             </Section>
             <Section title={tr("Host")}>
@@ -480,6 +484,7 @@ export function SettingsScreen({
           </>
         )}
         {page === "about" && <AboutPanel client={client} team={team} online={online} refresh={refresh}/>}
+        {page === "updates" && <PluginUpdateCard client={client} team={team} online={online} refresh={refresh}/>}
         {page === "schedules" && (
           <SchedulesPanel client={client} team={team} online={online} />
         )}
