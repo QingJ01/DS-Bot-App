@@ -14,6 +14,8 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## Unreleased
 
+- Bind Bots to persistent Hermes workers across private and group conversations; retain explicit memory facts and support a configured mobile address behind containers.
+
 - Restore update checks for full-commit GitHub plugin installs; keep upgrades pinned to the source of the newest complete release revision instead of returning to tarball URLs.
 - Return update status to every concurrent desktop/mobile check, and recover from synchronous plugin-manager install failures.
 - Validate coordinated plugin, App, Expo and lockfile versions on PRs and main builds, before tagging. Revising an older release no longer forces it to become GitHub's latest release.
