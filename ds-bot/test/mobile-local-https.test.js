@@ -122,3 +122,18 @@ test('selecting IPv6 uses a bracketed QR origin, binds only that address and res
   assert.equal(restored.snapshot().url, state.url)
   assert.equal(restored.snapshot().tlsPin, state.tlsPin)
 })
+
+
+test('a container advertises the configured host address and retains its certificate pin on restart', async t => {
+  const home = await fixture(t)
+  let started
+  const options = { home, config: { advertisedAddress: '192.168.2.8' }, load: async () => {}, readOnly: () => undefined, addresses: () => [{ address: '172.17.0.2', name: 'eth0' }], start: async config => { started = config }, stop: async () => {} }
+  const first = await createLocalHttps(options)
+  const state = await first.enable()
+  assert.equal(state.url, 'https://192.168.2.8:8788')
+  assert.ok(new X509Certificate(await readFile(started.certPath)).checkIP('192.168.2.8'))
+  const restored = await createLocalHttps(options)
+  await restored.restore()
+  assert.equal(restored.snapshot().url, state.url)
+  assert.equal(restored.snapshot().tlsPin, state.tlsPin)
+})

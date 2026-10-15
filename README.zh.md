@@ -88,3 +88,5 @@ App 使用 React Native 与 Expo，共用 SDK 连接 DSH 插件。
 本项目基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 和上游 [DS Bot](https://github.com/Fei2411/DeepSeek-Bot) 开发。第三方声明见 [NOTICE](NOTICE)。
 
 [Apache License 2.0](LICENSE)。DS Bot App 是独立社区项目，并非 DeepSeek 官方产品。
+
+Hermes 工人接入和容器手机地址配置见[插件说明](ds-bot/README.md#hermes-workers)。同一 Bot 保存记忆后，已打开的私聊与群聊会在下一步读取新记忆。

@@ -88,3 +88,5 @@ The host integration baseline is DSH `0.2.0-rc.2`; CI also checks `0.2.1-alpha.1
 This project builds on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and the upstream [DS Bot](https://github.com/Fei2411/DeepSeek-Bot). See [NOTICE](NOTICE) for third-party notices.
 
 [Apache License 2.0](LICENSE). DS Bot App is an independent community project, not an official DeepSeek product.
+
+Hermes worker integration and container mobile addresses are documented in [the plugin README](ds-bot/README.md#hermes-workers). Saved memories now refresh existing private and group conversations of the same Bot.

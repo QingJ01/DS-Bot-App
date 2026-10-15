@@ -19,6 +19,15 @@ export function localAddresses(interfaces = networkInterfaces()) {
 }
 export async function createLocalHttps({ home, config = {}, load, readOnly, start, stop, addresses = localAddresses }) {
   const path = join(home, 'local-https.json')
+  const interfaces = addresses
+  addresses = () => {
+    const found = interfaces()
+    const address = config.advertisedAddress
+    if (address && isIP(address) && !found.some(item => item.address === address)) {
+      return [{ address, name: 'configured host', family: isIP(address) }, ...found]
+    }
+    return found
+  }
   const manual = config.enabled === true && Boolean(config.publicUrl || config.certPath || config.keyPath || config.devAllowInsecure)
   let saved = { enabled: false, port: config.port ?? 8788 }
   let phase = 'off'
