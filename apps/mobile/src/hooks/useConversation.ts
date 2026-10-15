@@ -25,6 +25,9 @@ export interface QueueItem {
 export function useConversation(client: MobileClient, host: Host, id: string) {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [queueSession, setQueueSession] = useState("");
+  const [hydrated, setHydrated] = useState(false);
+  const draftEdited = useRef(false);
+  const draftRevision = useRef(0);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraftState] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
@@ -64,8 +67,9 @@ export function useConversation(client: MobileClient, host: Host, id: string) {
         if (!current()) return;
         setMessages((previous) => mergeMessages(previous, page.messages));
         setCursor(page.cursor);
+        setHydrated(true);
       } catch (err) {
-        if (current()) setError(errorText(err));
+        if (current()) { setError(errorText(err)); setHydrated(true); }
       }
       if (!current()) return;
       stream = client.connect({
@@ -118,7 +122,8 @@ export function useConversation(client: MobileClient, host: Host, id: string) {
       .then(([saved, text, submission, session, previous]) => {
         if (active) {
           setMessages(saved);
-          setDraftState(text);
+          if (!draftEdited.current) setDraftState(text);
+          if (saved.length) setHydrated(true);
           setPending(submission);
           setPreviousDevice(
             !!submission && submission.deviceId !== session?.deviceId,
@@ -152,6 +157,8 @@ export function useConversation(client: MobileClient, host: Host, id: string) {
   }, [client, host.serverId, id]);
   const setDraft = useCallback(
     (text: string) => {
+      draftEdited.current = true;
+      draftRevision.current++;
       setDraftState(text);
       draftWrites.current = draftWrites.current
         .catch(() => {})
@@ -180,6 +187,7 @@ export function useConversation(client: MobileClient, host: Host, id: string) {
     const outgoing = voiceText ?? draft;
     if (sending.current || (voiceText !== undefined && pending) || (!pending && !outgoing.trim() && !attachments.length))
       return false;
+    const sendingRevision = draftRevision.current;
     sending.current = true;
     setBusy(true);
     setError("");
@@ -228,11 +236,10 @@ export function useConversation(client: MobileClient, host: Host, id: string) {
       setRejected(false);
       lastSubmission.current = { requestId: payload.requestId, sessionId: payload.sessionId };
       setReceipt("Sent");
+      if (draftRevision.current === sendingRevision) setDraft("");
       await draftWrites.current;
-      await cache.setDraft(host.serverId, id, "");
       await writeCache(host.serverId, `pending:${id}`, null);
       setPending(null);
-      setDraftState("");
       return true;
     } catch (err) {
       if (definitelyRejected(err)) setRejected(true);
@@ -287,6 +294,7 @@ export function useConversation(client: MobileClient, host: Host, id: string) {
     setError("");
   }
   return {
+    hydrated,
     previousDevice,
     archived,
     archivePrevious,

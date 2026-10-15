@@ -3,7 +3,7 @@
     "name": "DS Bot",
     "slug": "ds-bot-mobile",
     "version": "0.1.1",
-    "orientation": "portrait",
+    "orientation": "default",
     "scheme": "dsbot",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
