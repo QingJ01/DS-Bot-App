@@ -78,6 +78,8 @@ test('mobile work status carries bounded redacted progress and switching without
   assert.equal(work.bots.foreign,undefined)
   assert.equal(work.rooms.outside,undefined)
   assert.ok(!JSON.stringify(work).includes('ds-bot-test-key'))
+  view.work.bots.a.roomId='outside'
+  assert.equal((await adapter.state()).work.bots.a,undefined)
 })
 test('live mobile group replies are scoped, redacted and bounded before being returned',async()=>{
   const {adapter,rt}=fixture()

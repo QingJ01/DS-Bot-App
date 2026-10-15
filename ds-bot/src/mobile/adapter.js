@@ -231,7 +231,7 @@ export function createAdapter(rt) {
       }])),
     ]))
     selected.work = {
-      bots: Object.fromEntries(Object.entries(value.work?.bots ?? {}).filter(([id]) => botIds.has(id)).map(([id, work]) => [id, {
+      bots: Object.fromEntries(Object.entries(value.work?.bots ?? {}).filter(([id, work]) => botIds.has(id) && (!work.roomId || roomIds.has(work.roomId))).map(([id, work]) => [id, {
         ...(typeof work.tool === 'string' ? { tool: redact(work.tool) } : {}),
         ...Object.fromEntries(['said', 'note', 'target'].filter(key => typeof work[key] === 'string').map(key => [key, detail(work[key], 300, redact).text])),
         ...(work.switching === true ? { switching: true } : {}),
