@@ -99,8 +99,9 @@ After each turn, a memory review reads what is new in the Bot's chat (and in eac
 
 - **Two scopes**: each Bot has its own memory, and the team memory is read by every Bot. A Bot writes its own. Main Bots and group admins (of any group) also write the team memory; a Main Bot can read and change another Bot's memory when you ask.
 - **Tools**: `remember` saves an entry or replaces one (`replace`), `forget` removes one, and `recall` searches every entry, reads a topic whole, or lists what is saved. The Bot adds the source (a part anchor such as `part 2 #1234`, which `read_own_chat` opens) and the date; a Bot that writes for others is named with `by:`.
+- **Explicit retention**: when you ask a Bot to keep a fact, it uses `remember` with `pinned: true`. Automatic review cannot change or remove that entry. You can still ask the Bot to correct or forget it.
 - **Files**: `MEMORY.md` holds what every conversation needs, and details go in topic files linked from its `## Index` as `[[topic]]`.
-- **In the prompt**: both `MEMORY.md` files go into the Bot's system prompt. The section is frozen when a Session starts, so the provider's prompt cache holds; a change shows from the next part or checkpoint, and `recall` finds it at once.
+- **In the prompt**: both `MEMORY.md` files go into the Bot's system prompt. The section is cached until memory changes. A save refreshes the same Bot's private and existing group conversations on their next step; a team-memory change refreshes every Bot. `recall` can also read the saved entries immediately.
 - **Fixed sizes**: an entry has at most 300 characters, a `MEMORY.md` 4,000, a topic 16,000, and a scope 40 topics. A save past a limit fails and says how to make room.
 - **Safety**: memory is data, not instructions. An entry that looks like a key or token is refused, and a Bot is told not to save what a web page, file or tool result asks it to remember.
 - **History**: files change in place, and `journal.jsonl` keeps every change with the line before and after. When a Bot is deleted, its memory moves to `archive/`.
@@ -238,3 +239,21 @@ dev/check.sh                             # all checks (see below)
 ## License
 
 [Apache-2.0](LICENSE)
+
+## Hermes workers
+
+A Bot can retain DS Bot private chat, group chat, memory, and teammate messaging while executing requests on a persistent Hermes worker. Configure `hermes.workers` in the Bot plugin config, keyed by the Bot name:
+
+```yaml
+hermes:
+  workers:
+    Worker:
+      url: http://worker-host:8642
+      keyFile: /private/worker-api.key
+```
+
+The key file contains the gateway API key and stays on the host. `hermes_task` forwards requests to that worker and reports its actual answer. Private and group requests share a stable Hermes session for that Bot; different Bots get different sessions. Calls for one Bot run in order. DS Bot retains its own tools for inter-Bot messaging and group management.
+
+Saved memory updates invalidate the same Bot's existing private and group prompt snapshots, so the next step sees the new facts. Other Bots do not receive private memories unless they are explicitly messaged or written to team memory.
+
+For Docker hosts, set `mobile.advertisedAddress` to the host's reachable IP and publish the mobile port (default 8788). One-click HTTPS includes that address in its certificate and pairing data.

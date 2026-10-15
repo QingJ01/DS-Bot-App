@@ -180,7 +180,7 @@ const settle = () => new Promise(resolve => setTimeout(resolve, 20))
 test('remember saves one entry with its source, and forget removes it, both in the journal', async (t) => {
   const { tool, read, journal, stop } = start()
   t.after(() => stop())
-  assert.match(await tool('remember', { text: '- User prefers short replies' }, 'b2'), /^Saved to your memory, in MEMORY\.md \(MEMORY\.md: \d+ of 4000 characters\)\. It shows in your memory from your next conversation; recall finds it now\.$/)
+  assert.match(await tool('remember', { text: '- User prefers short replies' }, 'b2'), /^Saved to your memory, in MEMORY\.md \(MEMORY\.md: \d+ of 4000 characters\)\. It is available in your private and group conversations on their next step\.$/)
   assert.match(read('bots', 'b2', 'MEMORY.md'), /^# Memory\n\n- User prefers short replies \[source: part 1 #10; added: \d{4}-\d{2}-\d{2}\]\n\n## Index\n$/)
   assert.match(await tool('remember', { text: 'user prefers  SHORT replies' }, 'b2'), /^Already in your memory \(MEMORY\.md\): "User prefers short replies"\. Nothing changed\.$/)
 
@@ -253,7 +253,7 @@ test('keys, long entries, and full files are refused with what to do instead', a
   assert.match(await tool('forget', { entry: 'Fact 1' }, 'b2'), /matches \d+ entries in your memory; quote more of the one you mean:\n- Fact 1 y+ \(MEMORY\.md\)\n- Fact 10/)
 })
 
-test('a Session keeps the memory it began with, across restarts, until its snapshot goes', async (t) => {
+test('memory updates refresh existing conversations and survive restart', async (t) => {
   const first = start()
   t.after(() => first.stop())
   await first.tool('remember', { text: 'Likes tea' }, 'b2')
@@ -266,12 +266,14 @@ test('a Session keeps the memory it began with, across restarts, until its snaps
   assert.equal(first.section('nobody'), '')
 
   await first.tool('remember', { text: 'Lives in Hangzhou', topic: 'home' }, 'b2')
-  assert.equal(first.section('b2'), opened)
-  // Another dsh run finds the snapshot and keeps the same bytes.
+  const updated = first.section('b2')
+  assert.notEqual(updated, opened)
+  assert.match(updated, /Topics: \[\[home\]\]/)
+  // Another dsh run finds the refreshed snapshot.
   await first.stop({ keep: true })
   const second = start({ home: first.home })
   await second.tool('recall', {}, 'b2')
-  assert.equal(second.section('b2'), opened)
+  assert.equal(second.section('b2'), updated)
   // Without its snapshot (renewMemory removes it), the Session freezes the memory anew.
   await second.ctx.dispose()
   const renewed = start({ home: first.home })
@@ -288,7 +290,7 @@ test('a change of role freezes the section again, so its team rule matches the t
   const before = section('b2')
   assert.match(before, /tell a Main Bot with message_bot/)
   await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
-  assert.equal(section('b2'), before)
+  assert.match(section('b2'), /Lives in Hangzhou/)
 
   assert.equal((await call('set-main', { id: 'b2', main: true })).ok, true)
   const promoted = section('b2')
@@ -1075,4 +1077,33 @@ test('a memory call names the current part of the Bot chat', async (t) => {
   const answer = await call('memory-ask', { botId: 'b2', text: 'Which part?' })
   assert.equal(answer.ok, true)
   assert.equal(requests[0].sessionId, 'b2-part2')
+})
+
+
+test('private memory reaches an already-open group of the same Bot, without leaking to others', async t => {
+  const { tool, section, stop } = start()
+  t.after(() => stop())
+  await tool('recall', {}, 'b3')
+  const groupBefore = section('g3')
+  const otherBefore = section('b2')
+  await tool('remember', { text: 'The project codename is cobalt orchard' }, 'b3')
+  assert.notEqual(section('g3'), groupBefore)
+  assert.match(section('g3'), /cobalt orchard/)
+  assert.equal(section('b2'), otherBefore)
+  await tool('forget', { entry: 'cobalt orchard' }, 'b3')
+  assert.doesNotMatch(section('g3'), /cobalt orchard/)
+})
+
+
+test('an explicit pinned memory survives automatic cleanup but the user can still remove it', async t => {
+  const replies = [{ text: JSON.stringify({ changes: [{ op: 'remove', entry: 1 }] }) }]
+  const { ctx, tool, call, read, stop } = start({ replies, config: { memoryReviewDelayMs: 0 } })
+  t.after(() => stop())
+  await tool('remember', { text: 'The acceptance project is Cobalt Orchard', pinned: true }, 'b2')
+  ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
+  await reviewed(call)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /Cobalt Orchard/)
+  assert.match(read('bots', 'b2', 'MEMORY.md'), /pinned: true/)
+  await tool('forget', { entry: 'Cobalt Orchard' }, 'b2')
+  assert.doesNotMatch(read('bots', 'b2', 'MEMORY.md'), /Cobalt Orchard/)
 })
