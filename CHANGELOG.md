@@ -17,6 +17,7 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 - Restore update checks for full-commit GitHub plugin installs; keep upgrades pinned to the source of the newest complete release revision instead of returning to tarball URLs.
 - Return update status to every concurrent desktop/mobile check, and recover from synchronous plugin-manager install failures.
 - Validate coordinated plugin, App, Expo and lockfile versions on PRs and main builds, before tagging. Revising an older release no longer forces it to become GitHub's latest release.
+- Show a dedicated IPv6 switch and network-address selector in plugin mobile settings, including while connected or when no IPv6 address is available. Keep IPv4 as the default when available and send the explicitly selected address on enable.
 
 ## DS Bot App [v0.1.1] - 2026-10-14
 

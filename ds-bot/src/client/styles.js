@@ -495,6 +495,8 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-mobile-status[data-enabled]{color:var(--bt-accent);background:color-mix(in srgb,var(--bt-accent) 10%,var(--bt-card))}
 .bt-mobile-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:100%}
 .bt-mobile-actions select{max-width:100%}
+.bt-mobile-page .bt-set-row>.bt-select{max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bt-mobile-page .bt-switch-knob{box-shadow:none}
 .bt-mobile-pairing{display:flex;flex-wrap:wrap;gap:20px;padding:16px}
 .bt-mobile-qr{background:#fff;border-radius:12px;padding:8px;line-height:0;align-self:flex-start}
 .bt-mobile-qr img{display:block;max-width:100%;height:auto}

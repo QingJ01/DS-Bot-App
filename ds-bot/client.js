@@ -81,6 +81,14 @@ var ZH = {
   "Connect over your local network or a reachable IPv6 address. No domain or extra app is needed.": "通过局域网或可达的 IPv6 地址连接，无需域名或额外 App。",
   "Public IPv6": "公网 IPv6",
   "Local IPv6": "内网 IPv6",
+  "Use IPv6": "使用 IPv6",
+  "No usable IPv6 address was detected. Check IPv6 on this computer and router.": "未检测到可用的 IPv6 地址，请检查电脑和路由器是否已开启 IPv6。",
+  "Turn off phone connection before switching between IPv4 and IPv6.": "请先关闭手机连接，再切换 IPv4 或 IPv6。",
+  "No IPv4 address is available on this computer.": "这台电脑当前没有可用的 IPv4 地址。",
+  "Choose IPv6 for this phone connection. Turn it off to use IPv4.": "为手机连接选择 IPv6，关闭此项则使用 IPv4。",
+  "No usable IPv6 address is available.": "当前没有可用的 IPv6 地址。",
+  "No usable IPv4 address is available.": "当前没有可用的 IPv4 地址。",
+  "No network address available": "暂无可用的网络地址",
   "Both devices need a route to this address. Allow the selected port in your firewall.": "手机必须能访问此地址，请在防火墙中允许所选端口的连接。",
   "Public IPv6 can connect across networks when your phone supports IPv6 and your router and computer allow incoming connections. No relay is used.": "公网 IPv6 可跨网络直连，手机需支持 IPv6，路由器和电脑需允许入站连接。不使用中继。",
   "Connect this computer to Wi-Fi or Ethernet, then choose its listed IPv4 or IPv6 address.": "请将电脑连接到 Wi-Fi 或有线网络，然后选择列表中的 IPv4 或 IPv6 地址。",
@@ -2385,6 +2393,8 @@ button.bt-set-row:hover{background:var(--bt-hover)}
 .bt-mobile-status[data-enabled]{color:var(--bt-accent);background:color-mix(in srgb,var(--bt-accent) 10%,var(--bt-card))}
 .bt-mobile-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:100%}
 .bt-mobile-actions select{max-width:100%}
+.bt-mobile-page .bt-set-row>.bt-select{max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bt-mobile-page .bt-switch-knob{box-shadow:none}
 .bt-mobile-pairing{display:flex;flex-wrap:wrap;gap:20px;padding:16px}
 .bt-mobile-qr{background:#fff;border-radius:12px;padding:8px;line-height:0;align-self:flex-start}
 .bt-mobile-qr img{display:block;max-width:100%;height:auto}
@@ -10697,6 +10707,7 @@ function MobileDevicesPage() {
   const alive = (0, import_react28.useRef)(true);
   const working = (0, import_react28.useRef)(false);
   const [address, setAddress] = (0, import_react28.useState)("");
+  const [networkFamily, setNetworkFamily] = (0, import_react28.useState)(null);
   (0, import_react28.useEffect)(() => {
     let disposed = false;
     alive.current = true;
@@ -10751,15 +10762,24 @@ function MobileDevicesPage() {
     (0, import_react28.createElement)("div", { className: "bt-set-copy" }, (0, import_react28.createElement)("span", null, label), hint ? (0, import_react28.createElement)("span", { className: "bt-set-hint" }, hint) : null),
     children
   );
-  const button = (label, action, primary = false) => (0, import_react28.createElement)("button", { type: "button", className: `bt-soft bt-soft-sm${primary ? " bt-mobile-primary" : ""}`, disabled: busy, onClick: action }, t(label));
+  const button = (label, action, primary = false, disabled = false) => (0, import_react28.createElement)("button", { type: "button", className: `bt-soft bt-soft-sm${primary ? " bt-mobile-primary" : ""}`, disabled: busy || disabled, onClick: action }, t(label));
   const section = (key, title, children) => (0, import_react28.createElement)("section", { key, className: "bt-set-section" }, (0, import_react28.createElement)("h3", null, title), (0, import_react28.createElement)("div", { className: "bt-set-card" }, children));
   const enabled = state?.enabled;
   const pending = state?.pending ?? [];
   const devices = (state?.devices ?? []).filter((device) => !device.revokedAt);
   const activePairing = pairing && enabled && pairing.url === state.url && Date.now() < new Date(pairing.expiresAt).getTime();
   const problem = error || refreshError || state?.error || state?.https?.error;
-  const chosenAddress = enabled ? state?.https?.address : address || state?.https?.addresses?.[0]?.address;
-  const selectedAddress = state?.https?.addresses?.find((item) => item.address === chosenAddress);
+  const addresses = state?.https?.addresses ?? [];
+  const familyOf = (value) => value?.includes(":") ? 6 : 4;
+  const savedAddress = state?.https?.address;
+  const family = enabled ? familyOf(savedAddress) : networkFamily ?? familyOf(savedAddress || addresses[0]?.address);
+  const available = addresses.filter((item) => familyOf(item.address) === family);
+  const chosenAddress = enabled ? savedAddress : available.find((item) => item.address === address)?.address ?? available.find((item) => item.address === savedAddress)?.address ?? available[0]?.address;
+  const selectedAddress = addresses.find((item) => item.address === chosenAddress);
+  const hasIpv6 = addresses.some((item) => familyOf(item.address) === 6);
+  const canSwitchFamily = addresses.some((item) => familyOf(item.address) !== family);
+  const networkLocked = busy || enabled || state?.locked;
+  const networkHint = !hasIpv6 && family !== 6 ? t("No usable IPv6 address was detected. Check IPv6 on this computer and router.") : enabled ? t("Turn off phone connection before switching between IPv4 and IPv6.") : family === 6 && !canSwitchFamily ? t("No IPv4 address is available on this computer.") : t("Choose IPv6 for this phone connection. Turn it off to use IPv4.");
   return (0, import_react28.createElement)(
     "div",
     { className: "bt-mobile-page", "aria-busy": busy },
@@ -10774,6 +10794,48 @@ function MobileDevicesPage() {
         (0, import_react28.createElement)("div", { className: "bt-set-copy" }, (0, import_react28.createElement)("h3", null, t("Connect your phone")), (0, import_react28.createElement)("p", { className: "bt-set-hint" }, t("Connect over your local network or a reachable IPv6 address. No domain or extra app is needed."))),
         (0, import_react28.createElement)("span", { className: "bt-mobile-status", "data-enabled": enabled || void 0 }, t(enabled ? "Phone connection enabled" : "Phone connection off"))
       ),
+      state.https?.provider === "local" ? row(
+        "ipv6",
+        t("Use IPv6"),
+        networkHint,
+        (0, import_react28.createElement)(
+          "button",
+          {
+            type: "button",
+            role: "switch",
+            className: "bt-switch",
+            "aria-label": t("Use IPv6"),
+            "aria-checked": family === 6,
+            disabled: networkLocked || !canSwitchFamily,
+            onClick: () => {
+              setNetworkFamily(family === 6 ? 4 : 6);
+              setAddress("");
+            }
+          },
+          (0, import_react28.createElement)("span", { className: "bt-switch-knob", "aria-hidden": true })
+        )
+      ) : null,
+      state.https?.provider === "local" ? row(
+        "network",
+        t("Computer network address"),
+        !available.length ? t(family === 6 ? "No usable IPv6 address is available." : "No usable IPv4 address is available.") : void 0,
+        (0, import_react28.createElement)(
+          "select",
+          {
+            className: "bt-select",
+            "aria-label": t("Computer network address"),
+            value: chosenAddress ?? "",
+            onChange: (event) => setAddress(event.target.value),
+            disabled: networkLocked || !available.length
+          },
+          !available.length ? (0, import_react28.createElement)("option", { value: "" }, t("No network address available")) : null,
+          ...available.map((item) => (0, import_react28.createElement)(
+            "option",
+            { key: item.address, value: item.address },
+            item.name + " · " + (family === 6 ? t(item.scope === "global" ? "Public IPv6" : "Local IPv6") : "IPv4") + " · " + item.address
+          ))
+        )
+      ) : null,
       !enabled ? row(
         "off",
         t("Phone connection"),
@@ -10781,13 +10843,7 @@ function MobileDevicesPage() {
         !state.locked && state.https?.provider === "local" ? (0, import_react28.createElement)(
           "div",
           { className: "bt-mobile-actions" },
-          (state.https.addresses?.length ?? 0) > 1 ? (0, import_react28.createElement)(
-            "select",
-            { className: "bt-select", "aria-label": t("Computer network address"), value: address, onChange: (event) => setAddress(event.target.value), disabled: busy },
-            (0, import_react28.createElement)("option", { value: "" }, t("Automatic network address")),
-            ...state.https.addresses.map((item) => (0, import_react28.createElement)("option", { key: item.address, value: item.address }, item.name + " · " + (item.family === 6 ? t(item.scope === "global" ? "Public IPv6" : "Local IPv6") + " · " : "") + item.address))
-          ) : null,
-          button("Enable phone connection", () => void run("https.enable", address ? { address } : {}), true)
+          button("Enable phone connection", () => void run("https.enable", { address: chosenAddress }), true, !chosenAddress)
         ) : null
       ) : row("host", t("Connection address"), state.url ?? t("Mobile bridge"), button("Create pairing code", () => void run("pairing.create"), true)),
       enabled && state.https?.provider === "local" ? row("https", t("Local HTTPS is running"), t("Both devices need a route to this address. Allow the selected port in your firewall."), button("Turn off phone connection", () => {

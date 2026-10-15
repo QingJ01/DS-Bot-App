@@ -17,6 +17,8 @@ The default port is `8788`; the plugin prefers IPv4 and also lists private and p
 
 IPv6 support requires the v0.1.1 or newer plugin and App. Version v0.1.0 lists IPv4 addresses only.
 
+The published `0.1.1 r2` UI has no separate IPv6 switch: turn off phone connection to reveal its network-address dropdown, then select IPv6. The development branch adds a dedicated **Use IPv6** switch that stays visible while connected, explains when no usable IPv6 address is available, and requires turning off the connection before changing protocols. This UI improvement is not included in the r2 archive yet.
+
 A computer with public IPv6 can accept connections from another IPv6-capable network without a domain, coordination server, relay, or additional app.
 
 1. Turn off an existing phone connection on the computer. Select an address marked **Public IPv6** in Mobile devices, then enable the connection.
