@@ -435,7 +435,7 @@ function Shell() {
             flex: split ? undefined : 1, width: split ? 300 : undefined,
             borderRightWidth: split ? 1 : 0, borderColor:t.line,
           }}>
-            <View pointerEvents="box-none" style={{position:"absolute",top:0,left:0,right:0,zIndex:2,flexDirection:"row",alignItems:"center",paddingHorizontal:20,paddingTop:16,paddingBottom:12,gap:10}}>
+            <View pointerEvents="box-none" style={{position:"absolute",top:0,left:0,right:0,zIndex:2,backgroundColor:t.bg,flexDirection:"row",alignItems:"center",paddingHorizontal:20,paddingTop:16,paddingBottom:12,gap:10}}>
               <IconButton name="settings" floating label={tr("Open settings")} onPress={() => navigate({page:"settings"})}/>
               <View style={{flex:1}}/>
               <IconButton name="search" floating label={tr("Search conversations")} onPress={() => {setSearching(!searching);setQuery("");}}/>

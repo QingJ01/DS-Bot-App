@@ -264,6 +264,7 @@ export function ChatScreen({
       keyboardVerticalOffset={insets.top}
     >
       <View style={{ flex: 1 }}>
+      <View pointerEvents="none" style={{position:"absolute",top:0,left:0,right:0,height:82,backgroundColor:t.bg,zIndex:9}} />
       <View pointerEvents="box-none" style={{ position: "absolute", top: 16, left: 20, right: 20, zIndex: 10 }}>
         <View pointerEvents="box-none" style={{ flexDirection: "row", alignItems: "center", minHeight: 50, gap: 10 }}>
           <IconButton name="back" floating label={tr("Back to conversations")} onPress={onOpenNavigation || (() => setPicker(true))} />
