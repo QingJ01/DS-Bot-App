@@ -2,12 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { URL, fileURLToPath } from "node:url";
 import ts from "typescript";
 import { localizedText, resolveLanguage, translate } from "../src/logic/localization.ts";
 import { contrastText, luminance } from "../src/logic/colors.ts";
 import { notificationTitle, notificationTransportLabel } from "../src/logic/notifications.ts";
 
-const root = new URL("../src/", import.meta.url).pathname;
+// URL.pathname keeps a leading "/" before the drive letter on Windows, so it does not resolve.
+const root = fileURLToPath(new URL("../src/", import.meta.url));
 const catalog: Record<string, string> = Object.assign({}, ...["i18n.zh.json", "i18n.mobile.zh.json", "host-settings/locale.zh.json"].map(file => JSON.parse(readFileSync(join(root, file), "utf8"))));
 const main = ts.createSourceFile("i18n.ts", readFileSync(join(root, "i18n.ts"), "utf8"), ts.ScriptTarget.Latest, true);
 function collect(node: ts.Node) {
