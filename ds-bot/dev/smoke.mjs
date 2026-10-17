@@ -281,7 +281,9 @@ await step('update Writer', () => api('update-bot', { id: botNamed('Writer').id,
 
 // dsh keeps each Session under a folder named after its cwd. A change of working folder
 // moves the Bot's own chat on to a fresh part made there; the fresh part then stays put.
-const project = realpathSync(mkdtempSync(join(tmpdir(), 'ds-bot-smoke-folder-')))
+// realpathSync.native: the plain call leaves a Windows 8.3 name (ADMINI~1) alone, while
+// the host saves the long form, so the two would not compare equal.
+const project = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-smoke-folder-')))
 const folderOf = sessionId => readdirSync(join(HOME, 'sessions')).find(dir => existsSync(join(HOME, 'sessions', dir, sessionId)))
 const coderParts = () => (botNamed('Coder').segments ?? []).length
 const partsBeforeFolder = coderParts()

@@ -1,7 +1,7 @@
 // Run against an owned mock bench, after the ordinary desktop/mobile smoke tests.
 // node dev/mobile-folders-smoke.mjs <bench-name> <web-port> <mobile-port>
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -24,7 +24,8 @@ async function desktop(endpoint, payload = {}) {
 }
 const operator = (endpoint, payload) => desktop('mobile', { endpoint, payload })
 const mobile = new MobileClient({ baseUrl: `http://127.0.0.1:${mobilePort}`, tokenStore: new MemoryTokenStore(), allowInsecure: true })
-const project = await mkdtemp(join(tmpdir(), 'dsbot-mobile-folders-'))
+// The host saves a folder as its real path; resolve it the same way so they agree.
+const project = await realpath(await mkdtemp(join(tmpdir(), 'dsbot-mobile-folders-')))
 let bot, room, device
 let passed = 0
 async function step(label, run) { await run(); passed++; console.log(`ok ${label}`) }
