@@ -24,6 +24,7 @@ DS Bot App connects your phone to the Bots running on your own [DeepSeek Harness
 | Tools and host management | Open tool-result cards, approve or reject pending actions, manage supported Skills/plugins/connectors, and opt into desktop browser control. |
 | Shared capabilities | Choose each Bot’s MCP servers, skills and capability packs configured on your DSH computer; check connection and approval status. |
 | Tasks and memory | Manage scheduled tasks and Bot memory, search earlier conversations, and inspect usage from settings or details. |
+| Webhooks | Let a service outside the app POST to your host so what it sends reaches a Bot or a group. See [Webhooks](docs/webhooks.md). |
 | Working folders | Choose a host project or folder for a Bot, or one folder for a group. Chats continue in fresh parts while keeping their history. Available in v0.1.1 and later. |
 | Notifications | Task and approval reminders with Android background reception and optional cloud push. |
 | Appearance and language | Chinese/English and light/dark/system appearance. Cached conversations and drafts remain available offline. |
@@ -65,7 +66,7 @@ Version 0.1.1 also supports [public IPv6 direct access](docs/mobile-local-https.
 
 iOS source is available; no IPA is currently provided. See the [iOS guide](docs/ios.md) for builds and platform support.
 
-[Installation](docs/getting-started.md) · [Features and notifications](docs/mobile-features.zh.md) · [Remote access](docs/mobile-install.zh.md)
+[Installation](docs/getting-started.md) · [Features and notifications](docs/mobile-features.zh.md) · [Remote access](docs/mobile-install.zh.md) · [Webhooks](docs/webhooks.md)
 
 Host plugin upgrades and repair: [Plugin updates](docs/plugin-updates.md).
 

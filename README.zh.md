@@ -24,6 +24,7 @@ DS Bot App 连接自己电脑或服务器上的 [DeepSeek Harness](https://githu
 | 工具与主机管理 | 专属工具结果卡片，允许/拒绝待批准操作，管理支持的 Skills、插件和连接器，以及可选桌面浏览器控制。 |
 | 共享能力 | 在手机上选择每个 Bot 可使用的 MCP 服务、技能和能力包，查看连接与批准状态；能力库在 DSH 电脑上配置。 |
 | 任务与记忆 | 管理定时任务和 Bot 记忆，搜索历史对话，在设置或详情页查看用量。 |
+| Webhook 回调 | 让应用之外的服务向主机发送 POST 请求，内容作为消息送达某个 Bot 或群聊，详见 [Webhook 回调](docs/webhooks.zh.md)。 |
 | 工作目录 | 为 Bot 选择主机项目或目录，也可为群聊指定统一目录；对话在新分段中继续，保留历史。需要 v0.1.1 及以上版本。 |
 | 通知 | 任务与审批提醒，支持 Android 后台接收和可选云推送。 |
 | 外观与语言 | 中英文、日间/夜间/跟随系统，离线可查看缓存和编辑草稿。 |
@@ -65,7 +66,7 @@ v0.1.1 还支持[公网 IPv6 跨网络直连](docs/mobile-local-https.zh.md#ipv6
 
 iOS 源码已提供，当前没有 IPA 安装包；构建与支持说明见 [iOS 文档](docs/ios.zh.md)。
 
-[安装与配置](docs/getting-started.zh.md) · [功能与通知配置](docs/mobile-features.zh.md) · [远程连接](docs/mobile-install.zh.md)
+[安装与配置](docs/getting-started.zh.md) · [功能与通知配置](docs/mobile-features.zh.md) · [远程连接](docs/mobile-install.zh.md) · [Webhook 回调](docs/webhooks.zh.md)
 
 主机插件升级与修复见[插件更新](docs/plugin-updates.zh.md)。
 
