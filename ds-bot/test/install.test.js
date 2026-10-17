@@ -95,6 +95,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'effect ds-bot: connectors',
     'on agent/created',
     'effect ds-bot: capabilities',
+    'effect ds-bot: webhook listener',
     'effect ds-bot: usage ledger',
     'on llm/stream',
     'effect ds-bot: update check',

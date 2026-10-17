@@ -63,6 +63,8 @@ export function install(rt) {
     browser: rt.browserEnabled,
     // False when config.memory turns memory off: no Memory row or panel.
     memory: rt.memoryEnabled !== false,
+    // The webhooks of this team, with the URL each one answers on (hooks.js).
+    hooks: rt.hooksView?.() ?? null,
     // Set while another dsh host holds the team (store.js): why this one cannot change it.
     readOnly: rt.readOnly() ?? null,
   })
@@ -80,7 +82,7 @@ export function install(rt) {
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
+  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'schedules', 'hooks-list', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
 
   function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -254,6 +256,12 @@ export function install(rt) {
         case 'memory-forget':
           await rt.load()
           return ok(await rt.memoryEndpoint(endpoint, body))
+        case 'hooks-list':
+        case 'hook-create':
+        case 'hook-update':
+        case 'hook-delete':
+        case 'hook-rotate':
+          return ok(await rt.hooksEndpoint(endpoint, body))
         case 'answer-question': {
           if (typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
           await rt.load()
