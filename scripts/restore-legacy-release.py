@@ -105,7 +105,7 @@ def restore(github):
         github.rename(assets["SHA256SUMS"], HISTORICAL)
     if checksum_stage is not None:
         github.rename(checksum_stage, "SHA256SUMS")
-    notice = (ROOT / "docs/releases/integrity-repair-20261014.md").read_text()
+    notice = (ROOT / "docs/releases/integrity-repair-20261014.md").read_text(encoding="utf-8")
     if not before["body"].startswith(notice):
         github.api("releases/" + str(before["id"]), {"body": notice + "Historical release notes:\n\n" + before["body"]})
     assert github.download(PLUGIN) == original

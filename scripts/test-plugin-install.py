@@ -64,7 +64,7 @@ class InstallationTests(unittest.TestCase):
         manifest = json.loads((profile / "package.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["dependencies"]["is-number"], "7.0.0")
         self.assertEqual(manifest["dsh"], {"profile": {"bundles": ["ds-bot"]}})
-        self.assertEqual((profile / "chat-sentinel.txt").read_text(), "Keep this data unchanged.")
+        self.assertEqual((profile / "chat-sentinel.txt").read_text(encoding="utf-8"), "Keep this data unchanged.")
         package = json.loads((profile / "node_modules/ds-bot/package.json").read_text(encoding="utf-8"))
         self.assertEqual(package["version"], RELEASE["version"])
         self.assertIn(self.integrity, (profile / "pnpm-lock.yaml").read_text(encoding="utf-8"))

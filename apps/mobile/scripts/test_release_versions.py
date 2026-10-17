@@ -27,10 +27,10 @@ class ReleaseVersionTests(unittest.TestCase):
             for name, value in files.items():
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(json.dumps(value))
+                path.write_text(json.dumps(value), encoding="utf-8")
             if notes and tag:
                 (root / 'docs/releases').mkdir(parents=True)
-                (root / f'docs/releases/{tag}.md').write_text('Release notes')
+                (root / f'docs/releases/{tag}.md').write_text('Release notes', encoding='utf-8')
             return subprocess.run(['node', str(ROOT / 'scripts/check-release.cjs')], cwd=root,
                                   env={**os.environ, 'RELEASE_TAG': tag}, capture_output=True, text=True)
 

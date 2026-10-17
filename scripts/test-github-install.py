@@ -79,7 +79,7 @@ class GitHubInstallationTests(unittest.TestCase):
         self.assertEqual(manifest["dependencies"]["ds-bot"], INSTALL["spec"])
         self.assertEqual(manifest["dependencies"]["is-number"], "7.0.0")
         self.assertEqual(manifest["dsh"], {"profile": {"bundles": ["ds-bot"]}})
-        self.assertEqual((self.profile / "chat-sentinel.txt").read_text(), "Preserve existing chats.")
+        self.assertEqual((self.profile / "chat-sentinel.txt").read_text(encoding="utf-8"), "Preserve existing chats.")
         lock = (self.profile / "pnpm-lock.yaml").read_text(encoding="utf-8")
         self.assertIn(f'tar.gz/{INSTALL["sourceCommit"]}', lock)
         self.assertIn("gitHosted: true", lock)

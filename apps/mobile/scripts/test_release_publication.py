@@ -22,7 +22,7 @@ class ReleasePublicationTests(unittest.TestCase):
             original = b"original immutable plugin"
             (task / "legacy-input/ds-bot-0.1.1.tgz").write_bytes(original)
             checksum = "0" * 64 if bad_checksum else hashlib.sha256(original).hexdigest()
-            (task / "legacy-input/SHA256SUMS").write_text(checksum + "  ds-bot-0.1.1.tgz\n")
+            (task / "legacy-input/SHA256SUMS").write_text(checksum + "  ds-bot-0.1.1.tgz\n", encoding="utf-8")
             (task / "legacy-input/DeepSeekBot.cer").write_bytes(b"unchanged certificate")
             for arch in ["arm64", "x86_64"]:
                 destination = task / ("out/dsbot-android-" + arch)
@@ -45,9 +45,9 @@ if args[:2]==['release','download']:
 elif args[:2]==['release','view']:
     print('ds-bot-0.1.1-r2.tgz' if os.environ.get('REVISION_PUBLISHED')=='partial' else 'SHA256SUMS-r2' if os.environ.get('REVISION_PUBLISHED')=='1' else 'SHA256SUMS')
 elif args[:2] not in [['release','upload'],['release','edit'],['release','create']]:sys.exit(2)
-''')
+''', encoding="utf-8")
             script.chmod(0o755)
-            workflow = (ROOT / ".github/workflows/build.yml").read_text()
+            workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
             block = workflow.split("      - name: Publish matching plugin and signed APKs\n", 1)[1].split("        run: |\n", 1)[1]
             program = "\n".join(line[10:] for line in block.splitlines())
             environment = dict(os.environ, PATH=str(task / "bin") + os.pathsep + os.environ["PATH"],
@@ -55,7 +55,7 @@ elif args[:2] not in [['release','upload'],['release','edit'],['release','create
                                REVISION_PUBLISHED="partial" if partial else "1" if published else "0")
             result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", program], cwd=task,
                                     env=environment, capture_output=True, text=True)
-            calls = json.loads((task / "commands.json").read_text()) if (task / "commands.json").exists() else []
+            calls = json.loads((task / "commands.json").read_text(encoding="utf-8")) if (task / "commands.json").exists() else []
             return result.returncode, calls, result.stderr
 
     def test_revision_uploads_only_new_assets(self):
