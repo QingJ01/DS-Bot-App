@@ -116,6 +116,13 @@ export function install(rt) {
         bot.capabilities = []
         migrated = true
       }
+      // Approval rules that a hand-edited file got wrong would answer calls nobody
+      // wrote a rule for, so a shape the team cannot read is dropped: the Bot asks.
+      if (bot.approvals !== undefined
+        && (bot.approvals === null || typeof bot.approvals !== 'object' || Array.isArray(bot.approvals) || !Array.isArray(bot.approvals.rules))) {
+        delete bot.approvals
+        migrated = true
+      }
       if (bot.color !== currentColor(bot.color)) {
         bot.color = currentColor(bot.color)
         migrated = true

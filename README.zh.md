@@ -67,7 +67,7 @@ iOS 源码已提供，当前没有 IPA 安装包；构建与支持说明见 [iOS
 
 [安装与配置](docs/getting-started.zh.md) · [功能与通知配置](docs/mobile-features.zh.md) · [远程连接](docs/mobile-install.zh.md)
 
-主机插件升级与修复见[插件更新](docs/plugin-updates.zh.md)。
+主机插件升级与修复见[插件更新](docs/plugin-updates.zh.md)。Bot 自行回答的审批见[审批规则](docs/approval-rules.zh.md)。
 
 ## 开发
 

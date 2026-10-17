@@ -30,6 +30,7 @@ const ACTIONS = {
   context: ['conversationId', 'sessionId', 'seq', 'limit'],
   'reference-chats': ['conversationId'],
   'bot-capability': ['botId', 'name', 'attached'], 'stop-member-work': ['roomId', 'botId'],
+  'approval-rules': [], 'approval-rule-set': ['id', 'rules'], 'approval-rule-clear': ['id'],
   schedules: [], 'schedule-create': ['target', 'title', 'prompt', 'when'], 'schedule-delete': ['sessionId', 'id'],
   'connector-connect': ['id', 'token'], 'connector-retry': ['id'], 'connector-disconnect': ['id'], 'browser-pages': [], 'browser-read': ['botId', 'start'], 'browser-control': ['botId', 'command', 'tabId', 'url', 'requestId', 'snapshotId', 'item', 'text', 'direction'],
   'secret-set': ['requestId', 'name', 'value', 'purpose', 'scope'], 'secret-allow': ['requestId'], 'secret-cancel': ['requestId'],
@@ -188,6 +189,20 @@ export function createAdapter(rt) {
   const agentView = value => (Array.isArray(value) ? value : []).filter(item => item && typeof item.id === 'string' && Array.isArray(item.sessions))
     .map(({ id, name, sessions, createdAt, pinned, hidden }) => ({ id, name, sessions: sessions.filter(validId), createdAt, pinned, hidden }))
   const secretView = value => value && typeof value.name === 'string' ? Object.fromEntries(['name', 'purpose', 'scope', 'requestedBy', 'createdAt', 'updatedAt', 'lastUsedAt'].filter(key => value[key] !== undefined).map(key => [key, value[key]])) : undefined
+  // Approval rules: what each Bot answers without asking, and the calls a rule answered.
+  // Nothing here is secret; a rule is a setting the phone may change.
+  const ruleItem = rule => ({ tool: String(rule?.tool ?? '').slice(0, 64), scope: rule?.scope === 'anywhere' ? 'anywhere' : 'folder' })
+  const rulesOf = value => (Array.isArray(value) ? value : []).filter(rule => rule && typeof rule.tool === 'string' && rule.tool !== '').slice(0, 20).map(ruleItem)
+  const approvedItem = entry => ({
+    botId: String(entry?.botId ?? ''), ...(validId(entry?.roomId) ? { roomId: entry.roomId } : {}),
+    tool: String(entry?.tool ?? '').slice(0, 64), scope: entry?.scope === 'anywhere' ? 'anywhere' : 'folder',
+    ...(typeof entry?.target === 'string' ? { target: redact(entry.target).slice(0, 300) } : {}),
+    ...(Number.isFinite(entry?.at) ? { at: entry.at } : {}),
+  })
+  const approvalRulesView = value => ({
+    bots: (Array.isArray(value?.bots) ? value.bots : []).filter(bot => bot && validId(bot.id)).map(bot => ({ id: bot.id, name: String(bot.name ?? '').slice(0, 100), rules: rulesOf(bot.rules) })),
+    recent: (Array.isArray(value?.recent) ? value.recent : []).slice(0, 20).map(approvedItem),
+  })
   async function team(endpoint, payload = {}, signal) {
     const result = await rt.teamCall(endpoint, payload, signal)
     if (result?.ok === false) {
@@ -485,6 +500,8 @@ export function createAdapter(rt) {
       return [...visible.bots, ...visible.rooms, ...visible.agents].find(item => item.id === result.id) ?? { id: result.id }
     }
     if (endpoint.startsWith('secret-')) return secretView(result) ?? (result === true)
+    if (endpoint === 'approval-rules') return approvalRulesView(result)
+    if (endpoint === 'approval-rule-set' || endpoint === 'approval-rule-clear') return { id: result?.id ?? body.id, rules: rulesOf(result?.rules) }
     if (['update-check', 'update-install', 'dsh-update-install'].includes(endpoint) && result) return { ...result,
       ...(result.error ? { error: redact(String(result.error)) } : {}),
       ...(result.dsh ? { dsh: { ...result.dsh, ...(result.dsh.error ? { error: redact(String(result.dsh.error)) } : {}) } } : {}),

@@ -745,3 +745,33 @@ test('mobile browser command receipts prevent repeated mutations and remain isol
   await assert.rejects(adapter.action('browser-control',uncertain,undefined,{deviceId:'one'}),{status:409});assert.equal(count,3)
   adapter.dispose()
 })
+
+test('the phone reads approval rules per Bot and the calls a rule answered', async () => {
+  const { rt, adapter } = fixture()
+  const seen = []
+  rt.teamCall = async (endpoint, payload) => {
+    seen.push({ endpoint, payload })
+    if (endpoint === 'approval-rules') return { ok: true, value: { bots: [
+      { id: 'b1', name: 'Chief', rules: [{ tool: '*', scope: 'folder' }, { tool: 'run_command', scope: 'anywhere', extra: 'do-not-expose' }] },
+      { id: 'ghost', rules: [{ tool: 'x' }] },
+    ], recent: [{ botId: 'b1', tool: 'write_file', scope: 'folder', target: '/tmp/work/notes.md', at: 12, secret: 'do-not-expose' }],
+      scopes: ['folder', 'anywhere'], extra: 'do-not-expose' } }
+    return { ok: true, value: { id: payload.id, rules: payload.rules } }
+  }
+  const view = await adapter.action('approval-rules', {})
+  assert.deepEqual(view, { bots: [
+    { id: 'b1', name: 'Chief', rules: [{ tool: '*', scope: 'folder' }, { tool: 'run_command', scope: 'anywhere' }] },
+    { id: 'ghost', name: '', rules: [{ tool: 'x', scope: 'folder' }] },
+  ], recent: [{ botId: 'b1', tool: 'write_file', scope: 'folder', target: '/tmp/work/notes.md', at: 12 }] })
+  assert.ok(!JSON.stringify(view).includes('do-not-expose'))
+
+  const saved = await adapter.action('approval-rule-set', { id: 'b1', rules: [{ tool: '*', scope: 'folder' }], role: 'private' })
+  assert.deepEqual(saved, { id: 'b1', rules: [{ tool: '*', scope: 'folder' }] })
+  assert.deepEqual(seen.filter(item => item.endpoint === 'approval-rule-set'),
+    [{ endpoint: 'approval-rule-set', payload: { id: 'b1', rules: [{ tool: '*', scope: 'folder' }] } }])
+  assert.ok(!seen.some(item => JSON.stringify(item).includes('private')))
+
+  const cleared = await adapter.action('approval-rule-clear', { id: 'b1' })
+  assert.deepEqual(cleared, { id: 'b1', rules: [] })
+  adapter.dispose()
+})

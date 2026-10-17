@@ -80,7 +80,7 @@ export function install(rt) {
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
+  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'approval-rules'])
 
   function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -219,6 +219,11 @@ export function install(rt) {
           return ok(true)
         case 'stop-member-work':
           return ok(await rt.stopMemberWork(String(body.roomId ?? ''), String(body.botId ?? '')))
+        case 'approval-rules':
+        case 'approval-rule-set':
+        case 'approval-rule-clear':
+          await rt.load()
+          return ok(await rt.approvalRuleEndpoint(endpoint, body))
         case 'dismiss-question':
           await rt.load()
           if (state.questions[body.sessionId] !== undefined) {

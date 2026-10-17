@@ -14,6 +14,8 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## Unreleased
 
+- Add approval rules: a Bot can answer some of DSH's approval requests itself instead of asking every turn. A rule names one tool, or every tool, and either the folder the Bot works in or the whole machine; a call outside that folder, or one that names no path, still asks the user. Only the user writes rules, and the host keeps the last rules-answered calls as news rather than team data.
+
 - Add dedicated desktop/mobile Plugin updates pages and explicit repair installation. Archive and registry installs migrate through DSH's public plugin manager to verified immutable source in this fork; same-version revisions are detected without replacing development checkouts or silently downgrading unknown builds.
 - Name the dependency when updating so pnpm replaces legacy broken tarball entries before resolution. Retain verification, compatibility checks and build approvals; report check/install failures, prevent duplicate/stale installs, retain successful release receipts and distinguish immediate application from restart-required updates.
 - Sync upstream [v0.1.6](https://github.com/Fei2411/DeepSeek-Bot/releases/tag/v0.1.6), source `9411ac3629f4c0494c7963a371dee703c2cfd7aa`, retaining the fork's mobile bridge, IPv6, UI and installation flow.

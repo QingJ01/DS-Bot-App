@@ -272,11 +272,16 @@ export function install(rt) {
     return rooms
   }
 
+  // The arguments of a running tool call, as the tool was given them; a call whose
+  // arguments were never recorded reads as none.
+  const callArgs = (sessionId, callId) => {
+    try { return JSON.parse(live.get(sessionId)?.calls?.get(callId)?.args ?? '{}') } catch { return {} }
+  }
+
   // What a running tool call is about, for an approval card: its own description and
   // the command, path or address it acts on.
   const callDetail = (sessionId, callId) => {
-    let args
-    try { args = JSON.parse(live.get(sessionId)?.calls?.get(callId)?.args ?? '{}') } catch { args = {} }
+    const args = callArgs(sessionId, callId)
     const first = keys => keys.map(key => args?.[key]).find(value => typeof value === 'string' && value.trim() !== '')
     const text = first(['description', 'justification'])
     const code = first(['command', 'cmd', 'file_path', 'path', 'url', 'query'])
@@ -551,5 +556,5 @@ export function install(rt) {
     }
   })
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, callDetail, stopRoomTurn, unattended, userSpoke })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, callArgs, callDetail, stopRoomTurn, unattended, userSpoke })
 }
