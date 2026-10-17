@@ -30,6 +30,7 @@ const ACTIONS = {
   context: ['conversationId', 'sessionId', 'seq', 'limit'],
   'reference-chats': ['conversationId'],
   'bot-capability': ['botId', 'name', 'attached'], 'stop-member-work': ['roomId', 'botId'],
+  budgets: ['timeZone'], 'budget-set': ['id', 'tokens'], 'budget-clear': ['id'],
   schedules: [], 'schedule-create': ['target', 'title', 'prompt', 'when'], 'schedule-delete': ['sessionId', 'id'],
   'connector-connect': ['id', 'token'], 'connector-retry': ['id'], 'connector-disconnect': ['id'], 'browser-pages': [], 'browser-read': ['botId', 'start'], 'browser-control': ['botId', 'command', 'tabId', 'url', 'requestId', 'snapshotId', 'item', 'text', 'direction'],
   'secret-set': ['requestId', 'name', 'value', 'purpose', 'scope'], 'secret-allow': ['requestId'], 'secret-cancel': ['requestId'],
@@ -188,6 +189,19 @@ export function createAdapter(rt) {
   const agentView = value => (Array.isArray(value) ? value : []).filter(item => item && typeof item.id === 'string' && Array.isArray(item.sessions))
     .map(({ id, name, sessions, createdAt, pinned, hidden }) => ({ id, name, sessions: sessions.filter(validId), createdAt, pinned, hidden }))
   const secretView = value => value && typeof value.name === 'string' ? Object.fromEntries(['name', 'purpose', 'scope', 'requestedBy', 'createdAt', 'updatedAt', 'lastUsedAt'].filter(key => value[key] !== undefined).map(key => [key, value[key]])) : undefined
+  // Daily budgets: what each Bot may spend today, what it has spent, and whether it is
+  // stopped. Tokens only — DS Bot does not know what a token costs.
+  const budgetItem = bot => ({
+    id: bot.id, name: String(bot.name ?? '').slice(0, 100),
+    ...(Number.isSafeInteger(bot.cap) && bot.cap > 0 ? { cap: bot.cap } : {}),
+    used: Number.isSafeInteger(bot.used) && bot.used > 0 ? bot.used : 0,
+    ...(bot.blocked === true ? { blocked: true } : {}),
+  })
+  const budgetsView = value => ({
+    ...(typeof value?.day === 'string' ? { day: value.day.slice(0, 10) } : {}),
+    bots: (Array.isArray(value?.bots) ? value.bots : []).filter(bot => bot && validId(bot.id)).map(budgetItem),
+  })
+
   async function team(endpoint, payload = {}, signal) {
     const result = await rt.teamCall(endpoint, payload, signal)
     if (result?.ok === false) {
@@ -200,7 +214,7 @@ export function createAdapter(rt) {
     const value = await team('state')
     // Explicit selection keeps future host-only administration fields off phones.
     const selected = Object.fromEntries(['revision', 'workspaceId', 'colors', 'modelsKey', 'mainBotId', 'mainBotIds', 'bots', 'rooms', 'models', 'defaultModel', 'questions',
-      'activity', 'permissions', 'memory', 'memoryNews', 'memoryReviews', 'readOnly', 'prefs'].filter(key => value[key] !== undefined).map(key => [key, value[key]]))
+      'activity', 'permissions', 'memory', 'caps', 'memoryNews', 'memoryReviews', 'readOnly', 'prefs'].filter(key => value[key] !== undefined).map(key => [key, value[key]]))
     selected.rooms = (value.rooms ?? []).map(room => ({ ...room, parts: [] }))
     selected.agents = agentView(value.agents)
     const questionOwners = new Map([
@@ -485,6 +499,8 @@ export function createAdapter(rt) {
       return [...visible.bots, ...visible.rooms, ...visible.agents].find(item => item.id === result.id) ?? { id: result.id }
     }
     if (endpoint.startsWith('secret-')) return secretView(result) ?? (result === true)
+    if (endpoint === 'budgets') return budgetsView(result)
+    if (endpoint === 'budget-set' || endpoint === 'budget-clear') return { id: result?.id ?? body.id, ...(result?.cap === undefined ? {} : { cap: result.cap }) }
     if (['update-check', 'update-install', 'dsh-update-install'].includes(endpoint) && result) return { ...result,
       ...(result.error ? { error: redact(String(result.error)) } : {}),
       ...(result.dsh ? { dsh: { ...result.dsh, ...(result.dsh.error ? { error: redact(String(result.dsh.error)) } : {}) } } : {}),

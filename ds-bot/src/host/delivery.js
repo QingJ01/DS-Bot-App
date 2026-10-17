@@ -43,6 +43,12 @@ export function install(rt) {
     const from = rt.botOf(fromId)
     const to = rt.botOf(toId)
     if (to === undefined) throw new Error(`Unknown Bot ${toId}`)
+    // A Bot that has spent its daily budget takes no new work. A secret card is not work:
+    // the user is handing it a key, and refusing that would be odd.
+    if (role !== 'secret') {
+      const blocked = await rt.budgetBlocks?.(to, { source: `a ${role} to ${to.name}` })
+      if (blocked !== undefined) throw Object.assign(new Error(blocked), { code: 'bot/capped' })
+    }
     const fromName = from?.name ?? 'You'
     const room = rt.roomOf(roomId)
     // Session events reject `undefined` members, so optional fields are omitted instead.

@@ -745,3 +745,34 @@ test('mobile browser command receipts prevent repeated mutations and remain isol
   await assert.rejects(adapter.action('browser-control',uncertain,undefined,{deviceId:'one'}),{status:409});assert.equal(count,3)
   adapter.dispose()
 })
+
+test('the phone reads daily budgets per Bot and sets one within its own fields', async () => {
+  const { rt, adapter } = fixture()
+  const seen = []
+  rt.teamCall = async (endpoint, payload) => {
+    seen.push({ endpoint, payload })
+    if (endpoint === 'budgets') return { ok: true, value: { day: '2026-10-17', current: 'do-not-expose', bots: [
+      { id: 'b1', name: 'Chief', cap: 50_000, used: 12_345, blocked: false, plan: 'do-not-expose' },
+      { id: 'b2', name: 'Writer', cap: 100, used: 100, blocked: true },
+      { id: 'b3', name: 'New' },
+    ] } }
+    return { ok: true, value: { id: payload.id, ...(payload.tokens === null ? {} : { cap: payload.tokens }) } }
+  }
+  const view = await adapter.action('budgets', { timeZone: 'Asia/Riyadh' })
+  assert.deepEqual(view, { day: '2026-10-17', bots: [
+    { id: 'b1', name: 'Chief', cap: 50_000, used: 12_345 },
+    { id: 'b2', name: 'Writer', cap: 100, used: 100, blocked: true },
+    { id: 'b3', name: 'New', used: 0 },
+  ] })
+  assert.ok(!JSON.stringify(view).includes('do-not-expose'))
+  assert.deepEqual(seen.filter(item => item.endpoint === 'budgets'),
+    [{ endpoint: 'budgets', payload: { timeZone: 'Asia/Riyadh' } }])
+
+  assert.deepEqual(await adapter.action('budget-set', { id: 'b1', tokens: 9_000, plan: 'private' }), { id: 'b1', cap: 9_000 })
+  assert.deepEqual(await adapter.action('budget-clear', { id: 'b1' }), { id: 'b1' })
+  assert.deepEqual(seen.filter(item => item.endpoint.startsWith('budget-')),
+    [{ endpoint: 'budget-set', payload: { id: 'b1', tokens: 9_000 } }, { endpoint: 'budget-clear', payload: { id: 'b1' } }])
+  assert.ok(!seen.some(item => JSON.stringify(item).includes('private')))
+  adapter.dispose()
+})
+

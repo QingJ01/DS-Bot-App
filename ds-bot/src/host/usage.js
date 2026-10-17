@@ -513,6 +513,31 @@ export function install(rt) {
     }
   }
 
+  // Tokens each owner has spent in the local day that is running now, for the daily
+  // budgets in caps.js. Answers with what the ledger has after a bounded wait, like the
+  // Usage page: a scan still running shows the part it has written.
+  async function usageToday({ timeZone } = {}) {
+    const job = scan().catch(error => rt.warn('ds-bot: usage scan failed: %s', error))
+    let timer
+    await Promise.race([job, new Promise((resolve) => { timer = setTimeout(resolve, VIEW_WAIT_MS) })])
+    clearTimeout(timer)
+    const ledger = await openLedger()
+    const stored = ledger.owners()
+    const live = liveOwners(listed, stored)
+    const hourOf = hourKeys(typeof timeZone === 'string' ? timeZone : undefined)
+    const day = hourOf(Date.now()).slice(0, 10)
+    const totals = new Map()
+    for (const group of ledger.groups()) {
+      if (hourOf(group.slot * SLOT_MS).slice(0, 10) !== day) continue
+      const owner = (live.get(group.session) ?? stored.get(group.session))?.owner ?? 'other'
+      const row = totals.get(owner) ?? { tokens: 0, calls: 0 }
+      row.tokens += group.input + group.cacheRead + group.cacheWrite + group.output
+      row.calls += group.calls
+      totals.set(owner, row)
+    }
+    return { day, totals }
+  }
+
   // DS Bot tags the requests it makes outside a Session with the Session they serve.
   const tags = new WeakMap()
   const tagUsage = (messages, tag) => {
@@ -593,5 +618,5 @@ export function install(rt) {
     })()
   })
 
-  Object.assign(rt, { usageView, tagUsage, carryUsageTag, ownRequest })
+  Object.assign(rt, { usageView, usageToday, tagUsage, carryUsageTag, ownRequest })
 }

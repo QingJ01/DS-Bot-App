@@ -63,6 +63,8 @@ export function install(rt) {
     browser: rt.browserEnabled,
     // False when config.memory turns memory off: no Memory row or panel.
     memory: rt.memoryEnabled !== false,
+    // Daily budgets per Bot: the setting, and whether this day's has been spent.
+    caps: rt.capsView?.() ?? {},
     // Set while another dsh host holds the team (store.js): why this one cannot change it.
     readOnly: rt.readOnly() ?? null,
   })
@@ -80,7 +82,9 @@ export function install(rt) {
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
+
+  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'budgets', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
+
 
   function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -138,7 +142,15 @@ export function install(rt) {
           return ok(await rt.earlierPage(String(body.sessionId ?? ''), body.cursor ?? undefined))
         case 'usage':
           await rt.load()
+          // The day a daily budget counts is the user's day, not the host's UTC one.
+          rt.setTimeZone?.(body.timeZone)
           return ok(await rt.usageView({ timeZone: typeof body.timeZone === 'string' ? body.timeZone.slice(0, 64) : undefined }))
+        case 'budgets':
+        case 'budget-set':
+        case 'budget-clear':
+          await rt.load()
+          rt.setTimeZone?.(body.timeZone)
+          return ok(await rt.budgetEndpoint(endpoint, body))
         case 'room-progress':
           return ok([...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === body.roomId).map(([callId, entry]) => ({ callId, replies: entry.replies, speaking: entry.speaking ?? null })))
         case 'create-bot': {
@@ -263,6 +275,9 @@ export function install(rt) {
           if (question === undefined || question.id !== body.questionId) return fail('This question is no longer open', 'bot/stale')
           const reply = questionReply(question, body.answer)
           if (reply === undefined) return fail('Nothing to send', 'bot/invalid')
+          // An answer starts a turn like any other message, so a spent budget stops it too.
+          const overBudget = await rt.budgetBlocks?.(rt.botOf(rt.selfOf(sessionId)), { source: 'an answer to a question' })
+          if (overBudget !== undefined) return fail(overBudget, 'bot/capped')
           // Claim the question before queueing so a second answer is refused.
           delete state.questions[sessionId]
           try {
@@ -284,6 +299,11 @@ export function install(rt) {
           // A Bot id or an earlier part of its own chat means the current part.
           const past = rt.pastOwners.get(body.sessionId)
           const sessionId = rt.botOf(body.sessionId) ? rt.chatOf(body.sessionId) : past && past.roomId === undefined ? rt.chatOf(past.botId) : body.sessionId
+          // A Bot that has spent its daily budget takes no new work, from the phone or the
+          // browser. A group's own Session only relays, and its members are checked when
+          // the relay reaches them (delivery.js).
+          const blocked = await rt.budgetBlocks?.(rt.botOf(rt.selfOf(sessionId)), { source: 'a message from the user' })
+          if (blocked !== undefined) return fail(blocked, 'bot/capped')
           await rt.ensureCapabilities(sessionId)
           await ctx.sessionController.prompt({
             requestId: randomUUID(),

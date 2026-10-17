@@ -14,6 +14,8 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## Unreleased
 
+- Add daily budgets: a Bot can be given a token limit for one day, and once it has spent it the Bot takes no new work until the next day — a message to it is refused with the reason, another Bot cannot hand it a task, and a group turn that would reach it stops before it starts. The count is the one the Usage page sums, over the user's own day; the first refusal of the day is recorded once in the diagnostics log and the team view marks the Bot as blocked.
+
 - Add dedicated desktop/mobile Plugin updates pages and explicit repair installation. Archive and registry installs migrate through DSH's public plugin manager to verified immutable source in this fork; same-version revisions are detected without replacing development checkouts or silently downgrading unknown builds.
 - Name the dependency when updating so pnpm replaces legacy broken tarball entries before resolution. Retain verification, compatibility checks and build approvals; report check/install failures, prevent duplicate/stale installs, retain successful release receipts and distinguish immediate application from restart-required updates.
 - Sync upstream [v0.1.6](https://github.com/Fei2411/DeepSeek-Bot/releases/tag/v0.1.6), source `9411ac3629f4c0494c7963a371dee703c2cfd7aa`, retaining the fork's mobile bridge, IPv6, UI and installation flow.
