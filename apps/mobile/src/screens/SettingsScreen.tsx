@@ -24,7 +24,7 @@ import {
   styles,
 } from "../components/UI";
 import { inks } from "../components/BotAvatar";
-import { SchedulesPanel, UsagePanel } from "../features";
+import { SchedulesPanel, UsagePanel, WebhooksPanel } from "../features";
 import { HostSettingsPanel } from "../host-settings/HostSettingsPanel";
 import { Host, tokenStore } from "../storage";
 import { errorText, TeamState } from "../types";
@@ -41,6 +41,7 @@ export type SettingsPage =
   | "general"
   | "mobile"
   | "schedules"
+  | "webhooks"
   | "usage"
   | "connectors"
   | "secrets"
@@ -60,6 +61,7 @@ const pages: {
   { id: "mobile", title: "Mobile devices", icon: "devices" },
   { id: "connectors", title: "Connectors", icon: "connectors" },
   { id: "schedules", title: "Scheduled tasks", icon: "schedules" },
+  { id: "webhooks", title: "Webhooks", icon: "connectors" },
   { id: "usage", title: "Usage", icon: "usage" },
   { id: "secrets", title: "Secrets", icon: "secrets" },
   { id: "feedback", title: "Feedback", icon: "feedback" },
@@ -186,6 +188,7 @@ export function SettingsScreen({
             <Section title={tr("Bot")}>
               <SettingRow title={tr("Bots & groups")} onPress={() => openTeam?.("bots")}/>
               <SettingRow title={tr("Scheduled tasks")} onPress={() => setPage("schedules")}/>
+              <SettingRow title={tr("Webhooks")} onPress={() => setPage("webhooks")}/>
               <SettingRow title={tr("Classic Agent mode")} hint={tr("Show DSH Agent conversations on the home screen.")}><Switch accessibilityLabel={tr("Classic Agent mode")} value={classic} disabled={locked} onValueChange={onClassicChange} trackColor={{false:t.lineStrong,true:t.ink}} thumbColor={t.bg}/></SettingRow>
               <SettingRow title={tr("Bot computer")} onPress={() => setPage("mobile")} last/>
             </Section>
@@ -487,6 +490,9 @@ export function SettingsScreen({
         {page === "updates" && <PluginUpdateCard client={client} team={team} online={online} refresh={refresh}/>}
         {page === "schedules" && (
           <SchedulesPanel client={client} team={team} online={online} />
+        )}
+        {page === "webhooks" && (
+          <WebhooksPanel client={client} team={team} online={online} />
         )}
         {page === "usage" && (
           <UsagePanel client={client} team={team} online={online} />

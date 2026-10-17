@@ -1,5 +1,6 @@
 import type { MobileClient, Conversation, Message } from "@ds-bot/mobile-sdk";
-import type { TeamState } from "../types";
+import type { TeamState, WebhookItem, WebhookView } from "../types";
+export type { WebhookItem, WebhookView };
 
 export interface FeatureProps {
   client: MobileClient;

@@ -745,3 +745,36 @@ test('mobile browser command receipts prevent repeated mutations and remain isol
   await assert.rejects(adapter.action('browser-control',uncertain,undefined,{deviceId:'one'}),{status:409});assert.equal(count,3)
   adapter.dispose()
 })
+
+test('the phone reads webhooks with their URL and never the stored digest', async () => {
+  const { view, adapter } = fixture()
+  view.hooks = {
+    enabled: true, running: true, url: 'http://192.168.1.5:8790',
+    hooks: [{ id: 'h1', name: 'CI', botId: 'b1', template: 'Build {{text}}', enabled: true, createdAt: 7,
+      url: 'http://192.168.1.5:8790/hook/h1', deliveries: 2, lastDeliveryAt: 9, secretHash: 'do-not-expose' }],
+  }
+  const state = await adapter.state()
+  assert.equal(state.hooks.enabled, true)
+  assert.equal(state.hooks.running, true)
+  assert.equal(state.hooks.url, 'http://192.168.1.5:8790')
+  assert.deepEqual(state.hooks.hooks, [{ id: 'h1', name: 'CI', botId: 'b1', template: 'Build {{text}}',
+    enabled: true, createdAt: 7, url: 'http://192.168.1.5:8790/hook/h1', lastDeliveryAt: 9, deliveries: 2 }])
+  assert.ok(!JSON.stringify(state).includes('do-not-expose'))
+  adapter.dispose()
+})
+
+test('a webhook the phone creates comes back with its one-time secret, and only the allowed fields reach the host', async () => {
+  const { rt, adapter } = fixture()
+  const hook = { id: 'h2', name: 'Deploy', botId: 'b1', template: '', enabled: true, createdAt: 8,
+    url: 'http://192.168.1.5:8790/hook/h2', deliveries: 0, secretHash: 'do-not-expose' }
+  const seen = []
+  rt.teamCall = async (endpoint, payload) => { seen.push({ endpoint, payload }); return { ok: true, value: { hook, secret: 'shown-once' } } }
+  const made = await adapter.action('hook-create', { name: 'Deploy', botId: 'b1', password: 'private' })
+  assert.deepEqual(seen.filter((item) => item.endpoint === 'hook-create'), [{ endpoint: 'hook-create', payload: { name: 'Deploy', botId: 'b1' } }])
+  assert.ok(!seen.some((item) => JSON.stringify(item).includes('private')))
+  assert.equal(made.secret, 'shown-once')
+  assert.deepEqual(made.hook, { id: 'h2', name: 'Deploy', botId: 'b1', template: '', enabled: true, createdAt: 8,
+    url: 'http://192.168.1.5:8790/hook/h2', deliveries: 0 })
+  assert.ok(!JSON.stringify(made).includes('do-not-expose'))
+  adapter.dispose()
+})

@@ -57,6 +57,25 @@ export interface MemberWork extends WorkStatus { botId: string; speaking?: boole
 export interface Capability { name: string; kind: "mcp" | "skill" | "pack"; description?: string; transport?: string; approved?: boolean; items?: string[] }
 export interface CapabilityStatus { state: "ready" | "connecting" | "needs-approval" | "error"; error?: string }
 export interface TeamWork { bots: Record<string, WorkStatus & { roomId?: string }>; rooms?: Record<string, MemberWork[]>; approvals: { id: string; botId: string; roomId?: string; sessionId?: string; answerable?: boolean }[] }
+export interface WebhookItem {
+  id: string;
+  name: string;
+  botId?: string;
+  roomId?: string;
+  template: string;
+  enabled: boolean;
+  createdAt?: number;
+  url?: string;
+  lastDeliveryAt?: number;
+  deliveries: number;
+}
+export interface WebhookView {
+  enabled: boolean;
+  running: boolean;
+  url?: string;
+  error?: string;
+  hooks: WebhookItem[];
+}
 export interface TeamState {
   bots: Bot[];
   rooms: Room[];
@@ -80,6 +99,7 @@ export interface TeamState {
   memoryReviews?: Record<string, unknown>;
   capabilities?: Capability[];
   capabilityStatuses?: Record<string, Record<string, CapabilityStatus>>;
+  hooks?: WebhookView | null;
 }
 export function teamState(value: Record<string, unknown>): TeamState {
   return {

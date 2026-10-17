@@ -31,6 +31,8 @@ const ACTIONS = {
   'reference-chats': ['conversationId'],
   'bot-capability': ['botId', 'name', 'attached'], 'stop-member-work': ['roomId', 'botId'],
   schedules: [], 'schedule-create': ['target', 'title', 'prompt', 'when'], 'schedule-delete': ['sessionId', 'id'],
+  'hooks-list': [], 'hook-create': ['name', 'botId', 'roomId', 'template'],
+  'hook-update': ['id', 'name', 'botId', 'roomId', 'template', 'enabled'], 'hook-delete': ['id'], 'hook-rotate': ['id'],
   'connector-connect': ['id', 'token'], 'connector-retry': ['id'], 'connector-disconnect': ['id'], 'browser-pages': [], 'browser-read': ['botId', 'start'], 'browser-control': ['botId', 'command', 'tabId', 'url', 'requestId', 'snapshotId', 'item', 'text', 'direction'],
   'secret-set': ['requestId', 'name', 'value', 'purpose', 'scope'], 'secret-allow': ['requestId'], 'secret-cancel': ['requestId'],
   'secret-update': ['name', 'scope'], 'secret-delete': ['name'],
@@ -188,6 +190,25 @@ export function createAdapter(rt) {
   const agentView = value => (Array.isArray(value) ? value : []).filter(item => item && typeof item.id === 'string' && Array.isArray(item.sessions))
     .map(({ id, name, sessions, createdAt, pinned, hidden }) => ({ id, name, sessions: sessions.filter(validId), createdAt, pinned, hidden }))
   const secretView = value => value && typeof value.name === 'string' ? Object.fromEntries(['name', 'purpose', 'scope', 'requestedBy', 'createdAt', 'updatedAt', 'lastUsedAt'].filter(key => value[key] !== undefined).map(key => [key, value[key]])) : undefined
+  // Webhooks, without the digest the host keeps: the phone shows the name, the target and
+  // the URL to copy, and never the stored secret.
+  const hookItem = item => ({
+    id: item.id, name: String(item.name ?? '').slice(0, 200),
+    ...(item.botId ? { botId: item.botId } : {}), ...(item.roomId ? { roomId: item.roomId } : {}),
+    template: typeof item.template === 'string' ? item.template.slice(0, 500) : '',
+    enabled: item.enabled !== false,
+    ...(Number.isFinite(item.createdAt) ? { createdAt: item.createdAt } : {}),
+    ...(typeof item.url === 'string' ? { url: item.url } : {}),
+    ...(Number.isFinite(item.lastDeliveryAt) ? { lastDeliveryAt: item.lastDeliveryAt } : {}),
+    deliveries: Number.isFinite(item.deliveries) ? item.deliveries : 0,
+  })
+  const hookView = value => ({
+    enabled: value?.enabled === true,
+    running: value?.running === true,
+    ...(typeof value?.url === 'string' ? { url: value.url } : {}),
+    ...(typeof value?.error === 'string' ? { error: redact(value.error) } : {}),
+    hooks: (Array.isArray(value?.hooks) ? value.hooks : []).filter(item => item && validId(item.id)).map(hookItem),
+  })
   async function team(endpoint, payload = {}, signal) {
     const result = await rt.teamCall(endpoint, payload, signal)
     if (result?.ok === false) {
@@ -202,6 +223,7 @@ export function createAdapter(rt) {
     const selected = Object.fromEntries(['revision', 'workspaceId', 'colors', 'modelsKey', 'mainBotId', 'mainBotIds', 'bots', 'rooms', 'models', 'defaultModel', 'questions',
       'activity', 'permissions', 'memory', 'memoryNews', 'memoryReviews', 'readOnly', 'prefs'].filter(key => value[key] !== undefined).map(key => [key, value[key]]))
     selected.rooms = (value.rooms ?? []).map(room => ({ ...room, parts: [] }))
+    selected.hooks = hookView(value.hooks)
     selected.agents = agentView(value.agents)
     const questionOwners = new Map([
       ...(value.bots ?? []).flatMap(bot => [bot.id, bot.sessionId, ...(bot.parts ?? [])].map(id => [id, bot.id])),
@@ -485,6 +507,9 @@ export function createAdapter(rt) {
       return [...visible.bots, ...visible.rooms, ...visible.agents].find(item => item.id === result.id) ?? { id: result.id }
     }
     if (endpoint.startsWith('secret-')) return secretView(result) ?? (result === true)
+    if (endpoint === 'hooks-list') return hookView(result)
+    if (endpoint === 'hook-create' || endpoint === 'hook-rotate') return { hook: result?.hook ? hookItem(result.hook) : null, secret: result?.secret }
+    if (endpoint === 'hook-update') return { hook: result?.hook ? hookItem(result.hook) : null }
     if (['update-check', 'update-install', 'dsh-update-install'].includes(endpoint) && result) return { ...result,
       ...(result.error ? { error: redact(String(result.error)) } : {}),
       ...(result.dsh ? { dsh: { ...result.dsh, ...(result.dsh.error ? { error: redact(String(result.dsh.error)) } : {}) } } : {}),
