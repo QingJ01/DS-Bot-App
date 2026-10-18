@@ -12,10 +12,12 @@ SPEC.loader.exec_module(INSTALLER)
 
 class PluginInstallerTests(unittest.TestCase):
     def test_normal_install_text_is_consistent_across_user_guides(self):
-        spec = json.loads((ROOT / "releases/plugin-install.json").read_text())["spec"]
+        metadata = json.loads((ROOT / "releases/plugin-install.json").read_text())
+        spec = metadata["spec"]
+        current_release_notes = f"docs/releases/{metadata['revision']}.md"
         for name in ["README.md", "README.zh.md", "docs/getting-started.md",
                      "docs/getting-started.zh.md", "docs/plugin-install-recovery.md",
-                     "docs/releases/v0.1.1-r2.md"]:
+                     current_release_notes]:
             with self.subTest(document=name):
                 self.assertIn(spec, (ROOT / name).read_text(encoding="utf-8"))
 
