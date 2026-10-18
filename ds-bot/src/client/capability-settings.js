@@ -35,7 +35,7 @@ function CapabilityForm({ draft, setDraft, items, actions, onClose }) {
     setError('')
     let payload
     try {
-      payload = { name: draft.name.trim(), kind: draft.kind, description: draft.description }
+      payload = { name: draft.name.trim(), kind: draft.kind, description: draft.description, ...(draft.originalName === undefined ? { create: true } : {}) }
       if (draft.kind === 'mcp' && draft.transport === 'stdio') {
         payload.transport = 'stdio'
         payload.command = draft.command

@@ -87,6 +87,7 @@ export function install(rt) {
     if (!['mcp', 'skill', 'pack'].includes(kind)) throw new Error('Choose an MCP server, skill, or pack.')
     const items = ensureLibrary()
     const previous = items[name]
+    if (body.create === true && previous) throw new Error(`A capability named ${name} already exists. Edit it or choose another name.`)
     if (previous && !ui) editCheck(previous, botId, 'change')
     if (previous && previous.kind !== kind) throw new Error('A capability cannot change its kind. Delete it and save a new one.')
     const now = Date.now()
