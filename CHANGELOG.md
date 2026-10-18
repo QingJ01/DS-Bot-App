@@ -24,6 +24,12 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ### Fixed
 
+- Seed pnpm's package store and registry metadata for offline Docker upgrades, and roll back failed or timed-out plugin reinstalls so the prior profile remains usable.
+- Keep the collapsed sidebar footer centered in one unclipped column while preserving the expanded layout.
+- Apply a Bot's permission preset to every eligible Session before saving it, leaving the preset retryable after a partial failure.
+- Roll back a newly created schedule when deleting the earlier Session's task fails, and report both record IDs if rollback also fails.
+- Reserve per-device WebSocket slots before asynchronous target resolution and release them when authentication fails.
+- Reject duplicate capability names from Add while preserving Edit and Bot-tool upsert behavior.
 - Include upstream fixes for group attachments and hand-off completion, concurrent Bot/group changes and deletion, work-folder recovery, relative file links, reactions and unread marks across tabs, search routes, sidebar controls, feedback links, theme contrast and diagnostics shutdown.
 
 ## DS Bot App [v0.1.2-r1] - 2026-10-15
