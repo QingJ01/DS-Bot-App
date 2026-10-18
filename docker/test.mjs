@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout } from 'node:timers/promises'
@@ -17,7 +17,7 @@ const tempDir = mkdtempSync(join(tmpdir(), `${name}-`))
 function docker(args, { allowFailure = false } = {}) {
   const result = spawnSync('docker', args, {
     encoding: 'utf8',
-    timeout: 120_000,
+    timeout: 210_000,
     maxBuffer: 1024 * 1024,
   })
   if (!allowFailure && (result.error || result.status !== 0)) {
@@ -45,7 +45,7 @@ function shell(script) {
 
 function startHelp(uid, gid, archive) {
   const archiveMount = archive ? ['--mount', `type=bind,src=${archive},dst=/opt/ds-bot/ds-bot.tgz,readonly`] : []
-  run(['-e', `PUID=${uid}`, '-e', `PGID=${gid}`, image, '--help'], archiveMount)
+  return run(['-e', `PUID=${uid}`, '-e', `PGID=${gid}`, image, '--help'], archiveMount)
 }
 
 function makeSameVersionArchive() {
@@ -77,10 +77,29 @@ function makeSameVersionArchive() {
   return changedArchive
 }
 
+function makeUnsatisfiableArchive(sourceArchive) {
+  const archive = join(tempDir, 'unsatisfiable.tgz')
+  const unpacked = join(tempDir, 'unsatisfiable')
+  mkdirSync(unpacked)
+  const extract = spawnSync('tar', ['-xzf', sourceArchive, '-C', unpacked], { encoding: 'utf8', timeout: 120_000 })
+  if (extract.error || extract.status !== 0) throw new Error(`tar extract failed: ${extract.error?.message ?? extract.stderr}`)
+  const manifest = join(unpacked, 'package', 'package.json')
+  const pkg = JSON.parse(readFileSync(manifest, 'utf8'))
+  pkg.dependencies = { ...pkg.dependencies, [`ds-bot-offline-failure-${randomUUID().replaceAll('-', '')}`]: '0.0.1' }
+  writeFileSync(manifest, JSON.stringify(pkg))
+  const pack = spawnSync('tar', ['-czf', archive, '-C', unpacked, 'package'], { encoding: 'utf8', timeout: 120_000 })
+  if (pack.error || pack.status !== 0) throw new Error(`tar pack failed: ${pack.error?.message ?? pack.stderr}`)
+  return archive
+}
+
 function checkDataOwner(uid, gid) {
   shell(`
     test -z "$(find -P /data -xdev \\( ! -uid ${uid} -o ! -gid ${gid} \\) -print -quit)"
     test "$(stat -c %a /data/profiles/web/package.json)" = 600
+    test -n "$(find /data/.pnpm-store/v11/files -type f -print -quit)"
+    test -n "$(find /home/node/.cache/pnpm -type f -name qrcode.jsonl -print -quit)"
+    test -n "$(find /home/node/.cache/pnpm -type f -name cliui.jsonl -print -quit)"
+    test -z "$(find /home/node/.cache/pnpm \\( ! -uid 1000 -o ! -gid 1000 \\) -print -quit)"
     test "$(cat /data/review-state.txt)" = preserved
     test "$(stat -c %u:%g /workspace)" = 2345:2346
     test "$(stat -c %u:%g /workspace/keep.txt)" = 2345:2346
@@ -140,13 +159,58 @@ try {
 
   const revisedArchive = makeSameVersionArchive()
   const revisedHash = createHash('sha256').update(readFileSync(revisedArchive)).digest('hex')
-  startHelp(1234, 1235, revisedArchive)
+  const revisedInstall = startHelp(1234, 1235, revisedArchive)
+  assert.match(revisedInstall.stdout, /Lockfile passes supply-chain policies/)
+  const installedVersion = shell(`jq -r .version /data/profiles/web/node_modules/ds-bot/package.json`).stdout.trim()
+  const templateVersion = shell(`jq -r .version /opt/dsh-template/profiles/web/node_modules/ds-bot/package.json`).stdout.trim()
+  const installedHash = shell(`cat /data/.ds-bot-image.sha256`).stdout.trim()
+  const marker = shell(`grep -q 'Docker same-version archive test marker' /data/profiles/web/node_modules/ds-bot/README.md && echo present || echo missing`).stdout.trim()
+  assert.equal(installedVersion, templateVersion, 'the revised archive must keep the installed version aligned with the template')
+  assert.equal(installedHash, revisedHash, `the revised archive hash must be recorded\n${revisedInstall.stdout}\n${revisedInstall.stderr}`)
+  assert.equal(marker, 'present', 'the changed file from the same-version archive must replace the installed file')
+  console.log('PASS: same-version changed archive triggers reinstall and updates its stamp')
+
+  const unsatisfiableArchive = makeUnsatisfiableArchive(revisedArchive)
+  const beforeFailure = shell(`
+    sha256sum /data/profiles/web/node_modules/ds-bot/package.json /data/profiles/web/node_modules/ds-bot/README.md
+  `).stdout
+  const failedAt = Date.now()
+  const failedInstall = startHelp(1234, 1235, unsatisfiableArchive)
+  assert.equal(failedInstall.status, 0, failedInstall.stderr)
+  assert.match(failedInstall.stdout, /reinstalling into the web profile/)
+  assert.match(failedInstall.stderr, /reinstall failed or timed out/)
+  assert.equal(shell(`
+    sha256sum /data/profiles/web/node_modules/ds-bot/package.json /data/profiles/web/node_modules/ds-bot/README.md
+  `).stdout, beforeFailure)
   shell(`
     test "$(jq -r .version /data/profiles/web/node_modules/ds-bot/package.json)" = "$(jq -r .version /opt/dsh-template/profiles/web/node_modules/ds-bot/package.json)"
     test "$(cat /data/.ds-bot-image.sha256)" = "${revisedHash}"
     grep -q 'Docker same-version archive test marker' /data/profiles/web/node_modules/ds-bot/README.md
   `)
-  console.log('PASS: same-version changed archive triggers reinstall and updates its stamp')
+  console.log(`PASS: failed offline plugin reinstall restores the previous profile and archive stamp (${((Date.now() - failedAt) / 1000).toFixed(1)}s)`)
+
+  const beforeRecovery = shell(`
+    sha256sum /data/profiles/web/node_modules/ds-bot/package.json /data/profiles/web/node_modules/ds-bot/README.md
+  `).stdout
+  shell(`
+    mkdir -p /data/profiles/.web-ds-bot-snapshot
+    cp -a /data/profiles/web /data/profiles/.web-ds-bot-snapshot/profile
+    cp -a /data/.ds-bot-image.sha256 /data/profiles/.web-ds-bot-snapshot/stamp
+    printf interrupted > /data/profiles/web/node_modules/ds-bot/README.md
+    printf wrong > /data/.ds-bot-image.sha256
+  `)
+  const recovered = startHelp(1234, 1235, revisedArchive)
+  assert.equal(recovered.status, 0, recovered.stderr)
+  assert.match(recovered.stdout, /recovering an interrupted ds-bot reinstall/)
+  assert.doesNotMatch(recovered.stdout, /reinstalling into the web profile/)
+  assert.equal(shell(`
+    sha256sum /data/profiles/web/node_modules/ds-bot/package.json /data/profiles/web/node_modules/ds-bot/README.md
+  `).stdout, beforeRecovery)
+  shell(`
+    test "$(cat /data/.ds-bot-image.sha256)" = "${revisedHash}"
+    test ! -e /data/profiles/.web-ds-bot-snapshot
+  `)
+  console.log('PASS: startup restores and removes a stale reinstall snapshot')
 
   const server = `${name}-web`
   containers.add(server)

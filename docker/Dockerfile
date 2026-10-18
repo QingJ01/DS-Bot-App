@@ -24,7 +24,12 @@ COPY ds-bot/ /src/ds-bot/
 RUN cd /src/ds-bot \
     && npm pack --pack-destination /tmp \
     && mv /tmp/ds-bot-*.tgz /tmp/ds-bot.tgz \
-    && DSH_HOME=/opt/dsh-template dsh plugin --profile web add /tmp/ds-bot.tgz
+    && mkdir -p /opt/ds-bot \
+    && cp /tmp/ds-bot.tgz /opt/ds-bot/ds-bot.tgz \
+    && DSH_HOME=/opt/dsh-template dsh plugin --profile web add /tmp/ds-bot.tgz \
+    && DSH_HOME=/opt/dsh-template dsh plugin --profile web add /opt/ds-bot/ds-bot.tgz \
+    && mkdir -p /pnpm-store/v11 \
+    && cp -a "$(pnpm store path)/." /pnpm-store/v11/
 
 FROM node:24-bookworm-slim
 
@@ -38,7 +43,9 @@ RUN apt-get update \
 
 COPY --from=build /usr/local/ /usr/local/
 COPY --from=build /opt/dsh-template /opt/dsh-template
-COPY --from=build /tmp/ds-bot.tgz /opt/ds-bot/ds-bot.tgz
+COPY --from=build /pnpm-store /opt/ds-bot/pnpm-store
+COPY --from=build --chown=node:node /root/.cache/pnpm /home/node/.cache/pnpm
+COPY --from=build /opt/ds-bot/ds-bot.tgz /opt/ds-bot/ds-bot.tgz
 COPY --from=build /pnpm-version /opt/ds-bot/pnpm-version
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/docker.patch.yml /opt/ds-bot/docker.patch.yml
