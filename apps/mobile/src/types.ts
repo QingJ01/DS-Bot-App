@@ -52,7 +52,7 @@ export interface Question {
   [key: string]: unknown;
 }
 export interface Reasoning { efforts: { id: string; name: string; description?: string }[]; defaultEffort?: string }
-export interface WorkStatus { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; since?: number }
+export interface WorkStatus { tool?: string; said?: string; note?: string; target?: string; switching?: boolean; since?: number; waiting?: { bots: string[]; rooms: string[] } }
 export interface MemberWork extends WorkStatus { botId: string; speaking?: boolean }
 export interface Capability { name: string; kind: "mcp" | "skill" | "pack"; description?: string; transport?: string; approved?: boolean; items?: string[] }
 export interface CapabilityStatus { state: "ready" | "connecting" | "needs-approval" | "error"; error?: string }

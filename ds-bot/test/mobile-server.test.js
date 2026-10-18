@@ -280,6 +280,85 @@ test('revocation during WebSocket target resolution cannot open a stream', async
   assert.equal(followed, false)
 })
 
+test('WebSocket device limits include concurrent authentication reservations', async t => {
+  const f = await fixture(t)
+  const session = await f.pair()
+  let enteredTargets = 0
+  let enterFive
+  const fiveTargetsEntered = new Promise(resolve => { enterFive = resolve })
+  let releaseTargets
+  const targetGate = new Promise(resolve => { releaseTargets = resolve })
+  f.adapter.target = async () => {
+    if (++enteredTargets === 5) enterFive()
+    await targetGate
+    return { sessionId: 'session-one' }
+  }
+
+  const connect = () => {
+    const socket = new WebSocket(`${f.server.url.replace('http:', 'ws:')}/mobile/v1/events`)
+    const outcome = new Promise(resolve => socket.on('message', bytes => {
+      const frame = JSON.parse(String(bytes))
+      if (frame.type === 'ready' || frame.type === 'error') resolve(frame)
+    }))
+    t.after(() => socket.terminate())
+    return { socket, outcome }
+  }
+  const initial = Array.from({ length: 6 }, connect)
+  await Promise.all(initial.map(({ socket }) => once(socket, 'open')))
+  for (const { socket } of initial) socket.send(JSON.stringify({ type: 'auth', token: session.accessToken, conversationId: 'bot-one' }))
+  await fiveTargetsEntered
+  let earlyTimer
+  const early = await Promise.race([
+    ...initial.map(({ outcome }) => outcome),
+    new Promise(resolve => { earlyTimer = setTimeout(() => resolve(null), 2000) }),
+  ])
+  clearTimeout(earlyTimer)
+
+  releaseTargets()
+  const outcomes = await Promise.all(initial.map(({ outcome }) => outcome))
+  assert.ok(early, 'six concurrent authentication attempts should reject one connection before target resolution completes')
+  assert.equal(early.type, 'error')
+  assert.equal(early.error.code, 'CONNECTION_LIMIT')
+  assert.equal(outcomes.filter(frame => frame.type === 'ready').length, 5)
+  assert.equal(outcomes.filter(frame => frame.error?.code === 'CONNECTION_LIMIT').length, 1)
+
+  const seventh = connect()
+  await once(seventh.socket, 'open')
+  seventh.socket.send(JSON.stringify({ type: 'auth', token: session.accessToken, conversationId: 'bot-one' }))
+  const control = await seventh.outcome
+  assert.equal(control.type, 'error')
+  assert.equal(control.error.code, 'CONNECTION_LIMIT')
+})
+
+test('a failed WebSocket target releases its reserved device slot', async t => {
+  const f = await fixture(t)
+  const session = await f.pair()
+  let targetCalls = 0
+  f.adapter.target = async () => {
+    if (++targetCalls === 1) throw new Error('target failed')
+    return { sessionId: 'session-one' }
+  }
+  const connect = () => {
+    const socket = new WebSocket(`${f.server.url.replace('http:', 'ws:')}/mobile/v1/events`)
+    const outcome = new Promise(resolve => socket.on('message', bytes => {
+      const frame = JSON.parse(String(bytes))
+      if (frame.type === 'ready' || frame.type === 'error') resolve(frame)
+    }))
+    t.after(() => socket.terminate())
+    return { socket, outcome }
+  }
+  const failed = connect()
+  await once(failed.socket, 'open')
+  failed.socket.send(JSON.stringify({ type: 'auth', token: session.accessToken, conversationId: 'bot-one' }))
+  assert.equal((await failed.outcome).type, 'error')
+
+  const remaining = Array.from({ length: 5 }, connect)
+  await Promise.all(remaining.map(({ socket }) => once(socket, 'open')))
+  for (const { socket } of remaining) socket.send(JSON.stringify({ type: 'auth', token: session.accessToken, conversationId: 'bot-one' }))
+  const outcomes = await Promise.all(remaining.map(({ outcome }) => outcome))
+  assert.equal(outcomes.filter(frame => frame.type === 'ready').length, 5)
+})
+
 test('upload receipts are restricted to the uploading device and conversation', async t => {
   const f = await fixture(t)
   const owner = await f.pair('Uploader')

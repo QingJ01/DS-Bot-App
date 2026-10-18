@@ -27,6 +27,7 @@ import { dirname, join } from 'node:path'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { splitRef, unquote } from './text.js'
+import { speakerOf } from '../shared/mentions.js'
 import { output } from './tools.js'
 
 // Fixed sizes, in characters. Both MEMORY.md files ride in every request of every
@@ -1127,14 +1128,14 @@ export function install(rt) {
     const log = (room.log ?? []).filter(line => line.kind === undefined && typeof line.text === 'string' && line.text.trim() !== '')
     // A first review reads back at least to the user's latest line, which a round of
     // replies from many members can push out of the last few.
-    const lastUser = log.findLastIndex(line => line.who === 'User')
+    const lastUser = log.findLastIndex(line => line.who === 'User' && line.botId === undefined)
     let start = since === undefined ? Math.max(0, Math.min(log.length - REVIEW_FIRST_LINES, lastUser === -1 ? log.length : lastUser)) : log.findIndex(line => line.seq > since)
     const oldest = room.log?.[0]?.seq
     if (since !== undefined && oldest !== undefined && oldest > since + 1) rt.warn('ds-bot: %d lines of group "%s" left its log before %s reviewed them', oldest - since - 1, room.name, bot.name)
     if (start === -1) start = log.length
     const line = (entry) => {
-      const who = entry.who === 'User' ? 'user' : entry.botId === bot.id ? 'you' : 'bot'
-      return { who, text: `${who === 'user' ? 'User' : who === 'you' ? 'You' : entry.who}: ${entry.text}`, seq: entry.seq }
+      const who = entry.botId === undefined && entry.who === 'User' ? 'user' : entry.botId === bot.id ? 'you' : 'bot'
+      return { who, text: `${who === 'user' ? 'User' : who === 'you' ? 'You' : speakerOf(entry)}: ${entry.text}`, seq: entry.seq }
     }
     return {
       through: log.at(-1)?.seq,

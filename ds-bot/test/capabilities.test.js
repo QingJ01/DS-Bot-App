@@ -144,6 +144,25 @@ test('Bot saves enforce approval and ownership, and deletion cascades', async t 
   assert.deepEqual(state.bots.worker.capabilities, ['team'])
 })
 
+test('explicit capability creates reject duplicates while edits and Bot tool saves upsert', async t => {
+  const env = await setup()
+  t.after(() => env.dispose())
+  const { rt, ctx } = env
+  await rt.capabilitySave(mcp('echo'), { ui: true })
+  await assert.rejects(
+    rt.capabilitySave({ ...mcp('echo'), create: true, command: 'replacement' }, { ui: true }),
+    error => error.message === 'A capability named echo already exists. Edit it or choose another name.',
+  )
+  assert.equal(rt.state.capabilities.items.echo.command, 'node')
+
+  await rt.capabilitySave({ ...mcp('echo'), command: 'edited' }, { ui: true })
+  assert.equal(rt.state.capabilities.items.echo.command, 'edited')
+
+  const save = ctx.registeredTools.get('save_capability')
+  await save.execute({ ...mcp('echo'), command: 'tool-updated' }, { agent: { id: 'chief' } })
+  assert.equal(rt.state.capabilities.items.echo.command, 'tool-updated')
+})
+
 test('capability Bot tools refuse DSH Agent sessions', async t => {
   const env = await setup()
   t.after(() => env.dispose())

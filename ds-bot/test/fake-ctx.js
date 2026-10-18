@@ -1,3 +1,22 @@
+// DSH's `attachments` service for generic files, in memory. Reads come back in small
+// chunks that split characters, as a stream may.
+export function fakeAttachments() {
+  const files = new Map()
+  return {
+    files,
+    async saveFile({ data, name }) {
+      const ref = { attachmentId: `sha256:${files.size + 1}`, name, bytes: data.length }
+      files.set(ref.attachmentId, data)
+      return ref
+    },
+    async* readFileStream(ref) {
+      const data = files.get(ref.attachmentId)
+      if (data === undefined) throw new Error('no such file')
+      for (let at = 0; at < data.length; at += 1001) yield data.subarray(at, at + 1001)
+    },
+  }
+}
+
 // A stand-in for the plugin context that records what apply() registers, in order,
 // without starting any service.
 export function fakeContext({ services = {} } = {}) {

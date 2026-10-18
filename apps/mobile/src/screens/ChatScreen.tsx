@@ -42,7 +42,7 @@ import { useTheme } from "../theme";
 import { BotAvatar, RoomAvatar } from "../components/BotAvatar";
 import { GroupProgress } from "../components/GroupProgress";
 import { WorkCapsule } from "../components/WorkCapsule";
-import { type GroupRound, mergeGroupProgress, ownBotWork, workDescription } from "../logic/group-work";
+import { type GroupRound, mergeGroupProgress, ownBotWork, waitingNames, workDescription } from "../logic/group-work";
 import { ConversationExport } from "../components/ConversationExport";
 import { VoiceMode } from "../components/VoiceMode";
 import { HistorySearchPanel, ConversationPartsPanel } from "../features/HistoryPanels";
@@ -167,6 +167,8 @@ export function ChatScreen({
   );
   const room = team.rooms.find(item => item.id === conversation.id || `room:${item.id}` === conversation.id);
   const ownWork = bot && ownBotWork(bot.id, team);
+  const ownWaiting = waitingNames(ownWork);
+  const ownWaitingStatus = ownWaiting.length ? tr("Waiting for {p0}", { p0: ownWaiting.join(dateLocale() === "zh-CN" ? "、" : ", ") }) : "";
   const displayMessages = useMemo(() => combineTurnReasoning(room && progress.id === conversation.id ? mergeGroupProgress(chat.messages, progress.rounds, room, team) : chat.messages), [chat.messages, room, team, progress, conversation.id]);
   const questionOwners = new Set([conversation.id, bot?.id, room?.id]);
   const questions = Object.entries(team.questions ?? {})
@@ -420,7 +422,7 @@ export function ChatScreen({
         onLayout={event => { const height = Math.ceil(event.nativeEvent.layout.height); setDockHeight(previous => Math.abs(previous - height) > 1 ? height : previous); }}
         style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 10 }}>
       {room && <GroupProgress client={client} room={room} team={team} running={chat.running} online={online && chat.status === "connected"} onOpenDetails={onOpenDetails} onProgress={receiveProgress} />}
-      {ownWork && online && chat.status === "connected" && <WorkCapsule label={ownWork.switching ? tr("Moving to a fresh conversation") : workDescription(ownWork) || tr("Working")} onPress={onOpenDetails}/>}
+      {ownWork && online && chat.status === "connected" && <WorkCapsule label={ownWaitingStatus || (ownWork.switching ? tr("Moving to a fresh conversation") : workDescription(ownWork) || tr("Working"))} onPress={onOpenDetails}/>}
       {newMessages && (
         <View pointerEvents="box-none" style={{alignItems:"center",paddingVertical:4}}><Button
           floating

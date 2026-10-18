@@ -40,7 +40,7 @@ export function install(rt) {
       ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId), ...(kickoff ? { waiting: true } : {}),
     })),
     // `parts`: the members' hidden group Sessions and their earlier segments, for usage.
-    rooms: Object.values(state.rooms).map(({ log, seen, botRounds, lateRounds, sessions, segments, ...room }) => {
+    rooms: Object.values(state.rooms).map(({ log, seen, lateRounds, sessions, segments, ...room }) => {
       const parts = [...Object.values(sessions ?? {}), ...Object.values(segments ?? {}).flat().map(segment => segment.sessionId)]
       const last = (log ?? []).filter(line => line.kind === undefined).at(-1)
       return { ...room, parts, ...(last ? { preview: last.who === 'User' ? last.text : `${last.who}：${last.text}` } : {}) }
@@ -69,10 +69,10 @@ export function install(rt) {
   // What changes without a new revision, sent with every state answer. `memoryNews`:
   // per Bot, its latest memory change; `memoryReviews`: memory reviews waiting or
   // running; `work`: per Bot, the turn it runs and its tool; per group, the members whose
-  // turn there runs; and the approvals waiting.
+  // turn there runs; the approvals waiting; and per Bot, who it waits for to hand back work.
   const live = () => ({
     activity: rt.activityView(),
-    work: { bots: rt.workView(), rooms: rt.roomWorkView(), approvals: [...rt.approvalsView(), ...(rt.mobileApprovalsView?.() ?? [])] },
+    work: { bots: rt.workView(), rooms: rt.roomWorkView(), approvals: [...rt.approvalsView(), ...(rt.mobileApprovalsView?.() ?? [])], waiting: rt.waitingView?.() ?? {} },
     memoryNews: rt.memoryNews(),
     memoryReviews: rt.memoryReviews(),
     connectors: rt.connectorsView(),
@@ -80,7 +80,7 @@ export function install(rt) {
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
+  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
 
   function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -132,6 +132,18 @@ export function install(rt) {
           await rt.load()
           const pair = new Set([body.a, body.b])
           return ok(state.exchanges.filter(entry => pair.has(entry.from) && pair.has(entry.to)))
+        }
+        case 'exchange-text': {
+          await rt.load()
+          const entry = state.exchanges.find(item => item.id === body.id)
+          if (entry === undefined) return fail('This message is no longer kept', 'bot/stale')
+          return ok(await rt.exchangeText(entry))
+        }
+        // A long Bot post's file (attachLong), for the group chat's "Show all".
+        case 'file-text': {
+          if (typeof body.file?.attachmentId !== 'string') return fail('No file named', 'bot/invalid')
+          const read = await rt.fileText(body.file)
+          return read === undefined ? fail('This file cannot be read here', 'bot/unavailable') : ok(read)
         }
         case 'earlier':
           await rt.load()

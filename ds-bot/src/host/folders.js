@@ -24,6 +24,13 @@ export function install(rt) {
   const workDirOf = ({ botId, roomId } = {}) => rt.roomOf(roomId)?.workDir ?? rt.botOf(botId)?.workDir
   const isFolder = path => stat(path).then(info => info.isDirectory(), () => false)
   const real = path => realpath(path).catch(() => resolve(path))
+  // Where a Session works: the folder DSH has for it, else the one DS Bot made it for.
+  const sessionFolder = (session) => {
+    const reported = session?.header === undefined ? undefined : ctx.get?.('workingDirectory')?.get?.(session) ?? session.header.cwd
+    if (reported !== undefined) return reported
+    const id = session?.id
+    return workDirOf({ botId: rt.selfOf?.(id), roomId: rt.groupOwners?.get(id)?.roomId }) ?? teamFolder()
+  }
 
   // A Bot that could write where DSH or the team keeps its data could change its own
   // permissions or the team, so neither those folders nor one that holds them is allowed.
@@ -131,5 +138,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { teamFolder, workDirOf, isFolder, cleanWorkDir, sessionsOfBot, approveFolder, folderEndpoint })
+  Object.assign(rt, { teamFolder, workDirOf, sessionFolder, isFolder, cleanWorkDir, sessionsOfBot, approveFolder, folderEndpoint })
 }

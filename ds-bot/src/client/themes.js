@@ -1,4 +1,4 @@
-import { isHex, luminance } from './inks.js'
+import { ACCENT_INKS, INKS, isHex, luminance } from './inks.js'
 import { SHAPES, markupCache, maskCache } from './characters.js'
 import { createSource } from './sources.js'
 
@@ -29,6 +29,10 @@ const THEMES = {
     dark: { bg: '#0b1020', sidebar: '#10172a', bubble: '#1a2340', card: '#141c33', text: '#e8edf7', user: '#3b6fd8', userText: '#ffffff', accent: '#3964fe' },
   },
 }
+// Text on the accent: near-black or white, whichever has the higher WCAG contrast.
+// (L + .05)² > 1.05 × (L(#141414) + .05) is "dark ink reads better".
+const DARK_INK = '#141414'
+const accentInk = accent => ((luminance(accent) + 0.05) ** 2 > 1.05 * (luminance(DARK_INK) + 0.05) ? DARK_INK : '#ffffff')
 const rgba = (hex, alpha) => `rgba(${[1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16)).join(',')},${alpha})`
 function themeVars(mode, dark, accent = mode.accent) {
   return {
@@ -37,15 +41,22 @@ function themeVars(mode, dark, accent = mode.accent) {
     '--bt-line': rgba(mode.text, 0.08), '--bt-line-2': rgba(mode.text, 0.15),
     '--bt-hover': dark ? 'rgba(160,160,160,.12)' : 'rgba(119,119,119,.09)',
     '--bt-active': dark ? 'rgba(160,160,160,.2)' : 'rgba(119,119,119,.17)',
-    '--bt-accent': accent, '--bt-accent-ink': luminance(accent) > 0.45 ? '#141414' : '#ffffff',
+    '--bt-accent': accent, '--bt-accent-ink': accentInk(accent),
     '--bt-user': mode.user, '--bt-user-ink': mode.userText,
     '--bt-tag-bg': rgba(mode.text, dark ? 0.09 : 0.06), '--bt-tag-ink': rgba(mode.text, 0.58),
   }
 }
 const declarations = vars => Object.entries(vars).map(([name, value]) => `${name}:${value}`).join(';')
+// A preset accent is saved as its light value; in dark mode it takes the preset's dark
+// value, as Bot names do, so Charcoal does not vanish on a dark background. A custom
+// accent is the same in both modes. A preset is matched the way Settings marks it.
+const darkAccent = (accent) => {
+  const ink = ACCENT_INKS.find(id => INKS[id][0] === accent)
+  return ink === undefined ? accent : INKS[ink][1]
+}
 // `html body` outranks the base sheet's `body` rules without !important.
 export const themeCss = (theme, accent) => `html body{${declarations(themeVars(theme.light, false, accent ?? theme.light.accent))}}
-html body[data-ds-dark-theme]{${declarations(themeVars(theme.dark, true, accent ?? theme.dark.accent))}}
+html body[data-ds-dark-theme]{${declarations(themeVars(theme.dark, true, darkAccent(accent) ?? theme.dark.accent))}}
 ${theme.css ?? ''}`
 export const shellTokens = ({ light, dark }) => ({
   '--dsw-alias-bg-base': { light: light.bg, dark: dark.bg },

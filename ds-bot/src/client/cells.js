@@ -10,6 +10,7 @@ import { SecretToolCell } from './secret-card.js'
 import { dateLocale, t } from './i18n.js'
 import { failureLabel } from './diagnostics.js'
 import { turnReasoning } from './turn-reasoning.js'
+import { FOLD_AT, FOLD_HUGE, stripLongNote, useFold } from './fold.js'
 
 // -------------------------------------------------------------------------
 // Chat cells
@@ -18,7 +19,9 @@ const mdLabels = () => ({ code: { copyLabel: t('Copy'), copiedLabel: t('Copied')
 
 // `lead` (a sender avatar in group chats) sits beside the last bubble, in the same
 // row, so it lines up with the bubble whether or not reactions hang below it.
-export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions }) {
+// `fold`: past what a bubble folds (fold.js); `whole`: the last text is only the start
+// of its message (see useFold).
+export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole }) {
   const onClick = (event) => {
     const target = mentionTarget(event)
     if (target === null) return
@@ -29,20 +32,31 @@ export function Bubbles({ texts, roster, selfId, actions, streaming, sessionId, 
   const reactions = useUi ? useUi(state => (msgKey ? state.reactions?.[msgKey] ?? null : null)) : null
   return h('div', { className: 'bt-astack', 'data-lead': lead ? '' : undefined, onClickCapture: onClick },
     texts.map((text, index) => {
-      const key = msgKey ? `${msgKey}:${index}` : undefined
-      const picked = key ? reactions?.[index] ?? [] : []
       const last = index === texts.length - 1
-      const live = streaming && last
-      return h('div', { key: index, className: 'bt-msg' },
-        h('div', { className: 'bt-msg-line' },
-          lead && last ? lead : null,
-          h('div', { className: 'bt-bubble' },
-            h(MarkdownText, { text: linkMentions(text, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })),
-          live ? null : h(MessageTools, { text, name: roster.byId[selfId]?.name ?? t('Bot'), sessionId, react: key ? emoji => actions.toggleReaction(msgKey, index, emoji) : undefined, actions })),
-        picked.length ? h('div', { className: 'bt-reacts' }, picked.map(emoji => h('button', {
-          key: emoji, type: 'button', className: 'bt-react', 'aria-label': t('Remove reaction {emoji}', { emoji }), onClick: () => actions.toggleReaction(msgKey, index, emoji),
-        }, emoji))) : null)
+      return h(Bubble, {
+        key: index, text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold,
+        picked: msgKey ? reactions?.[index] ?? [] : [],
+        live: streaming && last,
+        lead: lead && last ? lead : null,
+        whole: last ? whole : undefined,
+      })
     }))
+}
+
+function Bubble({ text, index, roster, selfId, actions, sessionId, msgKey, mentions, fold, picked, live, lead, whole }) {
+  const { shown, folded, control } = useFold(text, { limit: fold, whole, live })
+  const key = msgKey ? `${msgKey}:${index}` : undefined
+  const body = h(MarkdownText, { text: linkMentions(shown, roster.bots, selfId), streaming: live, labels: mdLabels(), variant: 'compact', fileMentions: mentions })
+  return h('div', { className: 'bt-msg' },
+    h('div', { className: 'bt-msg-line' },
+      lead,
+      h('div', { className: 'bt-bubble', 'data-folded': folded || undefined },
+        control ? h('div', { className: 'bt-fold-body' }, body) : body,
+        control),
+      live ? null : h(MessageTools, { text: folded ? text : shown, name: roster.byId[selfId]?.name ?? t('Bot'), sessionId, react: key ? emoji => actions.toggleReaction(msgKey, index, emoji) : undefined, actions })),
+    picked.length ? h('div', { className: 'bt-reacts' }, picked.map(emoji => h('button', {
+      key: emoji, type: 'button', className: 'bt-react', 'aria-label': t('Remove reaction {emoji}', { emoji }), onClick: () => actions.toggleReaction(msgKey, index, emoji),
+    }, emoji))) : null)
 }
 
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏']
@@ -100,10 +114,28 @@ function MessageTools({ text, name, sessionId, react, actions }) {
       item(t('Copy'), CopyIcon, copy), item(t('Download'), DownloadIcon, download)), document.body) : null)
 }
 
+// Few readers go through a whole chain of thought, so the row opens on its last lines;
+// the box scrolls for the rest. It stays at the end as later steps add reasoning,
+// unless the reader has scrolled up.
 function ThinkingRow({ text }) {
-  return h('details', { className: 'bt-think' },
-    h('summary', null, t('Thought it through')),
-    h('div', { className: 'bt-think-text' }, text))
+  const box = useRef(null)
+  const atEnd = useRef(true)
+  const [fade, setFade] = useState(undefined)
+  const measure = () => {
+    const el = box.current
+    atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 2
+    const above = el.scrollTop > 0
+    setFade(above && !atEnd.current ? 'both' : above ? 'top' : !atEnd.current ? 'bottom' : undefined)
+  }
+  useLayoutEffect(() => {
+    const el = box.current
+    if (atEnd.current) el.scrollTop = el.scrollHeight
+    measure()
+  }, [text])
+  const title = t('Thought it through')
+  return h('div', { className: 'bt-think' },
+    h('div', { className: 'bt-think-title' }, title),
+    h('div', { ref: box, className: 'bt-think-text', role: 'region', 'aria-label': title, tabIndex: 0, 'data-fade': fade, onScroll: measure }, text))
 }
 
 // The files a finished turn changed or delivered, linked from inline code in its
@@ -151,7 +183,7 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
       })
     }),
     reasoning ? h(ThinkingRow, { text: reasoning }) : null,
-    texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`, useUi, mentions }) : null)
+    texts.length ? h(Bubbles, { texts, roster, selfId, actions, streaming: running, sessionId, msgKey: `${sessionId}:${data.turn}:${node.key ?? data.seq ?? ''}`, useUi, mentions, fold: FOLD_HUGE }) : null)
 }
 
 function EventLine({ prefix, bots, joiner = t('and'), onOpen, whole = false }) {
@@ -171,13 +203,13 @@ function EventLine({ prefix, bots, joiner = t('and'), onOpen, whole = false }) {
 }
 
 // One Bot message inside a group chat: avatar, name (with its group role), bubble.
-function GroupMessage({ bot, text, texts = [text], room, roster, actions, msgKey, useUi }) {
+function GroupMessage({ bot, text, texts = [text], room, roster, actions, msgKey, useUi, whole }) {
   const lead = h('button', { type: 'button', className: 'bt-lead', 'aria-label': t("Open {name}'s chat", { name: bot.name }), onClick: () => actions.openSession(bot.id) },
     h(BotMark, { bot, size: 22 }))
   return h('div', { className: 'bt-group-msg' },
     h('span', { className: 'bt-group-name', style: { color: inkText(colorOf(bot)) } }, bot.name,
       room?.admin === bot.id ? h('span', { className: 'bt-group-role' }, t('Admin')) : null),
-    h(Bubbles, { texts, roster, selfId: bot.id, actions, sessionId: room?.id, msgKey, useUi, lead }))
+    h(Bubbles, { texts, roster, selfId: bot.id, actions, sessionId: room?.id, msgKey, useUi, lead, whole }))
 }
 
 // A member's messages in a row, as one block under its name: what it says while it
@@ -223,6 +255,15 @@ const scrollParent = (node) => {
     if (/(auto|scroll)/.test(getComputedStyle(at).overflowY)) return at
   }
   return null
+}
+
+function EarlierUser({ row }) {
+  const { shown, folded, control } = useFold(row.text ?? '')
+  const body = row.text ? h(MarkdownText, { text: shown, labels: mdLabels(), variant: 'compact' }) : null
+  return h('div', { className: 'bt-urow' }, h('div', { className: 'bt-ububble', 'data-folded': folded || undefined },
+    control ? h('div', { className: 'bt-fold-body' }, body) : body,
+    control,
+    row.images ? h('span', { className: 'bt-uimages' }, row.images === 1 ? t('1 image') : t('{count} images', { count: row.images })) : null))
 }
 
 // The earlier parts of a Bot's own chat, above its current part as one conversation.
@@ -287,11 +328,9 @@ function EarlierParts({ sessionId, roster, actions }) {
       const key = rows.length - index
       switch (row.kind) {
         case 'divider': return h(PartLine, { key, time: row.time })
-        case 'user': return h('div', { key, className: 'bt-urow' }, h('div', { className: 'bt-ububble' },
-          row.text ? h(MarkdownText, { text: row.text, labels: mdLabels(), variant: 'compact' }) : null,
-          row.images ? h('span', { className: 'bt-uimages' }, row.images === 1 ? t('1 image') : t('{count} images', { count: row.images })) : null))
+        case 'user': return h(EarlierUser, { key, row })
         case 'answer': return h(AnsweredCell, { key, node: { data: row } })
-        case 'bot': return h(Bubbles, { key, texts: row.texts, roster, selfId, actions })
+        case 'bot': return h(Bubbles, { key, texts: row.texts, roster, selfId, actions, fold: FOLD_HUGE })
         case 'event': {
           if (row.role === 'report') return h(GroupEvent, { key, prefix: t('Replies from'), room: roster.roomsById[row.roomId], name: t('a group chat'), roster, actions })
           const other = roster.byId[row.botId] ?? { id: row.botId, name: row.name ?? t('a Bot'), color: 'gray' }
@@ -351,12 +390,19 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
       // The secret card itself shows what the user did; the note to the Bot stays out.
       if (source.role === 'secret' || deferred) return null
       if (source.role === 'post') {
-        // A member's late failure, its work picked up after a restart, or its work the user
-        // stopped shows as an event of the round it opens.
-        if (source.failed !== undefined || source.resumed === true || source.stopped === true) return null
+        // A member's late failure, its work picked up after a restart, its work the user
+        // stopped, or the end of its work shows as an event of the round it opens.
+        if (source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true) return null
         const room = roster.roomsById[sessionId]
         const poster = roster.byId[source.senderSessionId] ?? { id: source.senderSessionId, name: source.senderName ?? t('a Bot'), color: 'gray' }
-        return h(GroupMessage, { bot: poster, text: stripHeader(contentText(data.content)), room, roster, actions, msgKey: `${sessionId}:${data.turn}:post`, useUi })
+        // A post past what a message holds came as a file, with its start only.
+        const file = source.length === undefined ? undefined : (data.content ?? []).find(block => block?.type === 'file')?.attachment
+        const text = stripHeader(contentText(data.content))
+        // A trigger's data carries no turn; its event seq is the one durable name of this post.
+        return h(GroupMessage, {
+          bot: poster, text: file ? stripLongNote(text) : text, room, roster, actions, msgKey: `${sessionId}:post:${data.seq ?? node.key}`, useUi,
+          whole: file ? { length: source.length, load: () => actions.fileText(file) } : undefined,
+        })
       }
       if (source.role === 'report') {
         return h(GroupEvent, { prefix: t('Replies from'), room: roster.roomsById[source.roomId], name: t('a group chat'), roster, actions })
@@ -618,6 +664,9 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
       }
       if (reply.kind === 'stopped') {
         return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event' }, t("You stopped {name}'s work", { name: bot.name }))
+      }
+      if (reply.kind === 'done') {
+        return h('div', { key: `${reply.botId}-${index}`, className: 'bt-event' }, t('{name} finished its work', { name: bot.name }))
       }
       return h(GroupMessage, { key: `${reply.botId}-${index}`, bot, texts, room, roster, actions, msgKey: callId ? `${sessionId}:${callId}:${index}` : undefined, useUi })
     }),

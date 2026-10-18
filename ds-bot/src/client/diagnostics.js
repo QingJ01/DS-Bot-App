@@ -59,6 +59,7 @@ const FAILURES = {
   TIMEOUT: 'The model took too long to answer',
   TRANSPORT: 'Could not reach the model service',
   SESSION: 'Its group conversation could not open',
+  SESSION_RESET: 'Its group conversation could not open, so it starts a new one next time',
 }
 
 export function failureLabel(code, message) {

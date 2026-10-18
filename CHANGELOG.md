@@ -14,6 +14,24 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## Unreleased
 
+### Added
+
+- Sync upstream source `939a6635830cb5b246e7dd19c67b0e1352ad1c07`: `list_bots` and `message_bot` report teammate status; hand-offs return results and waiting Bots show their character state; add a Docker image.
+
+### Changed
+
+- Remove the message, unread, group-round and forwarding count limits; keep work requested in a group in that group; send very long messages as files and fold them in chat.
+
+### Fixed
+
+- Seed pnpm's package store and registry metadata for offline Docker upgrades, and roll back failed or timed-out plugin reinstalls so the prior profile remains usable.
+- Keep the collapsed sidebar footer centered in one unclipped column while preserving the expanded layout.
+- Apply a Bot's permission preset to every eligible Session before saving it, leaving the preset retryable after a partial failure.
+- Keep scheduled tasks bound to their original Session across conversation parts instead of copying and deleting them; forward due reminders to wake the current part without creating duplicate tasks.
+- Reserve per-device WebSocket slots before asynchronous target resolution and release them when authentication fails.
+- Reject duplicate capability names from Add while preserving Edit and Bot-tool upsert behavior.
+- Include upstream fixes for group attachments and hand-off completion, concurrent Bot/group changes and deletion, work-folder recovery, relative file links, reactions and unread marks across tabs, search routes, sidebar controls, feedback links, theme contrast and diagnostics shutdown.
+
 ## DS Bot App [v0.1.2-r1] - 2026-10-15
 
 - Restore the DS Bot settings dialog by supplying the Plugin updates navigation icon; cover the complete navigation with real React rendering tests.

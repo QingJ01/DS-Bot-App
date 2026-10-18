@@ -720,9 +720,20 @@ export function createAutoSearchProvider(deps, config = {}) {
 
 const stringRecord = value => (isRecord(value) ? Object.fromEntries(Object.entries(value).filter(([, item]) => typeof item === 'string')) : {})
 
+// OpenCode's gateways turn away a request that does not name its conversation. DSH's
+// adapter names it by the Session id, so a search for that Session does the same,
+// unless the provider settings name one.
+const OPENCODE_SESSION = 'x-opencode-session'
+const OPENCODE_ROUTES = new Set(['opencode', 'opencode-go'])
+const withConversation = (provider, headers, sessionId) => (!OPENCODE_ROUTES.has(provider) || sessionId === undefined
+  || Object.keys(headers).some(name => name.toLowerCase() === OPENCODE_SESSION)
+  ? headers
+  : { ...headers, [OPENCODE_SESSION]: sessionId })
+
 /** The route of the Session that started the current tool call: protocol, endpoint, key name, and headers. */
 export function routeOf(ctx) {
-  const request = ctx.get('agents')?.currentInitiator()?.session.requestContext()
+  const session = ctx.get('agents')?.currentInitiator()?.session
+  const request = session?.requestContext()
   const provider = str(request?.provider)
   if (provider === undefined) return undefined
   let section
@@ -742,7 +753,7 @@ export function routeOf(ctx) {
     baseURL: str(section?.baseURL) ?? (DSH_DEEPSEEK_ROUTES.has(provider) ? str(envOf(ctx)('DEEPSEEK_BASE_URL')) : undefined) ?? catalogBase,
     apiKeyEnv: account ? undefined : str(section?.apiKeyEnv) ?? catalogKey,
     account,
-    headers: stringRecord(section?.headers),
+    headers: withConversation(provider, stringRecord(section?.headers), str(session.id)),
   }
 }
 

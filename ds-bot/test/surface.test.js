@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { groupsFor, readMode, surfaceGroups, writeMode } from '../src/client/surface.js'
+import { freePriority, groupsFor, readMode, surfaceGroups, writeMode } from '../src/client/surface.js'
 import { STORAGE } from '../src/client/storage.js'
 
 test('Bot mode mounts both groups; Agent mode mounts neither', () => {
@@ -31,7 +31,7 @@ test('the saved surface mode survives reloads and defaults to bot', () => {
 })
 
 const recordingGroups = (log, { failing = null } = {}) => {
-  const entry = (name) => () => {
+  const entry = name => () => () => {
     log.push(name)
     if (name === failing) throw new Error(`could not release ${name}`)
   }
@@ -83,13 +83,56 @@ test('a group whose install throws stays unmounted and is tried again', (t) => {
   t.mock.method(console, 'warn', () => {})
   let attempts = 0
   const groups = surfaceGroups({
-    shell: () => [() => {}],
-    conversation: () => { attempts += 1; if (attempts === 1) throw new Error('slot refused'); return [() => {}] },
+    shell: () => [() => () => {}],
+    conversation: () => [() => { attempts += 1; if (attempts === 1) throw new Error('slot refused'); return () => {} }],
   })
   assert.doesNotThrow(() => groups.reconcile(groupsFor({ mode: 'bot' })))
   groups.reconcile(groupsFor({ mode: 'bot', plain: true }))
   groups.reconcile(groupsFor({ mode: 'bot' }))
   assert.equal(attempts, 2)
+})
+
+// 公开#149: another plugin held a cell at the same priority, so one step of the
+// conversation group threw after the styles, the header and the chat cells were on.
+test('a group whose step throws takes back the steps before it, so Agent mode leaves nothing behind', (t) => {
+  t.mock.method(console, 'warn', () => {})
+  const live = new Set()
+  const mount = name => () => { live.add(name); return () => live.delete(name) }
+  const collide = () => { throw new Error('single slot "conversation.input.model" already has a registration at priority -10') }
+  const errors = []
+  const groups = surfaceGroups({
+    shell: () => [mount('shell styles')],
+    conversation: () => [mount('conversation css'), mount('HeaderPill'), mount('chat.node cells'), collide, mount('bot-plus')],
+  }, { onError: (group, error) => errors.push([group, error.message]) })
+  groups.reconcile(groupsFor({ mode: 'bot' }))
+  assert.deepEqual([...live], ['shell styles'])
+  assert.deepEqual(errors.map(([group]) => group), ['conversation'])
+  groups.reconcile(groupsFor({ mode: 'agent' }))
+  assert.deepEqual([...live], [])
+})
+
+test('a shell that cannot go on keeps the conversation group off too', (t) => {
+  t.mock.method(console, 'warn', () => {})
+  const live = new Set()
+  const mount = name => () => { live.add(name); return () => live.delete(name) }
+  const groups = surfaceGroups({
+    shell: () => [mount('shell styles'), () => { throw new Error('slot refused') }],
+    conversation: () => [mount('conversation css')],
+  })
+  groups.reconcile(groupsFor({ mode: 'bot' }))
+  assert.deepEqual([...live], [])
+})
+
+test('a shadow goes below every entry of its cell, so a same-priority plugin does not block it', () => {
+  const entry = options => ({ options })
+  assert.equal(freePriority([], { priority: -100 }), -100)
+  assert.equal(freePriority([entry({}), entry({ priority: -10 })], { priority: -100 }), -100)
+  assert.equal(freePriority([entry({}), entry({ priority: -100 })], { priority: -100 }), -101)
+  assert.equal(freePriority([entry({ priority: -200 })], { priority: -100 }), -201)
+  // Keyed and list cells: only the same key or id share the cell.
+  assert.equal(freePriority([entry({ key: 'tool-call', priority: -100 }), entry({ key: 'user', priority: -300 })], { key: 'tool-call', priority: -100 }), -101)
+  assert.equal(freePriority([entry({ id: 'usage', priority: -100 })], { id: 'activity', priority: -100 }), -100)
+  assert.equal(freePriority([entry({ priority: -100 })], {}), undefined)
 })
 
 test('readMode falls back to bot when storage throws', () => {

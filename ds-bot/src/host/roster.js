@@ -3,7 +3,7 @@
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
-import { currentColor, isColor, unquote } from './text.js'
+import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
 
 export function install(rt) {
@@ -11,8 +11,18 @@ export function install(rt) {
 
   let bootstrapping = null
 
+  // The team folder is DS Bot's own: deleted, it is made again before a Session needs it.
+  async function keepTeamFolder() {
+    const team = rt.teamFolder()
+    if (team !== undefined) await mkdir(team, { recursive: true }).catch(error => rt.warn('ds-bot: team folder %s not made again: %s', team, error))
+    return team
+  }
+
   async function ensureWorkspace() {
-    if (state.workspaceId && ctx.workspaceRegistry.get(state.workspaceId)) return state.workspaceId
+    if (state.workspaceId && ctx.workspaceRegistry.get(state.workspaceId)) {
+      await keepTeamFolder()
+      return state.workspaceId
+    }
     const path = config.workspace ?? join(home, 'workspace')
     await mkdir(path, { recursive: true })
     const workspace = await ctx.workspaceRegistry.resolveByPath(path) ?? await ctx.workspaceRegistry.create(path, 'DS Bot')
@@ -59,21 +69,42 @@ export function install(rt) {
     return Object.keys(avatar).length > 0 ? avatar : undefined
   }
 
+  // A new Bot or group is written only after its Session is made, several awaits after
+  // its name was checked. The name is held from the check until the create ends, so a
+  // create or rename that runs meanwhile cannot take it too.
+  const held = { bot: new Set(), room: new Set() }
+  const isHeld = (kind, name) => held[kind].has(normalize(name))
+  async function holdName(kind, name, work) {
+    const key = normalize(name)
+    if (key === '') return work()
+    held[kind].add(key)
+    try {
+      return await work()
+    } finally {
+      held[kind].delete(key)
+    }
+  }
+  const botNameTaken = name => rt.findBot(name) !== undefined || isHeld('bot', name)
+
   const freshName = (base) => {
     const stem = base.slice(0, 34)
-    if (!rt.findBot(stem)) return stem
+    if (!botNameTaken(stem)) return stem
     let index = 2
-    while (rt.findBot(`${stem} ${index}`)) index += 1
+    while (botNameTaken(`${stem} ${index}`)) index += 1
     return `${stem} ${index}`
   }
 
   // `pickModel` leaves the model to the user: the chat opens on a model card, and the
   // greeting waits until a model is chosen. So does a Bot made when no model is served.
-  async function createBot({ name: botName, role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false }) {
-    const cleanName = String(botName ?? '').trim().slice(0, 40)
+  async function createBot(options) {
+    const cleanName = String(options.name ?? '').trim().slice(0, 40)
     const problem = nameProblem(cleanName)
     if (problem !== undefined) throw new Error(problem)
-    if (rt.findBot(cleanName)) throw new Error(`A Bot named ${cleanName} already exists`)
+    if (botNameTaken(cleanName)) throw new Error(`A Bot named ${cleanName} already exists`)
+    return holdName('bot', cleanName, () => buildBot(cleanName, options))
+  }
+
+  async function buildBot(cleanName, { role = '', instructions = '', color, brief = '', createdBy, main = false, avatar, model, effort, workDir, copyOf, pickModel = false }) {
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultModel()
@@ -156,6 +187,9 @@ export function install(rt) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
     const served = (await rt.catalog()).some(entry => entry.ref === bot.model)
+    // A folder that went away since leaves the copy in the team workspace.
+    const workDir = bot.workDir !== undefined && await rt.isFolder(bot.workDir) ? bot.workDir : undefined
+    // No await from here to createBot's check, so two copies at once get different names.
     return createBot({
       name: freshName(`${bot.name} copy`),
       role: bot.role,
@@ -164,8 +198,7 @@ export function install(rt) {
       avatar: bot.avatar,
       model: served ? bot.model : undefined,
       effort: served ? bot.effort : undefined,
-      // A folder that went away since leaves the copy in the team workspace.
-      workDir: bot.workDir !== undefined && await rt.isFolder(bot.workDir) ? bot.workDir : undefined,
+      workDir,
       copyOf: bot.id,
     })
   }
@@ -179,7 +212,8 @@ export function install(rt) {
     if (patch.name !== undefined) {
       const next = String(patch.name).trim().slice(0, 40)
       const clash = rt.findBot(next)
-      if (next === '' || (clash && clash.id !== id)) throw new Error(`Name ${next} is not available`)
+      const pending = isHeld('bot', next) && normalize(next) !== normalize(bot.name)
+      if (next === '' || (clash && clash.id !== id) || pending) throw new Error(`Name ${next} is not available`)
       // A name saved before the rule stays usable until it changes.
       const problem = next === bot.name ? undefined : nameProblem(next)
       if (problem !== undefined) throw new Error(problem)
@@ -251,7 +285,7 @@ export function install(rt) {
 
   function cleanRoomName(text, selfId) {
     const next = unquote(text).replace(/\s+/g, ' ').slice(0, ROOM_NAME_MAX)
-    if (next !== '' && rt.findRooms(next).some(room => room.id !== selfId)) throw new Error(`Another group chat is already called "${next}"`)
+    if (next !== '' && (rt.findRooms(next).some(room => room.id !== selfId) || isHeld('room', next))) throw new Error(`Another group chat is already called "${next}"`)
     return next
   }
 
@@ -280,33 +314,47 @@ export function install(rt) {
     if (members.length > ROOM_MAX_MEMBERS) throw new Error(`A group chat holds at most ${ROOM_MAX_MEMBERS} Bots`)
   }
 
+  // A Main Bot leads the groups it makes; a group the user makes is led by a Main Bot
+  // member when it has one.
+  const defaultAdmin = (members, createdBy) => (members.includes(createdBy) ? createdBy : members.find(rt.isMain) ?? null)
+
   async function createRoom({ members: memberIds = [], name: roomName, notice, mode, admin, createdBy } = {}) {
     const members = [...new Set(memberIds)].filter(id => rt.botOf(id))
     checkMembers(members)
     const custom = cleanRoomName(roomName ?? '')
-    // A Main Bot leads the groups it makes; a group the user makes is led by a Main
-    // Bot member when it has one.
-    const adminId = admin !== undefined ? admin : (members.includes(createdBy) ? createdBy : members.find(rt.isMain) ?? null)
+    const adminId = admin !== undefined ? admin : defaultAdmin(members, createdBy)
     if (adminId !== null && !members.includes(adminId)) throw new Error('The admin must be a member of the group')
     if (mode !== undefined && !ROOM_MODES.includes(mode)) throw new Error(`Reply mode must be one of ${ROOM_MODES.join(', ')}`)
+    return holdName('room', custom, () => buildRoom({ members, custom, notice, mode, adminId, createdBy }))
+  }
+
+  async function buildRoom({ members, custom, notice, mode, adminId, createdBy }) {
     const title = custom || autoRoomName(members)
     // The group's own Session only relays, so it stays in the team workspace; the
     // group's folder is for its members' Sessions.
     const id = await createSession(title)
     try {
-      state.rooms[id] = {
+      // A member deleted while the Session was made stays out, and the group is checked
+      // again as it is written.
+      const live = members.filter(member => rt.botOf(member))
+      checkMembers(live)
+      const lead = adminId === null || live.includes(adminId) ? adminId : defaultAdmin(live, createdBy)
+      const name = custom || autoRoomName(live)
+      const room = {
         id,
-        name: title,
+        name,
         ...(custom ? { named: true } : {}),
-        members,
-        admin: adminId,
+        members: live,
+        admin: lead,
         mode: mode ?? 'admin',
         notice: cleanNotice(notice),
         createdAt: Date.now(),
         createdBy: createdBy ?? null,
       }
+      state.rooms[id] = room
       await rt.save()
-      return state.rooms[id]
+      if (name !== title) await retitleRoom(room)
+      return room
     } catch (error) {
       // The group's Session was already made: archive it instead of leaving an orphan.
       delete state.rooms[id]
@@ -317,17 +365,20 @@ export function install(rt) {
     }
   }
 
-  // `actorId` is the Bot asking, or undefined for the user. Returns what changed, in words.
-  async function updateRoom(id, patch, actorId) {
-    const room = rt.roomOf(id)
-    if (room === undefined) throw new Error('Unknown group chat')
+  // What a change would write to the group as it is now, or why it cannot be made. It
+  // reads only the team, so updateRoom runs it to fail fast and again after its last
+  // await: another change or a deleted Bot may have come in meanwhile, and `add` and
+  // `remove` apply to the members the group has then.
+  function planRoomChange(room, patch, actorId) {
     const byMain = actorId === undefined || rt.isMain(actorId)
     const byAdmin = !byMain && rt.isAdminOf(room, actorId)
     if (!byMain && !byAdmin) throw new Error(`Only the user, a Main Bot, or the admin of "${room.name}" can change it`)
     let members = Array.isArray(patch.members) ? [...new Set(patch.members)] : [...room.members]
     for (const member of patch.add ?? []) if (!members.includes(member)) members.push(member)
     members = members.filter(member => !(patch.remove ?? []).includes(member) && rt.botOf(member))
-    checkMembers(members)
+    // A group left with one Bot by a deletion can still change its other settings.
+    const current = room.members.filter(member => rt.botOf(member))
+    if (members.length !== current.length || members.some(member => !current.includes(member))) checkMembers(members)
     let admin = room.admin ?? null
     if (patch.admin !== undefined) {
       admin = patch.admin || null
@@ -339,21 +390,36 @@ export function install(rt) {
       admin = null
     }
     if (patch.mode !== undefined && !ROOM_MODES.includes(patch.mode)) throw new Error(`Reply mode must be one of ${ROOM_MODES.join(', ')}`)
-    const name = patch.name === undefined ? undefined : cleanRoomName(patch.name, room.id)
     const notice = patch.notice === undefined ? undefined : cleanNotice(patch.notice)
-    const moving = patch.workDir !== undefined
-    if (moving && byAdmin) throw new Error(`Only the user or a Main Bot can set the folder of "${room.name}"`)
-    const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
+    if (patch.workDir !== undefined && byAdmin) throw new Error(`Only the user or a Main Bot can set the folder of "${room.name}"`)
     // A Bot's own permissions are the user's to set, so a group's are too.
     if (patch.permission !== undefined && actorId !== undefined) throw new Error(`Only the user can set the permissions of "${room.name}"`)
     const permission = patch.permission === undefined ? undefined : rt.cleanRoomPermission(patch.permission)
+    // The second run is the last check before the change is written, so no other change
+    // can take the name in between.
+    const name = patch.name === undefined ? undefined : cleanRoomName(patch.name, room.id)
+    return { members, admin, name, notice, permission }
+  }
+
+  // `actorId` is the Bot asking, or undefined for the user. Returns what changed, in words.
+  async function updateRoom(id, patch, actorId) {
+    const asked = rt.roomOf(id)
+    if (asked === undefined) throw new Error('Unknown group chat')
+    planRoomChange(asked, patch, actorId)
+    const moving = patch.workDir !== undefined
+    const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
+    // No await from here until every change is written.
+    const room = rt.roomOf(id)
+    if (room === undefined) throw new Error('Unknown group chat')
+    const { members, admin, name, notice, permission } = planRoomChange(room, patch, actorId)
 
     const changes = []
     const names = ids => ids.map(member => rt.botOf(member)?.name).filter(Boolean).join(', ')
     const added = members.filter(member => !room.members.includes(member))
     const removed = room.members.filter(member => !members.includes(member))
     if (added.length > 0) changes.push(`added ${names(added)}`)
-    if (removed.length > 0) changes.push(`removed ${names(removed)}`)
+    // A deleted Bot still listed goes without a word.
+    if (names(removed) !== '') changes.push(`removed ${names(removed)}`)
     // A member who leaves and comes back starts from a fresh look at the log.
     for (const member of removed) {
       if (room.seen) delete room.seen[member]
@@ -376,9 +442,6 @@ export function install(rt) {
       else room.workDir = workDir
       changes.push(workDir ? `every member now works in ${workDir} here` : 'every member works in its own folder again')
     }
-    if (permission !== undefined && await rt.setRoomPermission(room, permission)) {
-      changes.push(permission ? `every member now works with the ${permission} permissions here` : 'every member uses its own permissions again')
-    }
     const before = room.name
     if (name !== undefined) {
       if (name !== '') {
@@ -389,6 +452,10 @@ export function install(rt) {
       }
     }
     if (!room.named) room.name = autoRoomName(room.members)
+    // The preset is written before its first await; the members' Sessions follow it.
+    if (permission !== undefined && await rt.setRoomPermission(room, permission)) {
+      changes.push(permission ? `every member now works with the ${permission} permissions here` : 'every member uses its own permissions again')
+    }
     if (room.name !== before) {
       changes.push(`renamed it "${room.name}"`)
       await retitleRoom(room)
@@ -403,6 +470,7 @@ export function install(rt) {
     for (const botId of Object.keys(room.sessions ?? {})) rt.dropGroupSession(room, botId)
     delete state.rooms[id]
     rt.roomInbox.delete(id)
+    rt.dropGroupLines(id)
     const failed = await saveForDelete()
     // Armed scheduled tasks refuse a plain archive and would keep delivering into
     // the deleted group; the session-stop that stopActivity runs removes them.
@@ -451,6 +519,7 @@ export function install(rt) {
     const current = rt.chatOf(id)
     // Questions and exchange turns are kept per Session, so every part of the chat is cleared.
     const parts = new Set([id, current, ...(bot.segments ?? []).map(segment => segment.sessionId)])
+    await rt.releaseBot(id, [...parts, ...rt.groupSessionsOf(id)])
     delete state.bots[id]
     for (const part of parts) {
       delete state.questions[part]
@@ -504,7 +573,7 @@ export function install(rt) {
   }
 
   Object.assign(rt, {
-    ensureWorkspace, createSession, createBot, duplicateBot, updateBot, setFlags,
+    ensureWorkspace, keepTeamFolder, createSession, createBot, duplicateBot, updateBot, setFlags,
     roomBusy, autoRoomName, retitleRoom, createRoom, updateRoom, deleteRoom,
     setMain, deleteBot, bootstrap, dropKickoff,
   })

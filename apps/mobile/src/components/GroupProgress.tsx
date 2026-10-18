@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { AppState, Text, View } from "react-native";
 import { MobileClient } from "@ds-bot/mobile-sdk";
-import { Room, TeamState, errorText } from "../types";
+import { Room, TeamState, WorkStatus, errorText } from "../types";
 import { useTheme } from "../theme";
 import { useI18n } from "../i18n";
 import { BotAvatar } from "./BotAvatar";
 import { Button, Notice } from "./UI";
-import { type GroupRound, groupWorkMembers, workDescription } from "../logic/group-work";
+import { type GroupRound, groupWorkMembers, waitingNames, workDescription } from "../logic/group-work";
 import { WorkCapsule } from "./WorkCapsule";
 
 /** Round progress and the host's current work/approval evidence for these members. */
@@ -32,7 +32,7 @@ export function GroupProgress({
   onProgress?: (rounds: GroupRound[]) => void;
 }) {
   const t = useTheme();
-  const { tr } = useI18n();
+  const { tr, locale } = useI18n();
   const [rounds, setRounds] = useState<GroupRound[]>([]);
   const [unavailable, setUnavailable] = useState(false);
   const [stopping, setStopping] = useState("");
@@ -41,6 +41,10 @@ export function GroupProgress({
   const workOf = (id: string) => membersWork?.find(work => work.botId === id) || (team.work?.bots[id]?.roomId === room.id ? team.work.bots[id] : undefined);
   const waits = (id: string) => team.work?.approvals.some(approval => approval.botId === id && approval.roomId === room.id);
   const busyMembers = groupWorkMembers(room, team);
+  const waitingStatus = (work: WorkStatus | undefined) => {
+    const names = waitingNames(work);
+    return names.length ? tr("Waiting for {p0}", { p0: names.join(locale === "zh" ? "、" : ", ") }) : "";
+  };
   async function stop(botId: string) {
     if (stopping || !online || team.readOnly) return;
     setStopping(botId); setError("");
@@ -113,7 +117,8 @@ export function GroupProgress({
   if (!allowStop) {
     const waiting = busyMembers.filter(item => item.waiting);
     const active = waiting[0] || busyMembers[0];
-    const summary = active ? `${active.bot.name} · ${active.waiting ? tr("Waiting for approval") : active.work?.switching ? tr("Moving to a fresh conversation") : workDescription(active.work) || tr("Working")}${busyMembers.length > 1 ? ` +${busyMembers.length - 1}` : ""}` : tr("Group is responding");
+    const status = active ? active.waiting ? tr("Waiting for approval") : waitingStatus(active.work) || (active.work?.switching ? tr("Moving to a fresh conversation") : workDescription(active.work) || tr("Working")) : "";
+    const summary = active ? `${active.bot.name} · ${status}${busyMembers.length > 1 ? ` +${busyMembers.length - 1}` : ""}` : tr("Group is responding");
     return <WorkCapsule bot={active?.bot} label={summary} onPress={onOpenDetails}/>;
   }
   return (
@@ -128,7 +133,7 @@ export function GroupProgress({
         const reply = replies[replies.length - 1];
         const waiting = waits(id);
         const doing = workOf(id);
-        const status = waiting ? tr("Waiting for approval") : doing?.switching ? tr("Moving to a fresh conversation") : workDescription(doing) || (speaking
+        const status = waiting ? tr("Waiting for approval") : waitingStatus(doing) || (doing?.switching ? tr("Moving to a fresh conversation") : workDescription(doing) || (speaking
           ? tr("Typing…")
           : reply?.kind === "failed"
             ? tr("Could not answer")
@@ -136,7 +141,7 @@ export function GroupProgress({
               ? tr("Looking back through the chat")
               : reply
                 ? tr("Replied")
-                : doing ? tr("Working") : "");
+                : doing ? tr("Working") : ""));
         return (
           <View
             key={id}

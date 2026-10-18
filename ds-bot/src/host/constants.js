@@ -20,14 +20,21 @@ export const OCR_RETRY_MS = 120_000
 export const OCR_CACHE_MAX = 500
 export const MAX_AVATAR_IMAGE = 160_000
 export const ROUTE = '/api/bot'
-export const MAX_HOPS = 6
-// Messages the whole team may send each other (message_bot, post_to_group) while
-// nobody outside it speaks: the user, a question card's answer or a scheduled task.
-export const MAX_UNATTENDED_MESSAGES = 40
-// Bot requests a Bot's own chat may hold unread; past this the Bot is most likely
-// stuck, and more messages only pile up behind it.
-export const MAX_UNREAD_REQUESTS = 10
 export const MAX_EXCHANGES = 600
+// state.json is written whole on every save, so a long message between Bots or a long
+// group line keeps only its start there. The rest stays where it already is (a message
+// in the Session it was delivered to) or in a file of its own (a group line).
+export const TEXT_KEPT = 2000
+// Of one group line, a member reads this much: in its prompt, and with read_group_chat.
+export const GROUP_LINE_READ = 20_000
+// The Bot exchange dialog shows at most this much of one message.
+export const TEXT_SHOW_MAX = 200_000
+// A message a Bot sends past this goes as a DSH file, which the recipient reads with its
+// file tools; the message keeps its first LONG_HEAD characters.
+export const MESSAGE_INLINE_MAX = GROUP_LINE_READ
+export const LONG_HEAD = 1000
+// DSH's read tool shows this much of one line (dsh-tool-fs `readMaxLineLength`, default).
+export const READ_LINE_MAX = 2000
 export const ROOM_REPLY_TIMEOUT_MS = 240_000
 // Lines a member writes less than this apart while it works reach its group together.
 export const ROOM_STEP_GAP_MS = 30_000
@@ -62,8 +69,6 @@ export const TEAM_TOOLS = [
   'list_capabilities', 'save_capability', 'delete_capability',
   'attach_capability', 'detach_capability',
 ]
-// Rounds Bots may start in one group by posting, before the user speaks there again.
-export const ROOM_BOT_ROUNDS = 3
 // Answers a group gives to what members post after the round moved on (their finished
 // work, mostly), before the user speaks there again.
 export const ROOM_LATE_ROUNDS = 10

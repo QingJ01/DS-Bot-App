@@ -34,6 +34,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
   t.after(stop)
   assert.equal(applyResult, undefined)
   assert.deepEqual(ctx.calls, [
+    'effect ds-bot: diagnostics log',
     'effect ds-bot: state lock',
     'on llm/adapters-updated',
     'on session/event',
@@ -81,6 +82,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'effect ds-bot: Bot compaction',
     'on agent/created',
     'on agent/pre-step (prepend)',
+    'on system-prompt/assemble (prepend)',
     'on agent/request-error (prepend)',
     'on agent/request-error (prepend)',
     'on agent/status',

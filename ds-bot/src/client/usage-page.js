@@ -406,17 +406,11 @@ export function UsagePage({ roster, actions, focusId }) {
   useEffect(() => {
     let stopped = false
     let timer
-    // The page fills in once the settings dialog has finished resizing for it: a render
-    // this large in the middle of that resize stalls it, and it yields to the browser
-    // while it runs.
-    const resized = Promise.all((document.querySelector('.bt-settings')?.getAnimations() ?? [])
-      .filter(animation => animation.transitionProperty === 'width' || animation.transitionProperty === 'height')
-      .map(animation => animation.finished.catch(() => {})))
     const load = async () => {
       try {
         const value = await actions.usage()
-        await resized
         if (stopped) return
+        // A large render: as a transition it yields to the browser while it runs.
         startTransition(() => setView(value))
         setError('')
         // While older chats are still being read, totals catch up quickly.

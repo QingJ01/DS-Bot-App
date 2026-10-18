@@ -25,8 +25,9 @@ import { FOLDER_CSS } from './folder-menu.js'
 import { USAGE_CSS } from './usage-page.js'
 import { SCHEDULE_CSS } from './schedules.js'
 import { STORAGE, migrateStorage } from './storage.js'
-import { groupsFor, readMode, surfaceGroups, writeMode } from './surface.js'
-import { installLocale, language } from './i18n.js'
+import { noteLeft, setUnread, sharedMap, toggleReaction } from './shared-map.js'
+import { freePriority, groupsFor, readMode, surfaceGroups, writeMode } from './surface.js'
+import { installLocale, language, t } from './i18n.js'
 import { noteClientError, quietly } from './diagnostics.js'
 import { ErrorToast, FEEDBACK_CSS } from './feedback.js'
 import { createMobileApprovals, MobileApprovalDock, MobileApprovalNotice, MOBILE_APPROVAL_CSS } from './mobile-approvals.js'
@@ -47,19 +48,14 @@ export function apply(ctx) {
     return () => mobileApprovals.dispose()
   }, 'ds-bot: shared mobile approvals')
   migrateStorage()
-  const UNREAD_KEY = STORAGE.unread
-  let savedUnread = {}
-  try { savedUnread = JSON.parse(localStorage.getItem(UNREAD_KEY) ?? '{}') ?? {} } catch { savedUnread = {} }
-  const REACTIONS_KEY = STORAGE.reactions
-  let savedReactions = {}
-  try { savedReactions = JSON.parse(localStorage.getItem(REACTIONS_KEY) ?? '{}') ?? {} } catch { savedReactions = {} }
+  const unreadStore = sharedMap(STORAGE.unread)
+  const reactionStore = sharedMap(STORAGE.reactions)
   // When each conversation was last left; a visit compares new turns against it.
-  const SEEN_KEY = STORAGE.seen
-  let seenAt = {}
-  try { seenAt = JSON.parse(localStorage.getItem(SEEN_KEY) ?? '{}') ?? {} } catch { seenAt = {} }
+  const seenStore = sharedMap(STORAGE.seen)
+  let seenAt = seenStore.read()
   // `details` is the panel's subject (a Session id); `view` picks details or the
   // subject Bot's browser inside it.
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: savedUnread, reactions: savedReactions, visits: {} })
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
   // Bot mode paints the whole team surface; Agent mode withdraws every slot and
   // style so the shell's own interface returns. `plain` stays false until a Bot-mode
   // view hosts a plain session, which drops only the conversation replacements.
@@ -87,15 +83,25 @@ export function apply(ctx) {
   // A Bot's chat spans several parts, so when it was last left is kept per Bot.
   const seenKey = id => roster.getSnapshot().byId?.[id]?.id ?? id
   const leaveVisits = (ids) => {
-    const now = Date.now()
-    for (const id of ids) seenAt[seenKey(id)] = now
-    try { localStorage.setItem(SEEN_KEY, JSON.stringify(seenAt)) } catch { /* storage unavailable */ }
+    seenAt = seenStore.update(seen => noteLeft(seen, ids.map(seenKey), Date.now()), seenAt)
   }
   ctx.effect(() => {
     const onPageHide = () => leaveVisits(Object.keys(ui.getSnapshot().visits ?? {}))
     window.addEventListener('pagehide', onPageHide)
     return () => window.removeEventListener('pagehide', onPageHide)
   }, 'ds-bot: remember visits on page hide')
+  // Unread marks, reactions and visits are shared by every window; one saved elsewhere
+  // shows here at once. A `null` key is a cleared storage.
+  ctx.effect(() => {
+    const onStorage = (event) => {
+      if (event.storageArea !== localStorage) return
+      if (event.key === null || event.key === unreadStore.key) ui.set(state => ({ ...state, unread: unreadStore.read(state.unread) }))
+      if (event.key === null || event.key === reactionStore.key) ui.set(state => ({ ...state, reactions: reactionStore.read(state.reactions) }))
+      if (event.key === null || event.key === seenStore.key) seenAt = seenStore.read(seenAt)
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, 'ds-bot: follow other windows')
   const activity = createSource({})
   // Per Bot, the turn it runs and its tool; and the approvals waiting for the user.
   const work = createSource({ bots: {}, approvals: [] })
@@ -124,14 +130,10 @@ export function apply(ctx) {
   const PREFS_KEY = STORAGE.prefs
   let savedPrefs = {}
   try { savedPrefs = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') ?? {} } catch { savedPrefs = {} }
-  const setUnread = (id, value) => ui.set((state) => {
-    if (Boolean(state.unread[id]) === value) return state
-    const unread = { ...state.unread }
-    if (value) unread[id] = true
-    else delete unread[id]
-    try { localStorage.setItem(UNREAD_KEY, JSON.stringify(unread)) } catch { /* storage unavailable */ }
-    return { ...state, unread }
-  })
+  const writeUnread = (id, value) => {
+    const unread = unreadStore.update(marks => setUnread(marks, id, value), ui.getSnapshot().unread)
+    ui.set(state => (JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread }))
+  }
   const refreshed = new Set()
   // Pulls can overlap (the poll and a navigation); an older answer never wins.
   let pulls = 0
@@ -425,6 +427,7 @@ export function apply(ctx) {
       ctx.uiWorkspace.openSession(target)
     },
     selectPanel: (id) => { ctx.layout.selectPanel(id) },
+    toggleSidebar: () => { ctx.layout.toggleSidebar() },
     openNewChat: (mode) => { ui.set(state => ({ ...state, newChat: mode, menu: null, palette: null })) },
     openPalette: (query = '') => { ui.set(state => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null })) },
     // The token keeps a late exit timer from closing a palette opened again since.
@@ -487,7 +490,7 @@ export function apply(ctx) {
         })
       }
     },
-    markUnread: id => setUnread(id, true),
+    markUnread: id => writeUnread(id, true),
     beginVisit: (id) => {
       // A conversation a Bot started, never opened here, is unread from its start.
       const made = roster.getSnapshot().byId[id] ?? roster.getSnapshot().roomsById[id]
@@ -503,20 +506,13 @@ export function apply(ctx) {
         return { ...state, visits }
       })
     },
-    toggleReaction: (key, index, emoji) => ui.set((state) => {
-      const entry = { ...(state.reactions?.[key] ?? {}) }
-      const list = entry[index] ?? []
-      entry[index] = list.includes(emoji) ? list.filter(item => item !== emoji) : [...list, emoji]
-      if (entry[index].length === 0) delete entry[index]
-      const reactions = { ...state.reactions }
-      if (Object.keys(entry).length) reactions[key] = entry
-      else delete reactions[key]
-      try { localStorage.setItem(REACTIONS_KEY, JSON.stringify(reactions)) } catch { /* storage unavailable */ }
-      return { ...state, reactions }
-    }),
+    toggleReaction: (key, index, emoji) => {
+      const reactions = reactionStore.update(saved => toggleReaction(saved, key, index, emoji), ui.getSnapshot().reactions)
+      ui.set(state => ({ ...state, reactions }))
+    },
     quote: (sessionId, text) => ui.set(state => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
     clearQuote: token => ui.set(state => (state.quote?.token === token ? { ...state, quote: null } : state)),
-    clearUnread: id => setUnread(id, false),
+    clearUnread: id => writeUnread(id, false),
     setFlags: (id, flags) => after(call('set-flags', { id, ...flags })),
     deleteRoom: id => after(call('delete-room', { id })),
     openMenu: (menu) => { ui.set(state => ({ ...state, menu })) },
@@ -557,6 +553,8 @@ export function apply(ctx) {
     scheduleCreate: task => call('schedule-create', task),
     scheduleDelete: (sessionId, id) => call('schedule-delete', { sessionId, id }),
     exchange: (a, b) => call('exchange', { a, b }).catch(() => []),
+    exchangeText: id => call('exchange-text', { id }).catch(() => undefined),
+    fileText: file => call('file-text', { file }).catch(() => undefined),
     roomProgress: roomId => call('room-progress', { roomId }).catch(() => []),
     earlier: (sessionId, cursor) => call('earlier', { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.
@@ -568,6 +566,15 @@ export function apply(ctx) {
     diagnostics: payload => call('diagnostics', payload),
     diagnosticsLog: () => call('diagnostics-log'),
     diagnosticsClear: () => call('diagnostics-clear'),
+    // DSH's right sidebar (files, terminals), which a plugin may load after this one.
+    hasRightSidebar: () => ctx.get('sidebarRight') !== undefined,
+    toggleRightSidebar: () => {
+      try {
+        ctx.get('sidebarRight')?.toggleExpanded()
+      } catch (error) {
+        actions.reportError(error, 'right-sidebar')
+      }
+    },
     // A failed action away from any form (a menu, the palette) shows as a toast.
     reportError: (error, where = 'action') => {
       noteClientError(where, error)
@@ -722,7 +729,13 @@ export function apply(ctx) {
     } }
   }
 
-  const shadow = (name, options, component) => ctx.slots.inject(name, () => ctx.slots.register({ name, ...options }, component))
+  // A Bot surface owns the cells it shadows. It starts far below the -10 that plugins
+  // commonly use and goes below whatever already holds the cell, so a plugin that
+  // shadows the same cell neither breaks the install nor shows through.
+  const BOT_PRIORITY = -100
+  const shadow = (name, options, component) => ctx.slots.inject(name, () => ctx.slots.register({
+    name, ...options, ...(options.priority === undefined ? {} : { priority: freePriority(ctx.slots.entries(name), options) }),
+  }, component))
 
   // The host may wait while this window shows Agent mode or another Bot. Only
   // broker-owned requests appear here; the Harness approval handler stays intact.
@@ -772,68 +785,68 @@ export function apply(ctx) {
   }
 
   // The shell group paints the team surface around the session; the conversation
-  // group re-skins the session itself. Every disposer comes from slots.inject, so a
-  // surface change withdraws the whole group and the outlets re-render.
+  // group re-skins the session itself. Each step returns a disposer from slots.inject,
+  // so a surface change withdraws the whole group and the outlets re-render.
   const installShell = () => [
-    installCompiledStyles(SHELL_CSS, 'shell'),
-    installCompiledStyles(SIDEBAR_CSS, 'sidebar'),
-    installCompiledStyles(SECRET_CSS, 'secrets'),
-    installCompiledStyles(MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + GROUP_SETTINGS_CSS, 'models'),
-    installCompiledStyles(USAGE_CSS, 'usage'),
-    installCompiledStyles(SCHEDULE_CSS, 'schedules'),
-    installCompiledStyles(FEEDBACK_CSS, 'feedback'),
-    installCompiledStyles(ABOUT_CSS, 'about'),
-    installCompiledStyles(MEMBER_CSS, 'members'),
-    installCompiledStyles(USER_MESSAGE_CSS, 'user-messages'),
-    browsers ? installCompiledStyles(BROWSER_CSS, 'browser') : null,
-    installTheme(),
-    shadow('sidebar.workspaces', { priority: -10, inject: face }, TeamSidebar),
-    shadow('sidebar.brand.mark', { priority: -10 }, BrandMark),
-    shadow('sidebar.brand.name', { priority: -10 }, BrandName),
-    shadow('sidebar.footer.action', { id: 'bot-account', order: -200, inject: face }, FooterAccount),
-    shadow('sidebar.footer.action', { id: 'bot-connect', order: -100, inject: face }, ConnectPlugins),
-    shadow('settings.trigger', { priority: -10 }, YouAvatar),
-    // At priority -10 the whale wins the seat over a shell account plugin's own
-    // launcher (the Desktop's "··· More"), which comes back in Agent mode.
-    shadow('settings.launcher', { priority: -10, inject: face }, AccountLauncher),
-    shadow('shell.overlay', { id: 'bot', order: 50, inject: face }, Overlays),
-    shadow('shell.overlay', { id: 'bot-signin', order: 55, inject: face }, DeepSeekSignIn),
-    shadow('shell.overlay', { id: 'bot-toast', order: 60, inject: face }, ErrorToast),
+    () => installCompiledStyles(SHELL_CSS, 'shell'),
+    () => installCompiledStyles(SIDEBAR_CSS, 'sidebar'),
+    () => installCompiledStyles(SECRET_CSS, 'secrets'),
+    () => installCompiledStyles(MODEL_CSS + FOLDER_CSS + BOT_SETTINGS_CSS + GROUP_SETTINGS_CSS, 'models'),
+    () => installCompiledStyles(USAGE_CSS, 'usage'),
+    () => installCompiledStyles(SCHEDULE_CSS, 'schedules'),
+    () => installCompiledStyles(FEEDBACK_CSS, 'feedback'),
+    () => installCompiledStyles(ABOUT_CSS, 'about'),
+    () => installCompiledStyles(MEMBER_CSS, 'members'),
+    () => installCompiledStyles(USER_MESSAGE_CSS, 'user-messages'),
+    browsers ? () => installCompiledStyles(BROWSER_CSS, 'browser') : null,
+    () => installTheme(),
+    () => shadow('sidebar.workspaces', { priority: BOT_PRIORITY, inject: face }, TeamSidebar),
+    () => shadow('sidebar.brand.mark', { priority: BOT_PRIORITY }, BrandMark),
+    () => shadow('sidebar.brand.name', { priority: BOT_PRIORITY }, BrandName),
+    () => shadow('sidebar.footer.action', { id: 'bot-account', order: -200, inject: face }, FooterAccount),
+    () => shadow('sidebar.footer.action', { id: 'bot-connect', order: -100, inject: face }, ConnectPlugins),
+    () => shadow('settings.trigger', { priority: BOT_PRIORITY }, YouAvatar),
+    // The whale wins the seat over a shell account plugin's own launcher (the
+    // Desktop's "··· More"), which comes back in Agent mode.
+    () => shadow('settings.launcher', { priority: BOT_PRIORITY, inject: face }, AccountLauncher),
+    () => shadow('shell.overlay', { id: 'bot', order: 50, inject: face }, Overlays),
+    () => shadow('shell.overlay', { id: 'bot-signin', order: 55, inject: face }, DeepSeekSignIn),
+    () => shadow('shell.overlay', { id: 'bot-toast', order: 60, inject: face }, ErrorToast),
   ]
   const installConversation = () => [
-    installCompiledStyles(CONVERSATION_CSS, 'conversation'),
-    installMentions(),
-    installAtMenu(),
-    shadow('conversation.session.header', { priority: -10, inject: face }, HeaderPill),
-    shadow('conversation.chat.node', { key: 'assistant-step', priority: -10, locale: 'chat', inject: assistantFace }, AssistantCell),
-    shadow('conversation.chat.node', { key: 'turn-trigger', priority: -10, locale: 'chat', inject: face }, TriggerCell),
-    shadow('conversation.chat.node', { key: 'tool-call', priority: -10, locale: 'chat', inject: face }, ToolCell),
-    shadow('conversation.chat.node', { key: 'turn-process', priority: -10, locale: 'chat', inject: face }, TurnProcessCell),
+    () => installCompiledStyles(CONVERSATION_CSS, 'conversation'),
+    () => installMentions(),
+    () => installAtMenu(),
+    () => shadow('conversation.session.header', { priority: BOT_PRIORITY, inject: face }, HeaderPill),
+    () => shadow('conversation.chat.node', { key: 'assistant-step', priority: BOT_PRIORITY, locale: 'chat', inject: assistantFace }, AssistantCell),
+    () => shadow('conversation.chat.node', { key: 'turn-trigger', priority: BOT_PRIORITY, locale: 'chat', inject: face }, TriggerCell),
+    () => shadow('conversation.chat.node', { key: 'tool-call', priority: BOT_PRIORITY, locale: 'chat', inject: face }, ToolCell),
+    () => shadow('conversation.chat.node', { key: 'turn-process', priority: BOT_PRIORITY, locale: 'chat', inject: face }, TurnProcessCell),
     // DSH's own turn tail stays, so what other plugins add there shows, such as the
     // cards of the files a turn delivered; its copy and branch row is hidden.
-    shadow('conversation.chat.turnTail', { id: 'bot-turn-separators', order: 1000, inject: face }, TurnTailCell),
+    () => shadow('conversation.chat.turnTail', { id: 'bot-turn-separators', order: 1000, inject: face }, TurnTailCell),
     // A Bot condenses its conversation without telling anyone; the chat keeps showing
     // every message.
-    shadow('conversation.chat.node', { key: 'question-reply', priority: -10, locale: 'chat' }, AnsweredCell),
-    shadow('conversation.chat.node', { key: 'compaction', priority: -10, locale: 'chat' }, Nothing),
-    ...(canDrawUserMessages() ? ['user', 'steering'].map(key => shadow('conversation.chat.node', { key, priority: -10, locale: 'chat', inject: face }, UserMessageCell)) : []),
-    shadow('conversation.input.permission', { priority: -10 }, Nothing),
-    shadow('conversation.input.plan', { priority: -10 }, Nothing),
+    () => shadow('conversation.chat.node', { key: 'question-reply', priority: BOT_PRIORITY, locale: 'chat' }, AnsweredCell),
+    () => shadow('conversation.chat.node', { key: 'compaction', priority: BOT_PRIORITY, locale: 'chat' }, Nothing),
+    ...(canDrawUserMessages() ? ['user', 'steering'].map(key => () => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell)) : []),
+    () => shadow('conversation.input.permission', { priority: BOT_PRIORITY }, Nothing),
+    () => shadow('conversation.input.plan', { priority: BOT_PRIORITY }, Nothing),
     // The composer carries no model picker or run statistics; a Bot's model lives
     // in its details panel.
-    shadow('conversation.input.model', { priority: -10 }, Nothing),
-    shadow('conversation.composer.dock', { id: 'activity', order: 0, priority: -10 }, Nothing),
-    shadow('conversation.composer.dock', { id: 'usage', order: 1, priority: -10 }, Nothing),
-    shadow('conversation.input.left', { id: 'bot-plus', order: -100, inject: face }, ComposerPlus),
-    shadow('conversation.input.right', { id: 'bot-voice', order: 100, inject: face }, ComposerVoice),
-    shadow('conversation.composer', {
-      priority: -10,
+    () => shadow('conversation.input.model', { priority: BOT_PRIORITY }, Nothing),
+    () => shadow('conversation.composer.dock', { id: 'activity', order: 0, priority: BOT_PRIORITY }, Nothing),
+    () => shadow('conversation.composer.dock', { id: 'usage', order: 1, priority: BOT_PRIORITY }, Nothing),
+    () => shadow('conversation.input.left', { id: 'bot-plus', order: -100, inject: face }, ComposerPlus),
+    () => shadow('conversation.input.right', { id: 'bot-voice', order: 100, inject: face }, ComposerVoice),
+    () => shadow('conversation.composer', {
+      priority: BOT_PRIORITY,
       select: owner => (owner.pendingInteraction?.kind === 'question' ? owner.pendingInteraction : null),
     }, QuestionCard),
-    shadow('conversation.input.dock', { id: 'bot-members', order: -120, inject: face }, MemberDock),
-    shadow('conversation.input.dock', { id: 'bot-model', order: -110, inject: face }, ModelChoiceDock),
-    shadow('conversation.input.dock', { id: 'bot-question', order: -100, inject: face }, QuestionDock),
-    shadow('conversation.input.dock', { id: 'bot-secret', order: -90, inject: face }, SecretDock),
+    () => shadow('conversation.input.dock', { id: 'bot-members', order: -120, inject: face }, MemberDock),
+    () => shadow('conversation.input.dock', { id: 'bot-model', order: -110, inject: face }, ModelChoiceDock),
+    () => shadow('conversation.input.dock', { id: 'bot-question', order: -100, inject: face }, QuestionDock),
+    () => shadow('conversation.input.dock', { id: 'bot-secret', order: -90, inject: face }, SecretDock),
   ]
   // The return button belongs to neither group: it renders only in Agent mode.
   ctx.effect(() => {
@@ -900,7 +913,9 @@ export function apply(ctx) {
   }, 'ds-bot: agent surface')
 
   ctx.effect(() => {
-    const groups = surfaceGroups({ shell: installShell, conversation: installConversation })
+    const groups = surfaceGroups({ shell: installShell, conversation: installConversation }, {
+      onError: (_group, error) => actions.reportError(new Error(t('Bot mode could not be set up here: {error}', { error: error?.message ?? String(error) })), 'surface'),
+    })
     const reconcile = () => groups.reconcile(groupsFor(surface.getSnapshot()))
     reconcile()
     const unsub = surface.subscribe(reconcile)

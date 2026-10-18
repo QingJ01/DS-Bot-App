@@ -10,10 +10,10 @@ import { apply } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
 // Enough of the dsh services for the roster to make Sessions; kickoff messages are dropped.
-function start(team, { models = [], reasoning = {}, archiveError } = {}) {
+function start(team, { models = [], reasoning = {}, archiveError, permissionPresets } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
-  const ctx = fakeContext()
+  const ctx = fakeContext({ services: permissionPresets ? { permissionPresets } : {} })
   const workspaces = new Map()
   const sent = []
   const selected = []
@@ -65,6 +65,57 @@ function start(team, { models = [], reasoning = {}, archiveError } = {}) {
   }
   return { call, stop, home, sent, selected, ctx, archived, warnings }
 }
+
+test('a Bot permission endpoint rejects partial application without saving and reapplies on retry', async t => {
+  const team = {
+    version: 1,
+    mainBotIds: ['m1'],
+    revision: 1,
+    bots: {
+      m1: { id: 'm1', sessionId: 'm1', name: 'Chief', role: 'Chief of Staff', instructions: '', createdAt: 1 },
+    },
+    rooms: {
+      group: { id: 'group', name: 'Group', named: true, members: ['m1'], admin: 'm1', mode: 'admin', notice: '', sessions: { m1: 'm1-group' }, createdAt: 2 },
+      preset: { id: 'preset', name: 'Preset', named: true, members: ['m1'], admin: 'm1', mode: 'admin', notice: '', permission: 'workspace-write', sessions: { m1: 'm1-overridden' }, createdAt: 3 },
+    },
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+  }
+  const attempts = []
+  let failing = true
+  const permissionPresets = {
+    catalog: () => ({ options: [{ value: 'workspace-write' }, { value: 'danger-full-access' }], defaultPreset: 'workspace-write' }),
+    resolve: name => {
+      if (!['workspace-write', 'danger-full-access'].includes(name)) throw new Error(`Unknown preset ${name}`)
+      return {}
+    },
+    set: async (session, name) => {
+      attempts.push(`${session.id}=${name}`)
+      if (session.id === 'm1-group' && failing) throw new Error('group unavailable')
+    },
+  }
+  const { call, stop } = start(team, { permissionPresets })
+  t.after(stop)
+  await call('state', {})
+
+  const message = 'Could not apply permissions to Chief in every conversation. Some may already have changed; retry the permission setting.'
+  const rejected = await call('update-bot', { id: 'm1', permission: 'danger-full-access' })
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.error.message, message)
+  assert.equal((await call('state', {})).value.bots.find(bot => bot.id === 'm1').permission, undefined)
+
+  failing = false
+  const retried = await call('update-bot', { id: 'm1', permission: 'danger-full-access' })
+  assert.equal(retried.ok, true)
+  assert.equal(retried.value.permission, 'danger-full-access')
+  assert.deepEqual(attempts, [
+    'm1=danger-full-access',
+    'm1-group=danger-full-access',
+    'm1=danger-full-access',
+    'm1-group=danger-full-access',
+  ])
+})
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
 // A greeting goes out after the team is saved, which can take longer than one settle() on a
@@ -496,9 +547,11 @@ test('a rolled-back Bot does not come back with a save queued before the rollbac
   release()
   assert.equal((await phantom).ok, false)
   assert.equal((await kept).ok, true)
-  await settle()
-  const names = Object.values(JSON.parse(readFileSync(statePath, 'utf8')).bots).map(bot => bot.name)
-  assert.deepEqual(names.sort(), ['Chief', 'Kept', 'Warm'])
+  // The rollback queues a save after Kept's without waiting for it, and no later change may
+  // be what drops Phantom, so wait for that save itself.
+  const names = () => Object.values(JSON.parse(readFileSync(statePath, 'utf8')).bots).map(bot => bot.name).sort()
+  await until(() => !names().includes('Phantom'))
+  assert.deepEqual(names(), ['Chief', 'Kept', 'Warm'])
 })
 
 test('a write that fails at save time archives the Session it made', async (t) => {
@@ -525,4 +578,115 @@ test('a write that fails at save time archives the Session it made', async (t) =
   assert.equal(team.bots.some(bot => bot.name === 'Phantom'), false)
   const saved = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   assert.equal(Object.values(saved.bots).some(bot => bot.name === 'Phantom'), false)
+})
+
+// 公开#178: "User" is how a group log names the user, so a Bot may not take it.
+test('a Bot cannot be named or renamed like the user; one named so before keeps working', async (t) => {
+  const team = {
+    version: 1,
+    mainBotIds: ['a'],
+    bots: {
+      a: { id: 'a', name: 'Chief', role: '', instructions: '', sessionId: 'a', createdAt: 1 },
+      u: { id: 'u', name: 'User', role: '', instructions: '', sessionId: 'u', createdAt: 2 },
+    },
+    rooms: {},
+    agents: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+    prefs: {},
+    revision: 0,
+  }
+  const { call, stop } = start(team)
+  t.after(stop)
+  const made = await call('create-bot', { name: 'user' })
+  assert.equal(made.ok, false)
+  assert.match(made.error.message, /stands for the user in a chat/)
+  const renamed = await call('update-bot', { id: 'a', name: 'You' })
+  assert.equal(renamed.ok, false)
+  assert.match(renamed.error.message, /stands for the user in a chat/)
+  assert.equal((await call('update-bot', { id: 'u', name: 'User', role: 'Tester' })).ok, true)
+  assert.equal((await call('update-bot', { id: 'u', name: 'Helper' })).ok, true)
+})
+
+// Holds every new Session until `release`, so creates that start together are all
+// waiting on it at once, as with a slow DSH.
+const holdSessions = (ctx) => {
+  const create = ctx.sessionController.create
+  let open
+  const gate = new Promise(resolve => { open = resolve })
+  let waiting = 0
+  ctx.sessionController.create = async (request) => {
+    waiting += 1
+    await gate
+    return create(request)
+  }
+  return { waiting: () => waiting, release: () => { ctx.sessionController.create = create; open() } }
+}
+
+// 公开#148: two Main Bots that each made a "Coder" at the same time both got one.
+test('Bots created with one name at the same time: one is made, the others are refused', async (t) => {
+  const { call, stop, ctx } = start()
+  t.after(stop)
+  await call('state', {})
+  const sessions = holdSessions(ctx)
+  const creates = [1, 2, 3].map(() => call('create-bot', { name: 'Coder' }))
+  // A rename to a name a create is still working on is refused too.
+  const chief = (await call('state', {})).value.mainBotId
+  const rename = await call('update-bot', { id: chief, name: 'coder' })
+  sessions.release()
+  const results = await Promise.all(creates)
+  assert.deepEqual(results.map(result => result.ok), [true, false, false])
+  assert.match(results[1].error.message, /A Bot named Coder already exists/)
+  assert.equal(rename.ok, false)
+  const names = (await call('state', {})).value.bots.map(bot => bot.name)
+  assert.equal(names.filter(name => name.toLowerCase() === 'coder').length, 1)
+})
+
+test('copies of one Bot made at the same time get different names', async (t) => {
+  const { call, stop, ctx } = start()
+  t.after(stop)
+  const writer = (await call('create-bot', { name: 'Writer' })).value
+  const sessions = holdSessions(ctx)
+  const copies = [1, 2, 3].map(() => call('duplicate-bot', { id: writer.id }))
+  await until(() => sessions.waiting() === 3)
+  sessions.release()
+  const results = await Promise.all(copies)
+  assert.deepEqual(results.map(result => result.ok), [true, true, true])
+  assert.deepEqual(results.map(result => result.value.name).sort(), ['Writer copy', 'Writer copy 2', 'Writer copy 3'])
+})
+
+// 公开#199: two groups made with one name at the same time were both made, and from then
+// on a Main Bot could reach neither by name.
+test('groups created or renamed to one name at the same time: only one gets it', async (t) => {
+  const { call, stop, ctx } = start()
+  t.after(stop)
+  const chief = (await call('state', {})).value.mainBotId
+  const writer = (await call('create-bot', { name: 'Writer' })).value
+  const other = (await call('create-room', { members: [chief, writer.id], name: 'Docs' })).value
+  const sessions = holdSessions(ctx)
+  const creates = [1, 2].map(() => call('create-room', { members: [chief, writer.id], name: 'Ops' }))
+  const rename = await call('update-room', { id: other.id, name: 'ops' })
+  sessions.release()
+  const results = await Promise.all(creates)
+  assert.deepEqual(results.map(result => result.ok), [true, false])
+  assert.match(results[1].error.message, /Another group chat is already called "Ops"/)
+  assert.equal(rename.ok, false)
+  const rooms = (await call('state', {})).value.rooms.map(room => room.name).sort()
+  assert.deepEqual(rooms, ['Docs', 'Ops'])
+
+  // Once the create ends, its name is no longer held for anyone else.
+  const later = await call('create-room', { members: [chief, writer.id], name: 'Ops 2' })
+  assert.equal(later.ok, true)
+})
+
+test('a create that fails lets its name go', async (t) => {
+  const { call, stop, ctx } = start()
+  t.after(stop)
+  await call('state', {})
+  const create = ctx.sessionController.create
+  ctx.sessionController.create = async () => { throw new Error('dsh is busy') }
+  assert.equal((await call('create-bot', { name: 'Coder' })).ok, false)
+  ctx.sessionController.create = create
+  assert.equal((await call('create-bot', { name: 'Coder' })).ok, true)
 })

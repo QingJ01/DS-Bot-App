@@ -328,7 +328,7 @@ export async function createMobileServer({ home, config = {}, adapter }) {
   })
   wss.on('connection', socket => {
     const controller = new AbortController()
-    const state = { controller, deviceId: null, authenticated: false, busy: false }
+    const state = { controller, deviceId: null, reservedDevice: null, authenticated: false, busy: false }
     sockets.set(socket, state)
     const timeout = setTimeout(() => socket.close(4401, 'Authentication required'), 5000)
     const send = event => {
@@ -339,7 +339,7 @@ export async function createMobileServer({ home, config = {}, adapter }) {
     let expiry
     let alive = true
     socket.on('pong', () => { alive = true })
-    socket.on('close', () => { clearTimeout(timeout); clearInterval(expiry); controller.abort(); sockets.delete(socket) })
+    socket.on('close', () => { clearTimeout(timeout); clearInterval(expiry); state.reservedDevice = null; controller.abort(); sockets.delete(socket) })
     socket.on('error', () => controller.abort())
     socket.on('message', async bytes => {
       if (state.busy || state.authenticated) { socket.close(4400, 'Only an initial authentication frame is accepted'); return }
@@ -349,11 +349,13 @@ export async function createMobileServer({ home, config = {}, adapter }) {
         try { frame = JSON.parse(bytes.toString()) } catch { fail(400, 'INVALID_JSON', 'Invalid authentication frame.') }
         if (frame?.type !== 'auth') fail(401, 'UNAUTHORIZED', 'Authenticate before following a conversation.')
         const device = auth.verifyAccess(frame.token)
+        if ([...sockets.values()].filter(item => item.deviceId === device.id || item.reservedDevice === device.id).length >= 5) fail(429, 'CONNECTION_LIMIT', 'Close another connection on this device.')
+        state.reservedDevice = device.id
         required(frame.conversationId, 'conversationId')
-        if ([...sockets.values()].filter(item => item.deviceId === device.id).length >= 5) fail(429, 'CONNECTION_LIMIT', 'Close another connection on this device.')
         await adapter.target(frame.conversationId, controller.signal)
         auth.verifyAccess(frame.token)
         state.deviceId = device.id
+        state.reservedDevice = null
         state.authenticated = true
         clearTimeout(timeout)
         expiry = setInterval(() => {
@@ -370,6 +372,7 @@ export async function createMobileServer({ home, config = {}, adapter }) {
         }
         if (!controller.signal.aborted && socket.readyState === WebSocket.OPEN) socket.close(1012, 'Reconnect to the host stream')
       } catch (error) {
+        state.reservedDevice = null
         if (!controller.signal.aborted) {
           send({ type: 'error', error: safeError(error) })
           socket.close(error.status === 401 ? 4401 : error.status === 403 ? 4403 : 4400, 'Cannot follow conversation')

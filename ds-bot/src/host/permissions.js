@@ -44,13 +44,25 @@ export function install(rt) {
 
   async function setPermission(bot, name) {
     const wanted = checkPreset(name, 'a Bot\'s')
-    await applyPermission({ ...bot, permission: wanted }, rt.chatOf(bot.id))
-    bot.permission = wanted
-    for (const sessionId of rt.groupSessionsOf(bot.id)) {
-      if (roomOfSession(sessionId)?.permission) continue
-      await applyPermission(bot, sessionId)
-        .catch(error => rt.warn('ds-bot: permission for %s in a group not applied: %s', bot.name, error))
+    const service = presets()
+    const targets = []
+    try {
+      const sessionIds = new Set([rt.chatOf(bot.id), ...rt.groupSessionsOf(bot.id)])
+      for (const sessionId of sessionIds) {
+        if (sessionId !== rt.chatOf(bot.id) && roomOfSession(sessionId)?.permission) continue
+        targets.push((await rt.resolveAgent(sessionId)).session)
+      }
+    } catch (cause) {
+      throw new Error(`Could not apply permissions to ${bot.name} in every conversation. Some may already have changed; retry the permission setting.`, { cause })
     }
+    for (const session of targets) {
+      try {
+        await service.set(session, wanted)
+      } catch (cause) {
+        throw new Error(`Could not apply permissions to ${bot.name} in every conversation. Some may already have changed; retry the permission setting.`, { cause })
+      }
+    }
+    bot.permission = wanted
   }
 
   // A group's preset, or null when each member uses its own.

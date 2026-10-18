@@ -88,6 +88,33 @@ test('mobile work status carries bounded redacted progress and switching without
   view.work.bots.a.roomId='outside'
   assert.equal((await adapter.state()).work.bots.a,undefined)
 })
+test('mobile waiting status exposes only scoped redacted names and caps each recipient type',async()=>{
+  const {adapter,view}=fixture()
+  view.bots[1].name='Beta ds-bot-test-key'
+  view.bots.push({id:'c',name:'Outside'},{id:'empty',name:'Empty'},
+    ...Array.from({length:12},(_,i)=>({id:`bot-${i}`,name:`Bot ${i}`})))
+  view.rooms.push({id:'other-room',name:'Other group',members:['c']},
+    ...Array.from({length:12},(_,i)=>({id:`group-${i}`,name:`Group ${i}`,members:[]})))
+  view.work.bots.a={roomId:'room',tool:'handoff'}
+  view.work.bots.b={tool:'handoff'}
+  view.work.bots.empty={tool:'read'}
+  view.work.rooms={room:[{botId:'a'}]}
+  view.work.waiting={
+    a:{bots:['b','c','missing'],rooms:['room','other-room','missing'],for:['private-session']},
+    b:{bots:Array.from({length:12},(_,i)=>`bot-${i}`),rooms:Array.from({length:12},(_,i)=>`group-${i}`),for:['private-session']},
+    empty:{bots:['missing'],rooms:['missing'],for:['private-session']},
+    foreign:{bots:['b'],rooms:['room'],for:['private-session']},
+  }
+  const work=(await adapter.state()).work
+  assert.deepEqual(work.bots.a.waiting,{bots:['Beta [redacted]'],rooms:['Group']})
+  assert.deepEqual(work.rooms.room[0].waiting,{bots:['Beta [redacted]'],rooms:['Group']})
+  assert.deepEqual(work.bots.b.waiting.bots,Array.from({length:10},(_,i)=>`Bot ${i}`))
+  assert.deepEqual(work.bots.b.waiting.rooms,Array.from({length:10},(_,i)=>`Group ${i}`))
+  assert.equal(work.bots.empty.waiting,undefined)
+  assert.equal(work.bots.foreign,undefined)
+  assert.ok(!JSON.stringify(work).includes('private-session'))
+  assert.ok(!JSON.stringify(work).includes('missing'))
+})
 test('live mobile group replies are scoped, redacted and bounded before being returned',async()=>{
   const {adapter,rt}=fixture()
   const oldCall=rt.teamCall

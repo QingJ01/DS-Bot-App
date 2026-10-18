@@ -40,3 +40,17 @@ jobs:
       - run: npm test -- --test-concurrency=2
       - run: node scripts/build-client.mjs --check
       - run: npm run lint
+
+  docker:
+    name: Docker startup and data migration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: docker compose -f docker-compose.yml config --quiet
+      - run: docker compose -f docker/compose.yml config --quiet
+      - run: docker build -f docker/Dockerfile -t ds-bot:test .
+      - run: node docker/test.mjs ds-bot:test
