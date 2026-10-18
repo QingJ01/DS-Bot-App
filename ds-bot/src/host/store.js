@@ -4,15 +4,15 @@
 import { mkdirSync, statSync } from 'node:fs'
 import { copyFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES } from './constants.js'
+import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES, TEXT_KEPT } from './constants.js'
 import { homeLock } from './home-lock.js'
-import { currentColor, normalize, unquote } from './text.js'
+import { currentColor, headOf, normalize, unquote } from './text.js'
 
 export function install(rt) {
   const { ctx, home, statePath } = rt
 
   /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, rooms:Record<string,any>, agents:Record<string,any>, capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, questions: {}, prefs: {}, revision: 0 }
+  const state = { version: 1, mainBotIds: [], bots: {}, rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, questions: {}, prefs: {}, revision: 0 }
   let loaded = null
   let writing = Promise.resolve()
   const { warn } = rt
@@ -152,6 +152,13 @@ export function install(rt) {
       state.prefs.theme = LEGACY_THEMES[state.prefs.theme]
       migrated = true
     }
+    if (state.works === null || typeof state.works !== 'object' || Array.isArray(state.works)) state.works = {}
+    // LEGACY: Bots no longer count the rounds they start in a group.
+    for (const room of Object.values(state.rooms)) {
+      if (!('botRounds' in room)) continue
+      delete room.botRounds
+      migrated = true
+    }
     // Groups from before group settings existed reply in turn, led by a Main Bot member.
     for (const room of Object.values(state.rooms)) {
       if (room.admin !== undefined && ROOM_MODES.includes(room.mode)) continue
@@ -159,6 +166,34 @@ export function install(rt) {
       if (!ROOM_MODES.includes(room.mode)) room.mode = 'everyone'
       room.notice ??= ''
       migrated = true
+    }
+    // A Bot deleted while a group was made or changed could stay listed in it, even as its
+    // admin; it leaves the group now.
+    for (const room of Object.values(state.rooms)) {
+      const members = room.members.filter(id => state.bots[id])
+      const admin = members.includes(room.admin) ? room.admin : null
+      if (members.length === room.members.length && admin === room.admin) continue
+      room.members = members
+      room.admin = admin
+      migrated = true
+    }
+    // Teams from before #206 kept every long message whole in this file, written whole on
+    // every save. A message between Bots is whole in its recipient's Session; a group
+    // line's whole text moves to a file of its own, which only the writing host makes.
+    const writer = holder === undefined && stuck === undefined
+    for (const entry of state.exchanges) {
+      if (typeof entry.text !== 'string' || entry.text.length <= TEXT_KEPT || entry.length !== undefined) continue
+      entry.length = entry.text.length
+      entry.text = headOf(entry.text, TEXT_KEPT)
+      migrated = true
+    }
+    for (const room of writer ? Object.values(state.rooms) : []) {
+      if (!Array.isArray(room.log)) continue
+      const log = room.log.map(line => (typeof line.text === 'string' && line.length === undefined && typeof line.seq === 'number' ? rt.keepGroupLine(room.id, line, line.text) : line))
+      if (log.some((line, index) => line !== room.log[index])) {
+        room.log = log
+        migrated = true
+      }
     }
     // Unnamed groups from before names followed their members may still list old names.
     const stale = Object.values(state.rooms).filter(room => !room.named && room.name !== rt.autoRoomName(room.members))
@@ -242,7 +277,7 @@ export function install(rt) {
     if (!writable()) return writing
     state.revision += 1
     state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
-    const snapshot = JSON.stringify(state, null, 2)
+    const snapshot = JSON.stringify(state)
     const run = writing.then(async () => {
       const temp = `${statePath}.${process.pid}.tmp`
       try {
@@ -333,6 +368,16 @@ export function install(rt) {
     // that no longer has it.
     void ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true }).catch(() => {})
   }
+  // A group Session DSH can no longer open is set aside; the member's earlier parts in
+  // the group stay, and its next turn there starts a new Session.
+  const retireGroupSession = (room, botId) => {
+    const sessionId = room.sessions?.[botId]
+    if (sessionId === undefined) return
+    delete room.sessions[botId]
+    groupOwners.delete(sessionId)
+    rt.cancelApprovals?.(sessionId)
+    void ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true }).catch(() => {})
+  }
   const findBot = (ref) => {
     if (ref === undefined) return undefined
     if (state.bots[ref]) return state.bots[ref]
@@ -352,6 +397,6 @@ export function install(rt) {
     state, load, save, refresh, readOnly,
     botOf, roomOf, isMain, chatOf, selfOf, isBotSession,
     chatOwners, groupOwners, pastOwners,
-    groupSessionsOf, dropGroupSession, findBot, findRooms, isAdminOf,
+    groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,
   })
 }

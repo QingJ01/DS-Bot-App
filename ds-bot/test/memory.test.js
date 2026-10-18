@@ -177,6 +177,21 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies =
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
 
+// The summary is written to disk after the model answers; a fixed wait is too short on
+// a slow disk and leaves the write running into the next step or the cleanup.
+async function summarized(call, botId = 'b2') {
+  for (let tries = 0; tries < 200; tries += 1) {
+    if ((await call('memory-view', { botId })).value.summarizing === false) return
+    await settle()
+  }
+  throw new Error('the memory summary did not finish')
+}
+
+async function until(check) {
+  for (let tries = 0; tries < 200 && !check(); tries += 1) await settle()
+  assert.ok(check(), 'the condition did not hold within 4 s')
+}
+
 test('remember saves one entry with its source, and forget removes it, both in the journal', async (t) => {
   const { tool, read, journal, stop } = start()
   t.after(() => stop())
@@ -336,7 +351,7 @@ test('the memory panel shows every entry and a summary the Bot\'s model writes o
   const asked = (await call('memory-view', { botId: 'b2', summarize: true })).value
   assert.deepEqual(asked.entries.map(entry => [entry.scope, entry.topic, entry.text]), [['own', null, 'Likes tea']])
   assert.equal(asked.summarizing, true)
-  await settle()
+  await summarized(call)
   const done = (await call('memory-view', { botId: 'b2', summarize: true })).value
   assert.deepEqual([done.summary.text, done.fresh, done.summarizing, done.error], ['## Overview\nYou like tea.', true, false, null])
   assert.equal(requests.length, 1)
@@ -347,13 +362,13 @@ test('the memory panel shows every entry and a summary the Bot\'s model writes o
   await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
   replies.push(new Error('provider down'))
   assert.equal((await call('memory-view', { botId: 'b2', summarize: true })).value.fresh, false)
-  await settle()
+  await summarized(call)
   const failed = (await call('memory-view', { botId: 'b2', summarize: true })).value
   assert.deepEqual([failed.summary.text, failed.fresh, failed.error], ['## Overview\nYou like tea.', false, 'provider down'])
   assert.equal(requests.length, 2)
   replies.push('## Overview\nYou like tea and live in Hangzhou.')
   await call('memory-view', { botId: 'b2', regenerate: true })
-  await settle()
+  await summarized(call)
   assert.equal((await call('memory-view', { botId: 'b2' })).value.summary.text, '## Overview\nYou like tea and live in Hangzhou.')
   assert.equal((await call('memory-view', { botId: 'nope' })).error.message, 'Unknown Bot')
 })
@@ -367,7 +382,7 @@ test('a summary cut off at the output limit is written once more with a bigger b
   t.after(() => stop())
   await tool('remember', { text: 'Likes tea' }, 'b2')
   await call('memory-view', { botId: 'b2', summarize: true })
-  await settle()
+  await summarized(call)
   const done = (await call('memory-view', { botId: 'b2' })).value
   assert.deepEqual([done.summary?.text, done.fresh, done.error], ['## Overview\nYou like tea.', true, null])
   assert.deepEqual(requests.map(request => request.maxTokens), [2048, 8192])
@@ -383,11 +398,11 @@ test('a summary cut off at both budgets keeps the old one and says the reasoning
   t.after(() => stop())
   await tool('remember', { text: 'Likes tea' }, 'b2')
   await call('memory-view', { botId: 'b2', summarize: true })
-  await settle()
+  await summarized(call)
   // A new entry asks for a fresh summary; both its tries are cut off.
   await tool('remember', { text: 'Lives in Hangzhou' }, 'b2')
   await call('memory-view', { botId: 'b2', summarize: true })
-  await settle()
+  await summarized(call)
   const failed = (await call('memory-view', { botId: 'b2' })).value
   assert.equal(failed.summary.text, '## Overview\nYou like tea.')
   assert.match(failed.error, /reasoning.*output budget|output budget.*reasoning/i)
@@ -399,14 +414,14 @@ test('the panel call asks for the model\'s lowest thinking level when it has no 
   t.after(() => first.stop())
   await first.tool('remember', { text: 'Likes tea' }, 'b2')
   await first.call('memory-view', { botId: 'b2', summarize: true })
-  await settle()
+  await summarized(first.call)
   assert.equal(first.requests[0].reasoningEffort, 'low')
 
   const second = start({ replies: ['## ok'], reasoning: {} })
   t.after(() => second.stop())
   await second.tool('remember', { text: 'Likes tea' }, 'b2')
   await second.call('memory-view', { botId: 'b2', summarize: true })
-  await settle()
+  await summarized(second.call)
   assert.equal(second.requests[0].reasoningEffort, undefined)
 })
 
@@ -418,7 +433,7 @@ test('a summary the Bot\'s model refuses is written by the profile default model
   t.after(() => stop())
   await tool('remember', { text: 'Likes tea' }, 'b2')
   await call('memory-view', { botId: 'b2', summarize: true })
-  await settle()
+  await summarized(call)
   const done = (await call('memory-view', { botId: 'b2' })).value
   assert.deepEqual([done.summary?.text, done.fresh, done.error], ['## Overview\nYou like tea.', true, null])
   assert.deepEqual(routes(requests), ['deepseek/v4@2048', 'deepseek/flash@2048'])
@@ -431,7 +446,7 @@ test('a summary cut off at both budgets on the Bot\'s model is written by the de
   t.after(() => stop())
   await tool('remember', { text: 'Likes tea' }, 'b2')
   await call('memory-view', { botId: 'b2', summarize: true })
-  await settle()
+  await summarized(call)
   const done = (await call('memory-view', { botId: 'b2' })).value
   assert.deepEqual([done.summary?.text, done.error], ['## Overview\nYou like tea.', null])
   assert.deepEqual(routes(requests), ['deepseek/v4@2048', 'deepseek/v4@8192', 'deepseek/flash@2048'])
@@ -443,7 +458,7 @@ test('a summary that failed on both models is tried again once the Bot has anoth
   t.after(() => stop())
   await tool('remember', { text: 'Likes tea' }, 'b2')
   await call('memory-view', { botId: 'b2', summarize: true })
-  await settle()
+  await summarized(call)
   const failed = (await call('memory-view', { botId: 'b2', summarize: true })).value
   assert.equal(failed.error, 'deepseek/v4: 401: Unauthorized; deepseek/flash: 503 Service Unavailable')
   assert.equal(failed.summarizing, false)
@@ -453,7 +468,7 @@ test('a summary that failed on both models is tried again once the Bot has anoth
   replies.push('## Overview\nYou like tea.')
   const retried = (await call('memory-view', { botId: 'b2', summarize: true })).value
   assert.deepEqual([retried.summarizing, retried.error], [true, null])
-  await settle()
+  await summarized(call)
   const done = (await call('memory-view', { botId: 'b2' })).value
   assert.deepEqual([done.summary?.text, done.error], ['## Overview\nYou like tea.', null])
   assert.deepEqual(routes(requests).slice(2), ['deepseek/flash@2048'])
@@ -822,7 +837,7 @@ test('a queued review keeps the group lines that leave the log while it waits', 
   await call('state', {})
   // A slow review of Writer's own chat holds the queue.
   ctx.emit('agent/status', { agent: { id: 'b2' }, status: 'idle' })
-  await settle()
+  await until(() => requests.length === 1)
   assert.equal(requests.length, 1)
   ctx.emit('agent/status', { agent: { id: 'g3' }, status: 'idle' })
   await postToGroup(ctx, Array.from({ length: 50 }, (_, at) => `More ${at + 1}`))
@@ -1021,7 +1036,7 @@ test('a memory summary names the Bot chat on both of its tries', async (t) => {
   t.after(() => stop())
   await tool('remember', { text: 'Likes tea' }, 'b2')
   await call('memory-view', { botId: 'b2', summarize: true })
-  await settle()
+  await summarized(call)
   const view = (await call('memory-view', { botId: 'b2' })).value
   assert.equal(view.error, null)
   assert.equal(view.summary?.text, 'You like tea.')

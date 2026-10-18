@@ -3,6 +3,12 @@
 // is what gets called. Pure, so both sides import it.
 
 export const ALL_WORDS = ['all', 'everyone', '所有人', '全体']
+// The speaker names a group log and a Bot's own chat give the user ("User: …",
+// "You: …"). A Bot with one of them would read as the user.
+export const USER_NAMES = ['user', 'you']
+// The name a group log line goes by. A Bot named before such names were refused still
+// never reads as the user.
+export const speakerOf = line => (line.botId !== undefined && USER_NAMES.includes(String(line.who ?? '').trim().toLowerCase()) ? `Bot "${line.who}"` : line.who)
 // A letter, digit, "_" or "-" after a name means a longer word ("@Mi" in "@MiniMax"),
 // and "/", "\" or a "." that goes on into a word mean a path: DSH writes a file
 // reference as "@docs/guide.md", which must not call a Bot named Docs. A letter,
@@ -22,6 +28,7 @@ export function nameProblem(name) {
   if (text === '') return 'A Bot needs a name'
   if (/[@`\r\n]/.test(text)) return 'A Bot name cannot contain @, ` or a line break'
   if (ALL_WORDS.includes(text.toLowerCase())) return `"${text}" calls everyone in a group, so it cannot be a Bot name`
+  if (USER_NAMES.includes(text.toLowerCase())) return `"${text}" stands for the user in a chat, so it cannot be a Bot name`
   return undefined
 }
 

@@ -66,7 +66,7 @@ function cellProps({ closingSeq = 10, turn = finished } = {}) {
   }
   return { props, asked, links }
 }
-const markdownOf = props => find(expand(AssistantCell(props), ['Bubbles']), node => node.type === MarkdownText)
+const markdownOf = props => find(expand(AssistantCell(props), ['Bubbles', 'Bubble']), node => node.type === MarkdownText)
 
 test('a reply that closes its turn links the files the turn changed or delivered', () => {
   const { props, asked, links } = cellProps()
@@ -100,4 +100,17 @@ test('the turn tail entry notes when the turn ended and shows the pause before t
   for (const run of effects) run()
   assert.deepEqual(noted, [['b', 3, 'end', 2_000]])
   assert.equal(find(out, node => node.props?.className === 'bt-time-sep').length, 1)
+})
+
+// #206: the user reads a Bot's reply in its own chat, so it folds only where rendering
+// all of it would slow the chat down.
+test('a Bot reply in its own chat stays whole up to 20,000 characters', () => {
+  const reply = text => {
+    const { props } = cellProps()
+    props.node.data.blocks = [{ kind: 'text', text }]
+    return markdownOf(props)[0].props.text
+  }
+  const long = Array.from({ length: 60 }, (_, index) => `Line ${index + 1} of a long answer.`).join('\n')
+  assert.equal(reply(long), long)
+  assert.equal(reply('w'.repeat(25_000)), 'w'.repeat(600))
 })

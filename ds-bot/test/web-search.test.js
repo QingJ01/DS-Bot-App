@@ -87,9 +87,9 @@ test('routeOf reads the asking Session route: protocol, endpoint, key name, and 
     { provider: 'moonshotai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'moonshotai'] },
     { provider: 'deepseek-official', settingsNs: 'llm-deepseek-api-key', settingsPath: [] },
   ]
-  const ctxFor = (provider, env = {}) => ({
+  const ctxFor = (provider, env = {}, id) => ({
     get: name => ({
-      agents: { currentInitiator: () => ({ session: { requestContext: () => ({ provider, model: 'x' }) } }) },
+      agents: { currentInitiator: () => ({ session: { id, requestContext: () => ({ provider, model: 'x' }) } }) },
       llm: { listConfigurableProviders: () => directory },
       settings: { describe: () => settings },
       launchEnvironment: { get: key => (env[key] === undefined ? undefined : { value: env[key] }) },
@@ -108,10 +108,40 @@ test('routeOf reads the asking Session route: protocol, endpoint, key name, and 
   })
   assert.equal(routeOf(ctxFor('openrouter')).api, undefined)
   assert.equal(routeOf({ get: () => undefined }), undefined)
+  // 公开#184: OpenCode's gateways answered HTTP 400 "missing x-opencode-session" to every
+  // native search, so web_search always fell back to the keyless results page.
+  assert.deepEqual(routeOf(ctxFor('opencode-go', {}, 'sess-184')).headers, { 'x-opencode-session': 'sess-184' })
+  assert.deepEqual(routeOf(ctxFor('opencode', {}, 'sess-184')).headers, { 'x-opencode-session': 'sess-184' })
+  assert.deepEqual(routeOf(ctxFor('mimo', {}, 'sess-184')).headers, { 'x-team': 'bots' })
+  settings.push({ ns: 'llm-pi-ai-oc', value: { headers: { 'X-OpenCode-Session': 'mine' } } })
+  directory.push({ provider: 'opencode', settingsNs: 'llm-pi-ai-oc', settingsPath: [] })
+  assert.deepEqual(routeOf(ctxFor('opencode', {}, 'sess-184')).headers, { 'X-OpenCode-Session': 'mine' })
 })
 
 // ---------------------------------------------------------------------------
 // Native search: own key, own origin, found by trying
+
+test('a native search on an OpenCode route names the asking Session, as the gateway requires', async () => {
+  const ctx = {
+    get: name => ({
+      agents: { currentInitiator: () => ({ session: { id: 'sess-184', requestContext: () => ({ provider: 'opencode-go', model: 'glm-5' }) } }) },
+      llm: { listConfigurableProviders: () => [] },
+      settings: { describe: () => [] },
+    })[name],
+  }
+  const route = { ...routeOf(ctx), api: 'openai-responses' }
+  const { provider, calls } = harness({
+    route,
+    keys: { OPENCODE_API_KEY: 'sk-oc' },
+    fetch: (_url, init) => (init.headers['x-opencode-session'] === undefined
+      ? json({ error: { message: 'Request is missing x-opencode-session' } }, 400)
+      : json({ output: [{ type: 'web_search_call' }, { type: 'message', content: [{ type: 'output_text', text: 'ok', annotations: [{ type: 'url_citation', url: 'https://o.example/', title: 'O' }] }] }] })),
+  })
+  const result = await provider.search({ query: 'opencode news' })
+  assert.deepEqual(result.sources, [{ url: 'https://o.example/', title: 'O' }])
+  assert.equal(calls.fetch[0].init.headers['x-opencode-session'], 'sess-184')
+  assert.equal(calls.webFetch.length, 0)
+})
 
 test('a host this plugin has never heard of gets native search through its protocol', async () => {
   const { provider, calls } = harness({

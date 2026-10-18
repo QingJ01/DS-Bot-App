@@ -2,8 +2,10 @@
 // question card. Group rounds and reading chats are in groups.js.
 import { randomUUID } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { COLORS, EXTRA_COLORS, MAX_HOPS, MAX_UNATTENDED_MESSAGES, MAX_UNREAD_REQUESTS, ROOM_BOT_ROUNDS, ROOM_MODES, SOURCE_KIND } from './constants.js'
+import { COLORS, EXTRA_COLORS, MESSAGE_INLINE_MAX, ROOM_MODES, SOURCE_KIND } from './constants.js'
+import { absoluteLinks } from './links.js'
 import { unquote } from './text.js'
+import { mentionSpans } from '../shared/mentions.js'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
@@ -45,7 +47,7 @@ export function install(rt) {
 
   ctx.tools.register(defineTool({
     name: 'list_bots',
-    description: 'List every Bot on the user\'s team with its role and what it does, and the group chats you can see.',
+    description: 'List every Bot on the user\'s team with its role, what it does and what it is doing right now, and the group chats you can see.',
     parameters: {},
     output,
     async execute(_args, exec) {
@@ -55,7 +57,8 @@ export function install(rt) {
         const model = bot.appliedModel ?? bot.model
         const tags = [bot.role, model ? `model ${model}` : '', bot.workDir ? `works in ${bot.workDir}` : '', rt.isMain(bot.id) ? 'Main Bot' : '', bot.id === self ? 'you' : ''].filter(Boolean).join(', ')
         const job = bot.instructions ? ` — ${bot.instructions.split('\n')[0].slice(0, 120)}` : ''
-        return `- ${bot.name}${tags ? ` (${tags})` : ''}${job}`
+        const now = bot.id === self ? '' : `\n  now: ${rt.statusOf(bot.id)}`
+        return `- ${bot.name}${tags ? ` (${tags})` : ''}${job}${now}`
       })
       if (lines.length === 0) return 'No Bots yet.'
       const rooms = visibleRooms(self)
@@ -80,29 +83,53 @@ export function install(rt) {
     const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
     return room ? `group "${room.name}"` : 'its own chat'
   }
-  // Delivered but not read yet: no step or turn has taken them out of the inbox.
-  const unreadRequests = agent => [...(agent.inbox?.nextStep ?? []), ...(agent.inbox?.nextTurn ?? [])]
-    .filter(message => message.source?.kind === SOURCE_KIND && message.source.role === 'request').length
+  // A Bot request still in the inbox: no step or turn has taken it out yet.
+  const unreadRequest = (agent, senderId, toUser) => {
+    for (const [message, steered] of [...(agent.inbox?.nextStep ?? []).map(message => [message, true]), ...(agent.inbox?.nextTurn ?? []).map(message => [message, false])]) {
+      const source = message.source
+      if (source?.kind === SOURCE_KIND && source.role === 'request' && source.senderSessionId === senderId
+        && (source.audience === 'user') === toUser && !source.deferred && !source.resumed) return { message, steered }
+    }
+    return undefined
+  }
+  // A message's own words and files, without its header line.
+  const bodyOf = (message) => {
+    const content = Array.isArray(message.content) ? message.content : []
+    const first = content.find(block => block?.type === 'text')?.text ?? ''
+    return { text: first.slice(first.indexOf('\n') + 1), files: content.filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment) }
+  }
 
   // A tool that throws shows as failed in the chat, instead of as sent or stopped.
   const refuse = (message) => { throw new Error(message) }
 
-  // A message a Bot sends is one hop past the turn that sends it, while a reply keeps
-  // the hop of the request it answers (turns.js): any chain, forwarded or back and
-  // forth, reaches MAX_HOPS.
-  const nextHop = (exec) => {
+  // The works (handoffs.js) the calling turn does: what it answers, and the requests
+  // that joined it.
+  const worksOf = (exec) => {
     const turn = rt.live.get(exec.agent?.id)
-    return 1 + Math.max(turn?.info?.hop ?? 0, ...(turn?.joined ?? []).map(joined => joined.info?.hop ?? 0))
+    return [rt.workOf(turn?.info), ...(turn?.joined ?? []).map(joined => rt.workOf(joined.info))].filter(Boolean)
   }
-  const CHAIN_TOO_LONG = 'This chain of Bot messages is already long. Stop here and report to the user instead.'
-  const checkUnattended = () => {
-    if (rt.unattended.sent < MAX_UNATTENDED_MESSAGES) return
-    refuse(`Not sent: the team has sent ${MAX_UNATTENDED_MESSAGES} Bot messages since the user last wrote. Stop messaging other Bots and tell the user what is still open.`)
+  const tooLong = text => `Not sent: the message has ${text.length} characters, more than ${MESSAGE_INLINE_MAX}, and this DeepSeek Harness cannot send it as a file. Write it to a file in your working folder and send its path instead.`
+
+  // Work for a group stays in it: from a group Session, message_bot calls a member there
+  // exactly as an "@Name" line would, and never reaches a Bot outside the group.
+  const callInGroup = async (exec, room, sender, target, message) => {
+    if (!room.members.includes(target.id)) {
+      const add = rt.isMain(sender.id) || rt.isAdminOf(room, sender.id) ? ', or add it yourself with update_group first' : ''
+      refuse(`Not sent: ${target.name} is not in "${room.name}", and work for this group stays in it. Ask the user to add ${target.name} to the group${add}.`)
+    }
+    const call = `@${target.name}`
+    await rt.roomStepText(exec.agent.id, rt.live.get(exec.agent.id)?.info, message.startsWith(call) ? message : `${call} ${message}`, false)
+    return `Called ${target.name} in "${room.name}" with your message, as writing "${call}" there does: it works on it in the group, and you answer its result there. Nothing went to its own chat.`
   }
+
+  // The Bots each Session's post_to_group called by name in its current turn, so that
+  // turn does not also send them the same work in their own chats.
+  const calledInPosts = new Map()
+  const turnOf = exec => rt.live.get(exec.agent?.id)?.turn
 
   ctx.tools.register(defineTool({
     name: 'message_bot',
-    description: 'Send a message to another Bot on the team. If that Bot is working, it reads your message at its next step and can change course, then answers once that work is done; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to "user" it answers the user in its own chat instead.',
+    description: 'Send a message to another Bot on the team. If that Bot is working, it reads your message at its next step and can change course, then answers once that work is done; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to "user" it answers the user in its own chat instead. In a group chat it reaches only members of that group, as writing "@Name" there does.',
     parameters: {
       to: { type: 'string', required: true, description: 'Exact Bot name from list_bots' },
       message: { type: 'string', required: true, description: 'Self-contained message; the other Bot cannot see this conversation' },
@@ -125,19 +152,44 @@ export function install(rt) {
       const target = rt.findBot(args.to)
       if (target === undefined) return `No Bot named ${args.to}. Team: ${Object.values(state.bots).map(bot => bot.name).join(', ')}`
       if (target.id === sender.id) return 'You cannot message yourself.'
-      const hop = nextHop(exec)
-      if (hop > MAX_HOPS) return CHAIN_TOO_LONG
-      checkUnattended()
-      const chat = rt.chatOf(target.id)
-      const unread = unreadRequests(await rt.resolveAgent(chat))
-      if (unread >= MAX_UNREAD_REQUESTS) {
-        refuse(`Not sent: ${target.name} has not read the last ${unread} messages from Bots yet, so it is most likely stuck, for example waiting for the user. Do not send it more; tell the user that ${target.name} is not responding.`)
+      if (String(args.message ?? '').trim() === '') return 'Write a message to send.'
+      const text = absoluteLinks(String(args.message), rt.sessionFolder?.(exec.agent?.session ?? exec.agent))
+      const room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId)
+      if (room !== undefined) return callInGroup(exec, room, sender, target, text.trim())
+      const posted = calledInPosts.get(exec.agent?.id)
+      const postedIn = posted !== undefined && posted.turn === turnOf(exec) ? posted.calls.get(target.id) : undefined
+      if (postedIn !== undefined) refuse(`Not sent: you called ${target.name} in "${postedIn}" in this turn, and it works on that there. Send each task one way only; to add to it, post in that group.`)
+      // Whoever waits for this work gets the answer by itself; a message there only
+      // sends the work round in a circle.
+      const works = worksOf(exec)
+      if (rt.upstreamOf(works).has(target.id)) {
+        refuse(`Not sent: ${target.name} is waiting for the result of the work you are doing, and your answer reaches it by itself. Finish the work and end your turn; to ask ${target.name} something, end your turn with the question.`)
       }
       const toUser = args.reply_to === 'user'
+      const work = toUser ? undefined : works[0]
+      const chat = rt.chatOf(target.id)
+      const agent = await rt.resolveAgent(chat)
+      const status = rt.statusOf(target.id)
+      // A request it has not read yet, sent for the same work, takes this one in, so
+      // messages to a Bot that cannot read them do not pile up.
+      const earlier = unreadRequest(agent, sender.id, toUser)
+      const joinable = earlier !== undefined && (toUser || rt.sameWork(earlier.message.source.exchangeId, work))
+      const before = joinable ? bodyOf(earlier.message) : undefined
+      let long = await rt.attachLong(before ? `${before.text}\n\n${text}` : text, `Message from ${sender.name}.txt`)
+      if (long === undefined) return tooLong(text)
+      const joins = before !== undefined && agent.inbox?.remove?.(earlier.message.id) === true
+      if (before !== undefined && !joins) long = await rt.attachLong(text, `Message from ${sender.name}.txt`) ?? long
       const working = rt.live.get(chat)?.turn !== undefined
-      const steer = args.when !== 'queue' && !toUser
-      await rt.deliver({ fromId: sender.id, toId: target.id, text: args.message, role: 'request', hop, steer, ...(toUser ? { audience: 'user' } : callerRoom(exec)) })
-      rt.unattended.sent += 1
+      const steer = (args.when !== 'queue' && !toUser) || (joins && earlier.steered)
+      const exchangeId = joins ? earlier.message.source.exchangeId : randomUUID()
+      if (joins) rt.forgetDelivery?.(exchangeId)
+      else if (!toUser) rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: work })
+      try {
+        await rt.deliver({ fromId: sender.id, toId: target.id, text: long.text, files: [...long.files, ...(joins ? before.files : [])], length: long.length, role: 'request', steer, exchangeId, ...(joins ? { merged: true } : {}), ...(toUser ? { audience: 'user' } : {}) })
+      } catch (error) {
+        if (!joins) rt.dropWork(exchangeId)
+        throw error
+      }
       const sent = toUser
         ? `Delivered to ${target.name}. It will answer the user in its own chat; nothing comes back to you, so point the user to ${target.name}'s chat instead of relaying.`
         : working && steer
@@ -145,17 +197,18 @@ export function install(rt) {
           : working
             ? `Queued for ${target.name}: it reads your message after its current work. Its reply will arrive later as a new message; do not wait for it.`
             : `Delivered to ${target.name}. Its reply will arrive later as a new message; do not wait for it.`
-      // "Delivered" only means it is in the inbox; say so when it may sit there a while.
+      const asker = rt.ownsWork(sender.id, work) ? rt.botOf(state.works[work].from)?.name : undefined
       const notes = [
-        rt.waitsForApproval?.(chat) ? `${target.name} is waiting for the user's approval, so it reads your message only after the user answers.` : '',
-        unread > 0 ? `${target.name} has not read ${unread === 1 ? 'an earlier message' : `${unread} earlier messages`} from Bots yet.` : '',
+        joins ? `${target.name} had not read your earlier message yet, so this one was added to it, and it answers both at once.` : '',
+        status === 'idle' ? '' : `${target.name} now: ${status}.`,
+        asker ? `When you have handed on everything, end your turn: each reply brings you back to this work, and your answer goes to ${asker} once all of it is back.` : '',
       ].filter(Boolean)
-      const status = notes.length === 0 ? sent : `${sent} ${notes.join(' ')}`
+      const out = [sent, ...notes].join(' ')
       // Messages reach a Bot's own chat only; work in a group goes on without them.
       const groups = activeSessions(target.id).running.filter(sessionId => sessionId !== chat)
-      if (groups.length === 0) return status
+      if (groups.length === 0) return out
       const stop = rt.isMain(sender.id) ? ' If it must not go on there, use stop_bot.' : ''
-      return `${status} ${target.name} is also working in ${groups.map(whereOf).join(' and ')}; your message does not reach that work.${stop}`
+      return `${out} Your message does not reach its work in ${groups.map(whereOf).join(' and ')}.${stop}`
     },
   }))
 
@@ -416,22 +469,33 @@ export function install(rt) {
       if (!rt.isMain(self) && !rt.isAdminOf(room, self)) return `Only a Main Bot or the admin of "${room.name}" can post there. Use message_bot to reach its members.`
       const info = rt.live.get(exec.agent?.id)?.info
       if (info?.role === 'room' && info.roomId === room.id) return `You are speaking in "${room.name}" right now. Write your message as your reply instead.`
-      const hop = nextHop(exec)
-      if (hop > MAX_HOPS) return CHAIN_TOO_LONG
-      const text = String(args.message ?? '').trim()
+      const text = absoluteLinks(String(args.message ?? '').trim(), rt.sessionFolder?.(exec.agent?.session ?? exec.agent))
       if (text === '') return 'Write a message to post.'
-      if ((room.botRounds ?? 0) >= ROOM_BOT_ROUNDS) return `Bots already started ${ROOM_BOT_ROUNDS} rounds in "${room.name}" since the user last spoke there. Wait for the user.`
-      checkUnattended()
-      room.botRounds = (room.botRounds ?? 0) + 1
-      await rt.save()
+      const long = await rt.attachLong(text, `Post from ${sender.name}.txt`)
+      if (long === undefined) return tooLong(text)
       const reportBack = args.report_back === true
+      // Replies the poster waits for, while it works on what a Bot asked it for, are
+      // work handed on for that request (handoffs.js).
+      const work = reportBack ? worksOf(exec).find(id => rt.ownsWork(self, id)) : undefined
+      const sub = work === undefined ? undefined : randomUUID()
+      if (sub !== undefined) rt.openWork(sub, { from: self, room: room.id, parent: work })
       try {
-        await rt.postToRoom(room, sender, text, { hop, ...(reportBack ? { reportBack: true } : {}) })
+        await rt.postToRoom(room, sender, long.text, { ...(reportBack ? { reportBack: true } : {}), ...(sub ? { sub } : {}), ...(long.length ? { length: long.length } : {}) }, long.files)
       } catch (failure) {
+        if (sub !== undefined) rt.dropWork(sub)
         return `Could not post in "${room.name}": ${failure.message}`
       }
-      rt.unattended.sent += 1
-      return `Posted in "${room.name}". Members reply there, where the user reads them${reportBack ? '; their replies also come back to you as a new message when the round ends' : ', and nothing comes back to you'}.`
+      const named = mentionSpans(text, room.members.map(rt.botOf).filter(Boolean)).flatMap(span => (span.bot ? [span.bot.id] : []))
+      if (named.length > 0) {
+        const turn = turnOf(exec)
+        const earlier = calledInPosts.get(exec.agent?.id)
+        const calls = new Map(earlier !== undefined && earlier.turn === turn ? earlier.calls : [])
+        for (const id of named) calls.set(id, room.name)
+        calledInPosts.set(exec.agent?.id, { turn, calls })
+      }
+      const asker = sub === undefined ? undefined : rt.botOf(state.works[work]?.from)?.name
+      const waits = asker ? ` End your turn when you have handed on everything: the replies bring you back to this work, and your answer goes to ${asker} once all of it is back.` : ''
+      return `Posted in "${room.name}". Members reply there, where the user reads them${reportBack ? '; their replies also come back to you as a new message when the round ends' : ', and nothing comes back to you'}.${waits}`
     },
   }))
 

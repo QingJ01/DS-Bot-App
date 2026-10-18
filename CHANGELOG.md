@@ -14,6 +14,18 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## Unreleased
 
+### Added
+
+- Sync upstream source `939a6635830cb5b246e7dd19c67b0e1352ad1c07`: `list_bots` and `message_bot` report teammate status; hand-offs return results and waiting Bots show their character state; add a Docker image.
+
+### Changed
+
+- Remove the message, unread, group-round and forwarding count limits; keep work requested in a group in that group; send very long messages as files and fold them in chat.
+
+### Fixed
+
+- Include upstream fixes for group attachments and hand-off completion, concurrent Bot/group changes and deletion, work-folder recovery, relative file links, reactions and unread marks across tabs, search routes, sidebar controls, feedback links, theme contrast and diagnostics shutdown.
+
 ## DS Bot App [v0.1.2-r1] - 2026-10-15
 
 - Restore the DS Bot settings dialog by supplying the Plugin updates navigation icon; cover the complete navigation with real React rendering tests.

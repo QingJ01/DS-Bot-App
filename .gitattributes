@@ -1,0 +1,2 @@
+# Shell scripts are copied into the Docker image as they are; CRLF breaks them.
+*.sh text eol=lf

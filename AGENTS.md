@@ -6,7 +6,7 @@ Instructions for AI coding agents that work on this repository. Human contributo
 
 DS Bot (`ds-bot/`) is a plugin for DeepSeek Harness (DSH). It turns DSH Desktop and DSH Web into a team of long-lived Bots:
 
-- Every Bot is a DSH Session and runs through the normal DSH agent loop, tools and model routes.
+- Every Bot is a long-lived identity whose work runs in DSH Sessions: one for its own chat, one for each group it is in, and a fresh one when the context fills up (earlier ones stay readable). Every turn runs through the normal DSH agent loop, tools and model routes.
 - The team works together: Bots message each other, share group chats and can see what the other Bots are doing. Each Bot still runs on its own and does not disturb the others.
 - Bots have clear, different roles. A Main Bot has the highest rights: it creates, changes and removes other Bots. Other Bots do not get these rights. There can be more than one Main Bot.
 - Users customize each Bot (name, role label, instructions, model, character).
@@ -19,6 +19,7 @@ DS Bot (`ds-bot/`) is a plugin for DeepSeek Harness (DSH). It turns DSH Desktop 
 3. **Only original material.** Do not copy code, text, icons, logos or graphics from other products or websites.
 4. **`client.js` is generated.** Change `ds-bot/src/client/`, then run `npm run build` and commit both files. Never edit `client.js` by hand.
 5. **Do not touch the user's own DSH data.** The test bench keeps its data in `.dsh-test-<name>/`. Never point a test at `~/.dsh` or at a DSH that the user runs.
+6. Before you change behavior, read the design for it in `docs/plans/` (and `docs/vision.md`). A change to a decided design needs the maintainer; a new large feature adds its design note to the same pull request.
 
 ## Commands
 

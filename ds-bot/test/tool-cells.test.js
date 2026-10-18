@@ -378,3 +378,48 @@ test('a goal round draws nothing, while another unknown trigger keeps its event 
   assert.equal(trigger({ kind: 'goal', goalId: 'goal-1', revision: 1, round: 1 }), null)
   assert.match(text(trigger({ kind: 'webhook' })), /<goal_round>Keep going/)
 })
+
+// #212: the chat hands a trigger its event (seq, content, source) but no turn, so every post
+// in a group chat shared one reaction entry: a reaction on one showed on all of them.
+test('a reaction on a group post stays on that post, also after it draws again', () => {
+  const ui = { visits: {}, reactions: {} }
+  const actions = {
+    toggleReaction: (key, index, emoji) => {
+      const entry = { ...ui.reactions[key] }
+      const list = entry[index] ?? []
+      entry[index] = list.includes(emoji) ? list.filter(item => item !== emoji) : [...list, emoji]
+      if (entry[index].length === 0) delete entry[index]
+      ui.reactions = { ...ui.reactions, [key]: entry }
+    },
+  }
+  // The trigger node the chat builds for a user/message from a Bot.
+  const post = (seq, turn, from, words) => ({
+    key: `turn-trigger:${seq}`, kind: 'turn-trigger', anchorSeq: seq, location: { turn: { turn } },
+    data: { kind: 'context', seq, time: 1, content: text$(words), source: { kind: 'bot', role: 'post', senderSessionId: from, senderName: from }, producer: {}, form: null },
+  })
+  const draw = node => TriggerCell({
+    node, sessionId: 'room', actions,
+    useRoster: select => select(team()), useSessions: select => select({ byId: {} }),
+    useTurnClock: select => select({}), useUi: select => select(ui),
+  })
+  // The handler a bubble's reaction menu calls, read before the menu draws.
+  const reactOf = (node) => {
+    if (Array.isArray(node)) return node.map(reactOf).find(Boolean)
+    if (!node || typeof node !== 'object') return undefined
+    if (typeof node.props?.react === 'function') return node.props.react
+    if (typeof node.type === 'function') return reactOf(node.type(node.props))
+    return reactOf(node.props?.children)
+  }
+  const chips = node => count(JSON.stringify(expand(node)), '"aria-label":"Remove reaction')
+  const first = post(41, 3, 'writer', 'Draft is up')
+  const sameTurn = post(44, 3, 'chief', 'Looks good')
+  const later = post(57, 5, 'writer', 'Second draft')
+
+  reactOf(draw(first))('👍')
+  assert.deepEqual([chips(draw(first)), chips(draw(sameTurn)), chips(draw(later))], [1, 0, 0])
+  // A fresh node for the same event, as after a reload, finds the reaction again.
+  assert.equal(chips(draw(post(41, 3, 'writer', 'Draft is up'))), 1)
+  reactOf(draw(later))('❤️')
+  reactOf(draw(first))('👍')
+  assert.deepEqual([chips(draw(first)), chips(draw(sameTurn)), chips(draw(later))], [0, 0, 1])
+})

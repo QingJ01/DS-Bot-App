@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
-import { mentionSpans, nameProblem, referenceSpans } from '../src/shared/mentions.js'
+import { mentionSpans, nameProblem, referenceSpans, speakerOf } from '../src/shared/mentions.js'
 import { mentionsIn } from '../src/host/groups.js'
 import { linkMentions, MENTION_ORIGIN } from '../src/client/text.js'
 
@@ -88,4 +88,14 @@ test('a Bot name is something "@" can call without a second reading', () => {
   assert.equal(nameProblem('  '), 'A Bot needs a name')
   for (const name of ['a@b', 'x`y', 'two\nlines']) assert.equal(nameProblem(name), 'A Bot name cannot contain @, ` or a line break')
   assert.match(nameProblem('All'), /calls everyone in a group/)
+  // 公开#178: a Bot called "User" spoke in the group log exactly like the user.
+  for (const name of ['User', 'you', ' USER ']) assert.match(nameProblem(name), /stands for the user in a chat/)
+  assert.equal(nameProblem('Users'), undefined)
+})
+
+test('a group log line of a Bot named like the user never reads as the user', () => {
+  assert.equal(speakerOf({ who: 'User', text: 'hi' }), 'User')
+  assert.equal(speakerOf({ who: 'User', botId: 'b', text: 'hi' }), 'Bot "User"')
+  assert.equal(speakerOf({ who: 'you', botId: 'b', text: 'hi' }), 'Bot "you"')
+  assert.equal(speakerOf({ who: 'Writer', botId: 'b', text: 'hi' }), 'Writer')
 })

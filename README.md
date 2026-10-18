@@ -71,6 +71,10 @@ iOS source is available; no IPA is currently provided. See the [iOS guide](docs/
 
 Host plugin upgrades and repair: [Plugin updates](docs/plugin-updates.md).
 
+## Docker
+
+Build the image from this repository checkout; see [`docker/README.md`](docker/README.md). The container is the Bots' sandbox. Phone pairing and the mobile bridge inside Docker are not published or validated by this image.
+
 ## Development
 
 The App uses React Native and Expo, with a shared SDK connecting it to the DSH plugin.
@@ -85,12 +89,12 @@ Use Node.js 24 for development. See [Contributing](CONTRIBUTING.md) for setup, t
 
 The host integration baseline is DSH `0.2.0-rc.2`; CI also checks `0.2.1-alpha.1`. Voice and desktop browser control require the corresponding host services; see [feature configuration](docs/mobile-features.zh.md).
 
-The main branch includes the [upstream v0.1.6 sync](docs/mobile-upstream.md): group permission presets, live work progress and message-chain fixes, with mobile support. These changes await the next release.
+The main branch includes the [upstream v0.1.7 sync](docs/mobile-upstream.md): teammate status, returning hand-offs, waiting status and long-message handling, with mobile waiting-name projection. These changes await the next release.
 
 [Local debugging](docs/mobile-local-debug.zh.md) · [Upstream sync](docs/mobile-upstream.zh.md) · [Changelog](CHANGELOG.md)
 
 ## Credits and license
 
-This project builds on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and the upstream [DS Bot](https://github.com/Fei2411/DeepSeek-Bot). See [NOTICE](NOTICE) for third-party notices.
+This project builds on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) and the upstream [DS Bot](https://github.com/Fei2411/DeepSeek-Bot). Every Bot works in DSH Sessions and uses DSH tools and models. See [NOTICE](NOTICE) for third-party notices.
 
 [Apache License 2.0](LICENSE). DS Bot App is an independent community project, not an official DeepSeek product.

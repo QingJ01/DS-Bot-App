@@ -9,6 +9,7 @@ import { mobilePageScript } from './mobile-browser-page.js'
 // stays the same) but hidden.
 
 import { READ_PAGE_SCRIPT } from './read-page.js'
+import { setEntry, sharedMap } from './shared-map.js'
 import { STORAGE } from './storage.js'
 
 export { READ_PAGE_SCRIPT }
@@ -68,9 +69,10 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
   const tabs = createSource({})
   // Per tab: { url, title, favicon, loading, canGoBack, canGoForward, error, live, readAt?, excerpt }
   const pages = createSource({})
-  // Per Bot, what survives a reload: { tabs: [{id,url,title}], active }.
-  let saved = {}
-  try { saved = JSON.parse(storage?.getItem(STORE_KEY) ?? '{}') ?? {} } catch { saved = {} }
+  // Per Bot, what survives a reload: { tabs: [{id,url,title}], active }. Another window
+  // saves its own Bots' tabs into the same object.
+  const store = sharedMap(STORE_KEY, storage)
+  let saved = store.read()
   let layer
   let shown = null
   // The last panel rectangle sizes every guest, shown or not; `visible` says whether the
@@ -86,26 +88,14 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
     const botId = owner.get(tabId)
     return { ...state, [tabId]: { ...EMPTY, ...savedTab(botId, tabId), ...state[tabId], ...patch } }
   })
-  const writeSaved = () => {
-    try { storage?.setItem(STORE_KEY, JSON.stringify(saved)) } catch { /* storage unavailable */ }
-  }
+  const save = (botId, entry) => { saved = store.update(stored => setEntry(stored, botId, entry), saved) }
   const persist = (botId) => {
     const state = tabs.getSnapshot()[botId]
-    if (state === undefined) {
-      if (saved[botId] === undefined) return
-      const { [botId]: _, ...rest } = saved
-      saved = rest
-    } else {
-      const snapshot = pages.getSnapshot()
-      saved = {
-        ...saved,
-        [botId]: {
-          tabs: state.ids.map(id => ({ id, url: snapshot[id]?.url ?? '', title: snapshot[id]?.title ?? '' })),
-          active: state.active,
-        },
-      }
-    }
-    writeSaved()
+    const snapshot = pages.getSnapshot()
+    save(botId, state && {
+      tabs: state.ids.map(id => ({ id, url: snapshot[id]?.url ?? '', title: snapshot[id]?.title ?? '' })),
+      active: state.active,
+    })
   }
 
   // Saved tabs come back as placeholders: they show in the strip and open their
@@ -391,11 +381,7 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
       const { [botId]: _, ...rest } = snapshot
       return rest
     })
-    if (saved[botId] !== undefined) {
-      const { [botId]: _, ...rest } = saved
-      saved = rest
-      writeSaved()
-    }
+    save(botId, undefined)
   }
 
   return {

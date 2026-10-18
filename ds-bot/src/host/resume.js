@@ -28,7 +28,7 @@ const triggerOf = info => ({
   ...(info.exchangeId ? { exchangeId: info.exchangeId } : {}),
   ...(info.senderSessionId ? { senderSessionId: info.senderSessionId } : {}),
   ...(info.roomId ? { roomId: info.roomId } : {}),
-  ...(typeof info.hop === 'number' ? { hop: info.hop } : {}),
+  ...(info.work ? { work: info.work } : {}),
   ...(info.audience ? { audience: info.audience } : {}),
   ...(info.askedBy ? { askedBy: info.askedBy } : {}),
   ...(info.senderRoomId ? { senderRoomId: info.senderRoomId } : {}),
@@ -112,6 +112,10 @@ export function install(rt) {
     }
   }
 
+  // What a Session was sent and no turn has read yet.
+  rt.unreadOf = sessionId => (queued[sessionId] ?? []).map(item => item.args)
+  rt.forgetDelivery = forgetQueued
+
   // A message is done with once a turn takes it up, or once it leaves the inbox untaken
   // while DS Bot runs: the user stopped the Bot, or DS Bot moved or withdrew it.
   ctx.on('agent/inbox/discarded', ({ message } = {}) => {
@@ -180,10 +184,11 @@ export function install(rt) {
     const trigger = record.trigger
     if ((trigger?.role === 'request' || trigger?.role === 'stopped') && trigger.senderSessionId && trigger.audience !== 'user' && rt.botOf(trigger.senderSessionId)) {
       // The sender still waits for this turn's answer, so it goes on under the same exchange.
-      await rt.deliver({ fromId: trigger.senderSessionId, toId: bot.id, role: trigger.role, hop: trigger.hop ?? 0, ...(trigger.exchangeId ? { exchangeId: trigger.exchangeId } : {}), ...(trigger.senderRoomId ? { fromRoomId: trigger.senderRoomId } : {}), resumed: true, text })
+      await rt.deliver({ fromId: trigger.senderSessionId, toId: bot.id, role: trigger.role, ...(trigger.exchangeId ? { exchangeId: trigger.exchangeId } : {}), ...(trigger.senderRoomId ? { fromRoomId: trigger.senderRoomId } : {}), resumed: true, text })
       return
     }
-    await rt.deliver({ toId: bot.id, role: 'resume', resumed: true, text })
+    // A turn that went on with work another Bot asked for still owes that Bot its answer.
+    await rt.deliver({ toId: bot.id, role: 'resume', resumed: true, text, ...(trigger?.work ? { work: trigger.work } : {}) })
   }
 
   // A hard stop keeps the inbox, which the Session runs once it wakes; only what DSH

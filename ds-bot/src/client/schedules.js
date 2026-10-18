@@ -239,7 +239,7 @@ export const SCHEDULE_CSS = `
 .bt-task-next{flex:none;font-size:12px;line-height:16px;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .bt-task-remove{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;color:var(--bt-ink-3)}
 .bt-task-remove svg{width:14px;height:14px}
-.bt-task-remove[data-confirm]{background:rgba(224,33,53,.1);color:#e02135}
+.bt-task-remove[data-confirm]{background:color-mix(in srgb,var(--bt-danger) 10%,transparent);color:var(--bt-danger)}
 .bt-task-head{display:flex;align-items:center;gap:6px}
 .bt-task-form{animation:bt-q-in .4s cubic-bezier(.22,1,.36,1),bt-veil-in .2s ease-out}
 .bt-task-bot{width:auto;min-width:160px;max-width:58%}

@@ -11,10 +11,11 @@ Thank you for your interest in improving DS Bot. Please open an issue in [this r
 ## The rules that matter most
 
 1. **DS Bot is a DSH plugin, and only a plugin.** Do not patch DeepSeek Harness, and do not depend on files inside a DSH install. Use the plugin APIs that DSH documents (Cordis services, the plugin client entry, profile patches). When a feature needs something that DSH does not offer, open an issue here first; the fix can belong in DSH.
-2. **Every Bot is a DSH Session.** Bot work runs through the normal DSH agent loop, tools and model routes. Do not add a second agent runtime.
+2. **Bots run in DSH Sessions.** A Bot keeps its identity while its work runs in DSH Sessions: one for its own chat, one for each group, and a fresh one when the context fills up. Every turn runs through the normal DSH agent loop, tools and model routes. Do not add a second agent runtime.
 3. **No real secrets anywhere.** Do not commit API keys, tokens, cookies, `DSH_HOME` folders, logs or screenshots with personal data. The tests and the test bench use a scripted mock model and need no key.
 4. **Only original material.** Do not copy code, text, icons, logos or other graphics from other products or websites. Code under a license compatible with Apache 2.0 is the only exception: say where it comes from and add its notice to a `NOTICE` file.
 5. **Every change is tested.** Run the unit tests and the client check for every change (see [Test a change](#test-a-change)).
+6. Before changing behavior, read the design in [`docs/plans/`](docs/plans/) and [`docs/vision.md`](docs/vision.md). A change to a decided design needs maintainer direction; a new large feature adds a design note with the change.
 
 ## Set up
 

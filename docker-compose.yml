@@ -1,0 +1,35 @@
+# From the repository root:
+#   docker compose up -d --build
+# Configure this file directly; no .env file is needed.
+# Do not commit this file after filling in real API keys.
+services:
+  ds-bot:
+    image: ds-bot:local
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        NPM_REGISTRY: https://registry.npmjs.org/
+    ports:
+      - "0.0.0.0:13080:3080"
+    environment:
+      DEEPSEEK_API_KEY: ""
+      # Uncomment for another Anthropic-Messages-compatible endpoint.
+      # DEEPSEEK_BASE_URL: "https://your-endpoint.example"
+      # Add custom provider keys here when referenced by your DSH config.
+      # RELAY_API_KEY: ""
+      PUID: "1000"
+      PGID: "1000"
+      # Add your NAS/LAN IP and host names, without ports.
+      DSH_TRUSTED_HOST: "localhost,127.0.0.1"
+      DSH_HOST: "0.0.0.0"
+      DSH_LISTEN_PORT: "3080"
+      # DSH_TELEMETRY_DISABLED: "1"
+    volumes:
+      - ./docker/data:/data
+      - ./docker/workspace:/workspace
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    stop_grace_period: 15s

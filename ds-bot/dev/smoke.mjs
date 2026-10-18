@@ -274,6 +274,20 @@ for (const round of [1, 2, 3, 4]) {
 
 await step('exchange log between Chief and Writer', () => api('exchange', { a: chief().id, b: botNamed('Writer').id }), entries => expect(entries.length >= 2, `got ${entries.length}`))
 
+// Writer hands Chief's work on to Coder and waits, and the team view shows it; Coder's
+// result goes up to Chief with Writer's answer.
+await step('Writer waits for the work it handed on, then answers with it', async () => {
+  await send(chief().id, '转告 Writer: 转告 Coder: 慢慢做 3')
+  const writer = botNamed('Writer').id
+  for (const deadline = Date.now() + STEP_TIMEOUT_MS; Date.now() < deadline; await sleep(200)) {
+    const { activity = {}, work = {} } = await api('state')
+    if (activity[writer] === 'waiting') return work.waiting?.[writer]
+  }
+  return undefined
+}, (waiting, calls) => expect(waiting?.bots?.includes(botNamed('Coder').id) && waiting.for.includes(chief().id), `Writer did not show that it waits for Coder (${JSON.stringify(waiting)})`)
+  ?? expect(saidText(calls, /^Coder 交回了，我把结果交给 Chief/), 'Writer did not go on when Coder answered')
+  ?? expect(state().exchanges.some(entry => entry.role === 'reply' && entry.from === botNamed('Writer').id && entry.text.includes('[Handed back to Writer for this work]')), 'Chief did not get Coder\'s result with Writer\'s answer'))
+
 await step('update Writer', () => api('update-bot', { id: botNamed('Writer').id, role: 'Copywriter', instructions: 'Write the copy.' }), () => {
   const writer = botNamed('Writer')
   return expect(writer.role === 'Copywriter' && writer.instructions === 'Write the copy.', 'update not saved')
@@ -281,7 +295,8 @@ await step('update Writer', () => api('update-bot', { id: botNamed('Writer').id,
 
 // dsh keeps each Session under a folder named after its cwd. A change of working folder
 // moves the Bot's own chat on to a fresh part made there; the fresh part then stays put.
-const project = realpathSync(mkdtempSync(join(tmpdir(), 'ds-bot-smoke-folder-')))
+// The native realpath is the one DS Bot saves; on Windows the JS one keeps 8.3 short names.
+const project = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-smoke-folder-')))
 const folderOf = sessionId => readdirSync(join(HOME, 'sessions')).find(dir => existsSync(join(HOME, 'sessions', dir, sessionId)))
 const coderParts = () => (botNamed('Coder').segments ?? []).length
 const partsBeforeFolder = coderParts()

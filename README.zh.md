@@ -71,6 +71,10 @@ iOS 源码已提供，当前没有 IPA 安装包；构建与支持说明见 [iOS
 
 主机插件升级与修复见[插件更新](docs/plugin-updates.zh.md)。
 
+## Docker
+
+从本仓库检出构建镜像，说明见 [`docker/README.md`](docker/README.md)（英文）。容器是 Bot 的沙箱。此镜像尚未发布或验证 Docker 内的手机配对和移动桥接功能。
+
 ## 开发
 
 App 使用 React Native 与 Expo，共用 SDK 连接 DSH 插件。
@@ -85,12 +89,12 @@ App 使用 React Native 与 Expo，共用 SDK 连接 DSH 插件。
 
 主机兼容基线为 DSH `0.2.0-rc.2`，CI 同时检查 `0.2.1-alpha.1`。语音和桌面浏览器控制需要对应的主机服务，详见 [功能说明](docs/mobile-features.zh.md)。
 
-主分支已[同步上游 v0.1.6](docs/mobile-upstream.zh.md#2026-10-15同步正式-v016)：群聊统一权限、实时工作进展和消息链路修复，包含手机适配；这些改动将在下次发布提供。
+主分支已[同步上游 v0.1.7](docs/mobile-upstream.zh.md)：队友状态、可返回的交接、等待状态和长消息处理，并适配手机端显示等待对象名称；这些改动将在下次发布提供。
 
 [本地调试](docs/mobile-local-debug.zh.md) · [上游同步](docs/mobile-upstream.zh.md) · [更新记录](CHANGELOG.md)
 
 ## 致谢与许可
 
-本项目基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 和上游 [DS Bot](https://github.com/Fei2411/DeepSeek-Bot) 开发。第三方声明见 [NOTICE](NOTICE)。
+本项目基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 和上游 [DS Bot](https://github.com/Fei2411/DeepSeek-Bot) 开发。每个 Bot 都在 DSH 会话中工作，并使用 DSH 工具和模型。第三方声明见 [NOTICE](NOTICE)。
 
 [Apache License 2.0](LICENSE)。DS Bot App 是独立社区项目，并非 DeepSeek 官方产品。

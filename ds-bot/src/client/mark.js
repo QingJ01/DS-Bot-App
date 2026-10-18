@@ -8,9 +8,11 @@ export { colorOf, lookOf } from './characters.js'
 // Bot mark: the Bot's character (or its uploaded photo), looked up by lookOf.
 
 // Mascot states: what the Bot is doing picks the
-// motion. Uploaded images only bob or hop, since they have no parts to move.
-const STATES = ['idle', 'thinking', 'searching', 'working', 'sending', 'orbit', 'alert', 'done']
-export const botState = (running, activity, alert) => (running ? (STATES.includes(activity) ? activity : 'working') : alert ? 'alert' : 'idle')
+// motion. Uploaded images only bob or hop, since they have no parts to move. `waiting`:
+// no turn runs, but work it handed on has not come back yet.
+const STATES = ['idle', 'thinking', 'searching', 'working', 'sending', 'orbit', 'waiting', 'alert', 'done']
+export const botState = (running, activity, alert) => (running ? (STATES.includes(activity) && activity !== 'waiting' ? activity : 'working')
+  : alert ? 'alert' : activity === 'waiting' ? 'waiting' : 'idle')
 export const toolState = name => (/^(message_bot|stop_bot|create_bot|update_bot|create_group|update_group|delete_group|post_to_group)$/.test(name) ? 'sending'
   : /search|fetch|browse|read|grep|glob|list|recall/i.test(name) ? 'searching' : 'working')
 
@@ -107,7 +109,7 @@ function useSettled(state) {
 export function BotAvatar({ bot, size, state = 'idle', main, admin, badge = true, live = true, gaze = false, pokeable = false }) {
   const settled = useSettled(state)
   if (bot === undefined) return h(BotMark, { size })
-  const badgeKind = !badge ? null : state === 'alert' ? 'alert' : state !== 'idle' ? 'working' : admin ? 'admin' : main ? 'main' : null
+  const badgeKind = !badge ? null : state === 'alert' ? 'alert' : state !== 'idle' && state !== 'waiting' ? 'working' : admin ? 'admin' : main ? 'main' : null
   return h('span', { className: 'bt-mark', style: { width: size, height: size, '--bt-size': `${size}px` } },
     h(BotMark, { bot, size, state: settled ? 'done' : state, live, gaze, pokeable }),
     badgeKind === 'working' ? h('span', { className: 'bt-badge bt-badge-working', 'aria-label': t('Working'), role: 'img' }) : null,
