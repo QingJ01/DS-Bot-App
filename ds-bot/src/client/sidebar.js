@@ -606,8 +606,7 @@ export function BrandName() {
   return h('span', { style: { fontWeight: 600, fontSize: 14 } }, 'DS Bot')
 }
 
-// Keep the phone entry beside the account in the first grid cell. The shell's grid
-// gives other plugins their own rows; the account and phone stack on a collapsed rail.
+// The expanded footer keeps the phone entry with the account; the rail uses one column.
 export const SIDEBAR_CSS = `
 .bt-side-top .bt-brand{cursor:default;padding-left:6px}
 .bt-side-top .bt-brand:hover{background:none}
@@ -616,14 +615,16 @@ export const SIDEBAR_CSS = `
 .bt-rail .bt-row{position:relative}
 .bt-rail .bt-pin{position:absolute;top:3px;left:calc(50% + 12px)}
 .bt-side .bt-read-only{margin:4px 8px 6px;padding:8px 10px;border-radius:10px;background:var(--bt-hover);font-size:12px;line-height:1.45;text-align:left}
-/* Keep the fork's mobile entry beside the account while the upstream grid gives
-   every other plugin footer action its own row. */
-[class*="_footArea"]:has(.bt-foot-account){grid-template-columns:auto minmax(0,1fr) auto;column-gap:6px}
-[class*="_footArea"]>[class*="_footerActions"]>div>.bt-foot-account{grid-column:1;order:1;display:inline-flex;align-items:center;gap:6px}
+[class*="_footArea"]:has(.bt-foot-account:not([data-rail])){grid-template-columns:auto minmax(0,1fr) auto;column-gap:6px}
+[class*="_footArea"]:has(.bt-foot-account:not([data-rail]))>[class*="_footerActions"]>div>.bt-foot-account{grid-column:1;order:1;display:inline-flex;align-items:center;gap:6px}
 .bt-mobile-launcher{width:36px;height:36px;flex:none}
-[class*="_footArea"]:has(.bt-foot-account)>[class*="_footerActions"]>div>.bt-connect-wrap{grid-column:2}
-[class*="_footArea"]:has(.bt-foot-account)>[class*="_settingsArea"]{grid-column:3}
-.bt-foot-account[data-rail]{flex-direction:column}
+[class*="_footArea"]:has(.bt-foot-account:not([data-rail]))>[class*="_footerActions"]>div>.bt-connect-wrap{grid-column:2}
+[class*="_footArea"]:has(.bt-foot-account:not([data-rail]))>[class*="_settingsArea"]{grid-column:3}
+[class*="_footArea"]:has(.bt-foot-account[data-rail]){grid-template-columns:minmax(0,1fr);justify-items:center;align-items:center;row-gap:6px}
+[class*="_footArea"]:has(.bt-foot-account[data-rail])>[class*="_footerActions"]>div>.bt-foot-account{grid-column:1;justify-self:center;flex-direction:column;align-items:center;gap:6px}
+[class*="_footArea"]:has(.bt-foot-account[data-rail]) .bt-mobile-launcher{order:-1}
+[class*="_footArea"]:has(.bt-foot-account[data-rail])>[class*="_footerActions"]>div>.bt-connect-wrap{grid-column:1;justify-self:center}
+[class*="_footArea"]:has(.bt-foot-account[data-rail])>[class*="_settingsArea"]{grid-column:1;justify-self:center}
 [class*="_footArea"]:has(.bt-foot-account)>[class*="_settingsArea"] button[class*="_trigger"] [class*="_label"]{display:none!important}
 
 /* The update cloud springs in when a newer DS Bot shows up; its arrow drops in a

@@ -143,3 +143,23 @@ test('the shell footer is a grid wherever the shell shows it', () => {
     }
   }
 })
+
+test('the expanded account footer uses three columns and the rail stacks a centered column', () => {
+  const expanded = rules.find(rule => rule.selector === '[class*="_footArea"]:has(.bt-foot-account:not([data-rail]))')
+  assert.match(expanded?.body ?? '', /grid-template-columns:autominmax\(0,1fr\)auto/)
+
+  const rail = rules.find(rule => rule.selector === '[class*="_footArea"]:has(.bt-foot-account[data-rail])')
+  assert.match(rail?.body ?? '', /grid-template-columns:minmax\(0,1fr\)/)
+  assert.match(rail?.body ?? '', /justify-items:center/)
+  assert.match(rail?.body ?? '', /row-gap:6px/)
+
+  const expandedPlacement = rules.filter(rule => /grid-column/.test(rule.body) && /bt-foot-account:not\(\[data-rail\]\)/.test(rule.selector))
+  assert.ok(expandedPlacement.some(rule => /\.bt-foot-account/.test(rule.selector) && /grid-column:1/.test(rule.body)))
+  assert.ok(expandedPlacement.some(rule => /\.bt-connect-wrap/.test(rule.selector) && /grid-column:2/.test(rule.body)))
+  assert.ok(expandedPlacement.some(rule => /_settingsArea/.test(rule.selector) && /grid-column:3/.test(rule.body)))
+
+  const railPlacement = rules.filter(rule => /grid-column:1/.test(rule.body) && /bt-foot-account\[data-rail\]/.test(rule.selector))
+  assert.ok(railPlacement.some(rule => /\.bt-foot-account/.test(rule.selector)))
+  assert.ok(railPlacement.some(rule => /\.bt-connect-wrap/.test(rule.selector)))
+  assert.ok(railPlacement.some(rule => /_settingsArea/.test(rule.selector)))
+})
