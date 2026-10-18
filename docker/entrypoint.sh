@@ -8,11 +8,14 @@ PGID=${PGID:-1000}
 groupmod -o -g "$PGID" node
 usermod -o -u "$PUID" node
 
+image_sha=$(sha256sum /opt/ds-bot/ds-bot.tgz | cut -d ' ' -f 1)
+
 # First start: seed the data volume with the template home built into the image
 # (a web profile that already has ds-bot installed).
 if [ ! -d /data/profiles/web ]; then
   mkdir -p /data
   cp -a /opt/dsh-template/. /data/
+  printf '%s\n' "$image_sha" > /data/.ds-bot-image.sha256
 fi
 # Existing profiles and restored backups can belong to a previous PUID/PGID.
 # Do not follow links into workspace shares or descend into other filesystems.
@@ -29,10 +32,14 @@ fi
 # is logged but never blocks the start — the old plugin keeps working.
 installed_ver=$(jq -r .version /data/profiles/web/node_modules/ds-bot/package.json 2>/dev/null || echo missing)
 image_ver=$(jq -r .version /opt/dsh-template/profiles/web/node_modules/ds-bot/package.json)
-if [ "$installed_ver" != "$image_ver" ]; then
-  echo "entrypoint: ds-bot $installed_ver -> $image_ver, reinstalling into the web profile"
-  HOME=/home/node gosu node dsh plugin --profile web add /opt/ds-bot/ds-bot.tgz \
-    || echo "entrypoint: ds-bot reinstall failed; continuing with $installed_ver" >&2
+installed_sha=$(cat /data/.ds-bot-image.sha256 2>/dev/null || echo missing)
+if [ "$installed_ver" != "$image_ver" ] || [ "$installed_sha" != "$image_sha" ]; then
+  echo "entrypoint: ds-bot version or image archive differs; reinstalling into the web profile"
+  if HOME=/home/node gosu node dsh plugin --profile web add /opt/ds-bot/ds-bot.tgz; then
+    printf '%s\n' "$image_sha" | gosu node tee /data/.ds-bot-image.sha256 >/dev/null
+  else
+    echo "entrypoint: ds-bot reinstall failed; continuing with $installed_ver" >&2
+  fi
 fi
 
 # This dsh release accepts only 127.0.0.1 for --host, so an overlay binds all

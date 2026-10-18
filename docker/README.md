@@ -3,6 +3,9 @@
 This directory deploys DS Bot as a Docker image: a `dsh web` server (DeepSeek
 Harness) with the `ds-bot` plugin installed, ready for a NAS or any always-on
 box. The container is the sandbox boundary — see [Permissions](#permissions).
+The image source is this fork, [QingJ01/DS-Bot-App](https://github.com/QingJ01/DS-Bot-App).
+Phone pairing and the mobile bridge inside Docker are not published or validated
+by this image.
 
 ## Requirements
 
@@ -160,12 +163,12 @@ docker compose up -d
 ```
 
 DSH itself lives in the image and updates on rebuild. The plugin lives in the
-profile inside the data volume, so the entrypoint compares the installed ds-bot
-version with the image's on every start and reinstalls it into the web profile
-when they differ — a new image updates an existing volume automatically.
-Rebuilds with the same ds-bot version skip the reinstall; to force a fresh
-profile, stop the container and delete `DATA_DIR/profiles/web` (not the whole
-data dir). The image is built and tested with dsh `0.2.0-rc.2`, the version
+profile inside the data volume, so the entrypoint compares both the installed
+ds-bot version and the packaged archive's SHA-256 with the image on every start.
+A changed plugin archive reinstalls into an existing volume even when a fork
+revision keeps the same version; failed reinstalls leave the prior plugin and
+retry on the next start. To force a fresh profile, stop the container and
+delete `DATA_DIR/profiles/web` (not the whole data dir). The image is built and tested with dsh `0.2.0-rc.2`, the version
 DS Bot is verified with; a `DSH_VERSION` build arg exists, but other releases
 are untested and newer ones change how the server binds.
 

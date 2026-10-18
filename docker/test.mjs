@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { setTimeout } from 'node:timers/promises'
 
 const image = process.argv[2] ?? 'ds-bot:local'
@@ -9,6 +12,7 @@ const data = `${name}-data`
 const workspace = `${name}-workspace`
 const containers = new Set()
 const volumes = []
+const tempDir = mkdtempSync(join(tmpdir(), `${name}-`))
 
 function docker(args, { allowFailure = false } = {}) {
   const result = spawnSync('docker', args, {
@@ -29,18 +33,48 @@ function mounts() {
   ]
 }
 
-function run(args) {
+function run(args, extraMounts = []) {
   const container = `${name}-${containers.size}`
   containers.add(container)
-  return docker(['run', '--rm', '--name', container, '--network', 'none', ...mounts(), ...args])
+  return docker(['run', '--rm', '--name', container, '--network', 'none', ...mounts(), ...extraMounts, ...args])
 }
 
 function shell(script) {
   return run(['--entrypoint', '/bin/sh', image, '-eu', '-c', script])
 }
 
-function startHelp(uid, gid) {
-  run(['-e', `PUID=${uid}`, '-e', `PGID=${gid}`, image, '--help'])
+function startHelp(uid, gid, archive) {
+  const archiveMount = archive ? ['--mount', `type=bind,src=${archive},dst=/opt/ds-bot/ds-bot.tgz,readonly`] : []
+  run(['-e', `PUID=${uid}`, '-e', `PGID=${gid}`, image, '--help'], archiveMount)
+}
+
+function makeSameVersionArchive() {
+  const sourceArchive = join(tempDir, 'original.tgz')
+  const changedArchive = join(tempDir, 'revised.tgz')
+  const unpacked = join(tempDir, 'unpacked')
+  const archiveContainer = `${name}-archive`
+  containers.add(archiveContainer)
+  docker(['create', '--name', archiveContainer, image])
+  try {
+    docker(['cp', `${archiveContainer}:/opt/ds-bot/ds-bot.tgz`, sourceArchive])
+  } finally {
+    docker(['rm', '--force', archiveContainer], { allowFailure: true })
+  }
+
+  mkdirSync(unpacked)
+  const extract = spawnSync('tar', ['-xzf', sourceArchive, '-C', unpacked], { encoding: 'utf8', timeout: 120_000 })
+  if (extract.error || extract.status !== 0) throw new Error(`tar extract failed: ${extract.error?.message ?? extract.stderr}`)
+  const manifest = join(unpacked, 'package', 'package.json')
+  const version = JSON.parse(readFileSync(manifest, 'utf8')).version
+  appendFileSync(join(unpacked, 'package', 'README.md'), '\nDocker same-version archive test marker.\n')
+  const pack = spawnSync('tar', ['-czf', changedArchive, '-C', unpacked, 'package'], { encoding: 'utf8', timeout: 120_000 })
+  if (pack.error || pack.status !== 0) throw new Error(`tar pack failed: ${pack.error?.message ?? pack.stderr}`)
+  assert.equal(JSON.parse(readFileSync(manifest, 'utf8')).version, version)
+  assert.notEqual(
+    createHash('sha256').update(readFileSync(sourceArchive)).digest('hex'),
+    createHash('sha256').update(readFileSync(changedArchive)).digest('hex'),
+  )
+  return changedArchive
 }
 
 function checkDataOwner(uid, gid) {
@@ -104,6 +138,16 @@ try {
   `)
   console.log('PASS: offline plugin reinstall after migration')
 
+  const revisedArchive = makeSameVersionArchive()
+  const revisedHash = createHash('sha256').update(readFileSync(revisedArchive)).digest('hex')
+  startHelp(1234, 1235, revisedArchive)
+  shell(`
+    test "$(jq -r .version /data/profiles/web/node_modules/ds-bot/package.json)" = "$(jq -r .version /opt/dsh-template/profiles/web/node_modules/ds-bot/package.json)"
+    test "$(cat /data/.ds-bot-image.sha256)" = "${revisedHash}"
+    grep -q 'Docker same-version archive test marker' /data/profiles/web/node_modules/ds-bot/README.md
+  `)
+  console.log('PASS: same-version changed archive triggers reinstall and updates its stamp')
+
   const server = `${name}-web`
   containers.add(server)
   docker([
@@ -141,4 +185,5 @@ try {
   for (const volume of volumes) {
     docker(['volume', 'rm', volume])
   }
+  rmSync(tempDir, { recursive: true, force: true })
 }
