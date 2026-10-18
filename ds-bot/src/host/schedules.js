@@ -138,11 +138,22 @@ export function install(rt) {
     for (const record of records) {
       const request = requestOf(record)
       if (request === null || (request.at !== undefined && Date.parse(request.at) <= Date.now())) continue
+      let created
       try {
-        await service.create(toId, request)
-        await service.delete({ sessionId: fromId, id: record.id })
+        created = await service.create(toId, request)
       } catch (error) {
         rt.warn('ds-bot: task %s stayed with the earlier part: %s', record.title, error?.message ?? error)
+        continue
+      }
+      try {
+        await service.delete({ sessionId: fromId, id: record.id })
+      } catch (error) {
+        try {
+          await service.delete({ sessionId: toId, id: created.id })
+          rt.warn('ds-bot: task %s stayed with the earlier part after rolling back destination record %s: %s', record.title, created.id, error?.message ?? error)
+        } catch (rollbackError) {
+          rt.warn('ds-bot: task %s could not be moved; old record %s and new record %s remain: %s; rollback failed: %s', record.title, record.id, created.id, error?.message ?? error, rollbackError?.message ?? rollbackError)
+        }
       }
     }
   }
