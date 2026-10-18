@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { type GroupRound, groupWorkMembers, mergeGroupProgress, ownBotWork, workDescription } from "../src/logic/group-work.ts";
+import { type GroupRound, groupWorkMembers, mergeGroupProgress, ownBotWork, waitingNames, workDescription } from "../src/logic/group-work.ts";
 import type { Message } from "@ds-bot/mobile-sdk";
 import type { Room, TeamState } from "../src/types.ts";
 
@@ -34,6 +34,13 @@ test("work descriptions prefer actual progress and keep the compact status bound
   assert.equal(workDescription({said:"x".repeat(1000)}).length,180);
   assert.equal(workDescription({switching:true}),"");
   assert.equal(workDescription(),"");
+});
+
+test("waiting status combines only named Bot and group recipients", () => {
+  assert.deepEqual(waitingNames({waiting:{bots:["Alpha","Beta"],rooms:["Beta","Group"]}}),["Alpha","Beta","Group"]);
+  assert.deepEqual(waitingNames({waiting:{bots:Array.from({length:10},(_,i)=>`Bot ${i}`),rooms:Array.from({length:10},(_,i)=>`Group ${i}`)}}).length,20);
+  assert.deepEqual(waitingNames({waiting:{bots:[],rooms:[]}}),[]);
+  assert.deepEqual(waitingNames(),[]);
 });
 
 test("live group replies stay ordered and durable results replace them without rewriting cached messages", () => {

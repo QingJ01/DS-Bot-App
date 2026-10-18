@@ -48,3 +48,9 @@ export function groupWorkMembers(room: Room, team: TeamState) {
 export function workDescription(work?: WorkStatus) {
   return (work?.said || work?.note || work?.target || "").replace(/\s+/g, " ").trim().slice(0, 180);
 }
+
+export function waitingNames(work?: WorkStatus) {
+  return [...new Set([...(work?.waiting?.bots ?? []), ...(work?.waiting?.rooms ?? [])])]
+    .filter(name => typeof name === "string" && name.trim())
+    .slice(0, 20);
+}

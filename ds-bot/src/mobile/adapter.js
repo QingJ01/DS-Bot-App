@@ -225,27 +225,55 @@ export function createAdapter(rt) {
     }))
     const botIds = new Set((selected.bots ?? []).map(bot => bot.id))
     const roomIds = new Set(selected.rooms.map(room => room.id))
+    const waitingFor = (botId, roomId) => {
+      const pending = value.work?.waiting?.[botId]
+      if (!pending || typeof pending !== 'object') return undefined
+      const room = roomId ? selected.rooms.find(item => item.id === roomId) : undefined
+      const bots = [...new Set((Array.isArray(pending.bots) ? pending.bots : [])
+        .filter(id => botIds.has(id) && (!roomId || room?.members?.includes(id)))
+        .map(id => selected.bots.find(bot => bot.id === id)?.name)
+        .filter(name => typeof name === 'string' && name.trim())
+        .map(name => detail(name, 160, redact).text)
+        .filter(Boolean))].slice(0, 10)
+      const rooms = [...new Set((Array.isArray(pending.rooms) ? pending.rooms : [])
+        .filter(id => roomIds.has(id) && (!roomId || id === roomId))
+        .map(id => selected.rooms.find(item => item.id === id)?.name)
+        .filter(name => typeof name === 'string' && name.trim())
+        .map(name => detail(name, 160, redact).text)
+        .filter(Boolean))].slice(0, 10)
+      return bots.length || rooms.length ? {
+        ...(bots.length ? { bots } : {}),
+        ...(rooms.length ? { rooms } : {}),
+      } : undefined
+    }
     if (value.capabilityStatuses) selected.capabilityStatuses = Object.fromEntries(Object.entries(value.capabilityStatuses).filter(([id]) => botIds.has(id)).map(([id, statuses]) => [id,
       Object.fromEntries(Object.entries(statuses ?? {}).filter(([name, status]) => selected.capabilities?.some(item => item.name === name) && status && ['ready', 'connecting', 'needs-approval', 'error'].includes(status.state)).map(([name, status]) => [name, {
         state: status.state, ...(typeof status.error === 'string' ? { error: detail(status.error, 500, redact).text } : {}),
       }])),
     ]))
     selected.work = {
-      bots: Object.fromEntries(Object.entries(value.work?.bots ?? {}).filter(([id, work]) => botIds.has(id) && (!work.roomId || roomIds.has(work.roomId))).map(([id, work]) => [id, {
-        ...(typeof work.tool === 'string' ? { tool: redact(work.tool) } : {}),
-        ...Object.fromEntries(['said', 'note', 'target'].filter(key => typeof work[key] === 'string').map(key => [key, detail(work[key], 300, redact).text])),
-        ...(work.switching === true ? { switching: true } : {}),
-        ...(Number.isFinite(work.since) ? { since: work.since } : {}),
-        ...(roomIds.has(work.roomId) ? { roomId: work.roomId } : {}),
-      }])),
+      bots: Object.fromEntries(Object.entries(value.work?.bots ?? {}).filter(([id, work]) => botIds.has(id) && (!work.roomId || roomIds.has(work.roomId))).map(([id, work]) => {
+        const waiting = waitingFor(id, work.roomId)
+        return [id, {
+          ...(typeof work.tool === 'string' ? { tool: redact(work.tool) } : {}),
+          ...Object.fromEntries(['said', 'note', 'target'].filter(key => typeof work[key] === 'string').map(key => [key, detail(work[key], 300, redact).text])),
+          ...(work.switching === true ? { switching: true } : {}),
+          ...(Number.isFinite(work.since) ? { since: work.since } : {}),
+          ...(roomIds.has(work.roomId) ? { roomId: work.roomId } : {}),
+          ...(waiting ? { waiting } : {}),
+        }]
+      })),
       rooms: Object.fromEntries(Object.entries(value.work?.rooms ?? {}).filter(([id]) => roomIds.has(id)).map(([id, work]) => [id,
-        (Array.isArray(work) ? work : []).filter(entry => botIds.has(entry.botId) && selected.rooms.find(room => room.id === id)?.members?.includes(entry.botId)).map(entry => ({
+        (Array.isArray(work) ? work : []).filter(entry => botIds.has(entry.botId) && selected.rooms.find(room => room.id === id)?.members?.includes(entry.botId)).map(entry => {
+          const waiting = waitingFor(entry.botId, id)
+          return {
           botId: entry.botId, ...(Number.isFinite(entry.since) ? { since: entry.since } : {}),
           ...(typeof entry.tool === 'string' ? { tool: detail(entry.tool, 300, redact).text } : {}),
           ...Object.fromEntries(['said', 'note', 'target'].filter(key => typeof entry[key] === 'string').map(key => [key, detail(entry[key], 300, redact).text])),
           ...(entry.switching === true ? { switching: true } : {}),
           ...(entry.speaking === true ? { speaking: true } : {}),
-        })),
+          ...(waiting ? { waiting } : {}),
+        }}),
       ])),
       approvals: (value.work?.approvals ?? []).filter(entry => botIds.has(entry.botId) && (!entry.roomId || roomIds.has(entry.roomId))).map(entry => ({
         id: entry.id, botId: entry.botId, sessionId: entry.sessionId, roomId: entry.roomId, answerable: entry.answerable === true,

@@ -54,7 +54,7 @@ import {
   useI18n,
 } from "./i18n";
 import { conversationTime, orderConversations } from "./logic/conversation-order";
-import { groupWorkMembers, ownBotWork, workDescription } from "./logic/group-work";
+import { groupWorkMembers, ownBotWork, waitingNames, workDescription } from "./logic/group-work";
 type Route =
   | {
       page: "home";
@@ -341,7 +341,9 @@ function Shell() {
     const lastActivity = conversationTime(item, previews[item.id]);
     const needsApproval = workspace.team.work?.approvals.some(entry => bot ? entry.botId === bot.id && !entry.roomId : room ? entry.roomId === room.id : false);
     const work = bot ? ownBotWork(bot.id, workspace.team) : room ? groupWorkMembers(room, workspace.team).find(member => member.work)?.work : undefined;
-    const workPreview = needsApproval ? tr("Waiting for approval") : work?.switching ? tr("Moving to a fresh conversation") : workDescription(work) || (work ? tr("Working") : "");
+    const names = waitingNames(work);
+    const waiting = names.length ? tr("Waiting for {p0}", { p0: names.join(locale === "zh" ? "、" : ", ") }) : "";
+    const workPreview = needsApproval ? tr("Waiting for approval") : waiting || (work?.switching ? tr("Moving to a fresh conversation") : workDescription(work) || (work ? tr("Working") : ""));
       return (
       <Pressable
         key={item.id}

@@ -615,6 +615,7 @@
   "This chat reference is no longer available. Choose it again from the attachment menu": "这个会话引用已不可用，请从附件菜单重新选择。",
   "This approval no longer belongs to this group": "这项审批已不再属于这个群聊。",
   "Waiting for approval": "等待批准",
+  "Waiting for {p0}": "等待 {p0}",
   "Install the latest native app to connect to local HTTPS.": "请安装最新的手机 App，再连接电脑的本地 HTTPS。",
   "The computer identity has changed. Pair this device again.": "电脑身份已更改，请重新配对。",
   "This upload format is unavailable.": "暂不支持这种上传格式。",
