@@ -10,10 +10,10 @@ import { apply } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
 // Enough of the dsh services for the roster to make Sessions; kickoff messages are dropped.
-function start(team, { models = [], reasoning = {}, archiveError } = {}) {
+function start(team, { models = [], reasoning = {}, archiveError, permissionPresets } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-roster-'))
   if (team !== undefined) writeFileSync(join(home, 'state.json'), JSON.stringify(team))
-  const ctx = fakeContext()
+  const ctx = fakeContext({ services: permissionPresets ? { permissionPresets } : {} })
   const workspaces = new Map()
   const sent = []
   const selected = []
@@ -65,6 +65,57 @@ function start(team, { models = [], reasoning = {}, archiveError } = {}) {
   }
   return { call, stop, home, sent, selected, ctx, archived, warnings }
 }
+
+test('a Bot permission endpoint rejects partial application without saving and reapplies on retry', async t => {
+  const team = {
+    version: 1,
+    mainBotIds: ['m1'],
+    revision: 1,
+    bots: {
+      m1: { id: 'm1', sessionId: 'm1', name: 'Chief', role: 'Chief of Staff', instructions: '', createdAt: 1 },
+    },
+    rooms: {
+      group: { id: 'group', name: 'Group', named: true, members: ['m1'], admin: 'm1', mode: 'admin', notice: '', sessions: { m1: 'm1-group' }, createdAt: 2 },
+      preset: { id: 'preset', name: 'Preset', named: true, members: ['m1'], admin: 'm1', mode: 'admin', notice: '', permission: 'workspace-write', sessions: { m1: 'm1-overridden' }, createdAt: 3 },
+    },
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+  }
+  const attempts = []
+  let failing = true
+  const permissionPresets = {
+    catalog: () => ({ options: [{ value: 'workspace-write' }, { value: 'danger-full-access' }], defaultPreset: 'workspace-write' }),
+    resolve: name => {
+      if (!['workspace-write', 'danger-full-access'].includes(name)) throw new Error(`Unknown preset ${name}`)
+      return {}
+    },
+    set: async (session, name) => {
+      attempts.push(`${session.id}=${name}`)
+      if (session.id === 'm1-group' && failing) throw new Error('group unavailable')
+    },
+  }
+  const { call, stop } = start(team, { permissionPresets })
+  t.after(stop)
+  await call('state', {})
+
+  const message = 'Could not apply permissions to Chief in every conversation. Some may already have changed; retry the permission setting.'
+  const rejected = await call('update-bot', { id: 'm1', permission: 'danger-full-access' })
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.error.message, message)
+  assert.equal((await call('state', {})).value.bots.find(bot => bot.id === 'm1').permission, undefined)
+
+  failing = false
+  const retried = await call('update-bot', { id: 'm1', permission: 'danger-full-access' })
+  assert.equal(retried.ok, true)
+  assert.equal(retried.value.permission, 'danger-full-access')
+  assert.deepEqual(attempts, [
+    'm1=danger-full-access',
+    'm1-group=danger-full-access',
+    'm1=danger-full-access',
+    'm1-group=danger-full-access',
+  ])
+})
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
 // A greeting goes out after the team is saved, which can take longer than one settle() on a

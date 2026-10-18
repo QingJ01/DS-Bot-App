@@ -65,9 +65,42 @@ test('Auto review is not offered or kept as a Bot\'s preset', async () => {
 
 test('a preset the Bot\'s own chat refuses is not kept', async () => {
   const { rt } = runtime({ fail: true })
-  const bot = { id: 'b1', permission: 'workspace-write' }
-  await assert.rejects(rt.setPermission(bot, 'danger-full-access'), /rejected/)
+  const bot = { id: 'b1', name: 'Ada', permission: 'workspace-write' }
+  await assert.rejects(
+    rt.setPermission(bot, 'danger-full-access'),
+    error => error.message === 'Could not apply permissions to Ada in every conversation. Some may already have changed; retry the permission setting.'
+      && error.cause?.message === 'permission: rejected',
+  )
   assert.equal(bot.permission, 'workspace-write')
+})
+
+test('Bot permission changes wait for every eligible Session and can retry the same preset', async () => {
+  const { rt } = runtime()
+  const bot = { id: 'b1', name: 'Ada', permission: 'workspace-write' }
+  rt.groupSessionsOf = () => ['b1-group', 'overridden-group']
+  rt.groupOwners.set('overridden-group', { roomId: 'room-with-preset' })
+  rt.roomOf = id => id === 'room-with-preset' ? { permission: 'workspace-write' } : undefined
+  const attempts = []
+  const failure = new Error('group unavailable')
+  let failing = true
+  rt.ctx.get('permissionPresets').set = async (session, name) => {
+    attempts.push(`${session}=${name}`)
+    if (session === 'b1-group' && failing) throw failure
+  }
+  const message = 'Could not apply permissions to Ada in every conversation. Some may already have changed; retry the permission setting.'
+  await assert.rejects(rt.setPermission(bot, 'danger-full-access'), error => error.message === message && error.cause === failure)
+  assert.equal(bot.permission, 'workspace-write')
+  assert.deepEqual(attempts, ['b1-chat=danger-full-access', 'b1-group=danger-full-access'])
+
+  failing = false
+  await rt.setPermission(bot, 'danger-full-access')
+  assert.equal(bot.permission, 'danger-full-access')
+  assert.deepEqual(attempts, [
+    'b1-chat=danger-full-access',
+    'b1-group=danger-full-access',
+    'b1-chat=danger-full-access',
+    'b1-group=danger-full-access',
+  ])
 })
 
 test('group permission resolution fails before changing any member and can be retried', async () => {
