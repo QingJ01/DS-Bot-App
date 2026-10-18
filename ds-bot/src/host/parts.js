@@ -664,7 +664,7 @@ export function install(rt) {
       // that goes on has its own folder, which its handoff names.
       if (kind === 'working-directory') continue
       const copy = createUserMessage({ content: message.content, ...(message.source ? { source: message.source } : {}) })
-      if (kind === 'user' || kind === SOURCE_KIND || kind === REPLY_KIND) agent.followup(copy)
+      if (kind === 'user' || kind === 'schedule' || kind === SOURCE_KIND || kind === REPLY_KIND) agent.followup(copy)
       else agent.inject(copy)
     }
     await ctx.sessions.flush(agent.session)
@@ -814,7 +814,6 @@ export function install(rt) {
     const now = await freshRoute(bot, session)
     if (now !== undefined && (now.ref !== picked?.ref || now.effort !== picked?.effort)) await selectRoute(bot, freshId, now)
     if (job.failed !== undefined) rescued.set(freshId, job.bare ? 'bare' : 'carried')
-    void rt.moveSchedules(agent.id, freshId)
     job.moved = true
     const resume = job.resume || job.overflow
     await rt.ensureCapabilities(freshId)

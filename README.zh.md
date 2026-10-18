@@ -28,6 +28,8 @@ DS Bot App 连接自己电脑或服务器上的 [DeepSeek Harness](https://githu
 | 通知 | 任务与审批提醒，支持 Android 后台接收和可选云推送。 |
 | 外观与语言 | 中英文、日间/夜间/跟随系统，离线可查看缓存和编辑草稿。 |
 
+Bot 对话换段时，定时任务保留原 Session 绑定，到期提醒转发到当前段处理；换段不会复制或重建任务。
+
 <p align="center">
   <img src="docs/images/mobile/group.zh.png?v=0.1.0-15" width="250" alt="显示 Bot 作者头像的群聊">
   <img src="docs/images/mobile/create.zh.png?v=0.1.0-15" width="250" alt="创建 Bot 与头像自定义">

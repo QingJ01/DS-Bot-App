@@ -1,8 +1,9 @@
 // Scheduled tasks. DSH's schedule service stores each task with the Session it belongs
 // to and, when it is due, sends its prompt to that Session as a new message. This
-// module lists the team's tasks for Settings, creates and removes them there, and moves
-// a Bot's tasks along when its chat goes on in a fresh part, so the Bot keeps seeing
-// them. A group chat's task lives on the group's own Session, so the reminder reaches
+// module lists the team's tasks for Settings and creates and removes them there.
+// Tasks keep their original Session binding: DSH has no atomic transfer API. Parts
+// forward due reminders to the Bot's current Session without copying the task.
+// A group chat's task lives on the group's own Session, so the reminder reaches
 // the group like a message from the user (see reminderText). DSH 0.2.0 mounts the service only with its Automation tasks bundle on, so
 // the service is optional and every endpoint reports whether it is there.
 
@@ -26,17 +27,6 @@ export function reminderText(text) {
   }
   const lines = prompts.filter(prompt => typeof prompt === 'string' && prompt.trim() !== '')
   return lines.length === 0 ? text : lines.map(prompt => `[Scheduled task] ${prompt}`).join('\n')
-}
-
-// The create request that gives a stored record its timing again, for a move.
-function requestOf(record) {
-  const base = { title: record.title, prompt: record.prompt }
-  if (record.kind === 'after' || record.kind === 'at') return { ...base, at: record.scheduledAt }
-  if (record.kind === 'every') return { ...base, every_seconds: record.everySeconds }
-  if (record.kind === 'daily') return { ...base, daily: { time: record.time, time_zone: record.timeZone } }
-  if (record.kind === 'weekly') return { ...base, weekly: { time: record.time, time_zone: record.timeZone, weekdays: record.weekdays } }
-  if (record.kind === 'cron') return { ...base, cron: { expression: record.expression, time_zone: record.timeZone } }
-  return null
 }
 
 // The settings form's timing as a create request selector.
@@ -124,39 +114,5 @@ export function install(rt) {
     },
   }
 
-  // A fresh part takes over the earlier part's active tasks: each is created again on
-  // the fresh Session before the old one goes, so a failure leaves it where it was.
-  async function moveSchedules(fromId, toId) {
-    if (service === null) return
-    let records
-    try {
-      records = await service.list({ sessionId: fromId })
-    } catch (error) {
-      rt.warn('ds-bot: tasks of %s not moved: %s', fromId, error?.message ?? error)
-      return
-    }
-    for (const record of records) {
-      const request = requestOf(record)
-      if (request === null || (request.at !== undefined && Date.parse(request.at) <= Date.now())) continue
-      let created
-      try {
-        created = await service.create(toId, request)
-      } catch (error) {
-        rt.warn('ds-bot: task %s stayed with the earlier part: %s', record.title, error?.message ?? error)
-        continue
-      }
-      try {
-        await service.delete({ sessionId: fromId, id: record.id })
-      } catch (error) {
-        try {
-          await service.delete({ sessionId: toId, id: created.id })
-          rt.warn('ds-bot: task %s stayed with the earlier part after rolling back destination record %s: %s', record.title, created.id, error?.message ?? error)
-        } catch (rollbackError) {
-          rt.warn('ds-bot: task %s could not be moved; old record %s and new record %s remain: %s; rollback failed: %s', record.title, record.id, created.id, error?.message ?? error, rollbackError?.message ?? rollbackError)
-        }
-      }
-    }
-  }
-
-  Object.assign(rt, { scheduleEndpoint: (endpoint, body) => endpoints[endpoint](body ?? {}), moveSchedules })
+  Object.assign(rt, { scheduleEndpoint: (endpoint, body) => endpoints[endpoint](body ?? {}) })
 }

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
-import { install, reminderText } from '../src/host/schedules.js'
+import { reminderText } from '../src/host/schedules.js'
 
 const TEAM = {
   version: 1,
@@ -120,54 +120,4 @@ test('a due reminder reaches a group as its prompts', () => {
   const batch = ['[SCHEDULE REMINDER BATCH]', 'framing', `reminders_json: ${JSON.stringify([{ schedule_id: 'a', reminder_prompt: 'One' }, { schedule_id: 'b', reminder_prompt: 'Two' }])}`].join('\n')
   assert.equal(reminderText(batch), '[Scheduled task] One\n[Scheduled task] Two')
   assert.equal(reminderText('plain text'), 'plain text')
-})
-
-function moveHarness({ failRollback = false } = {}) {
-  const tasks = [{ sessionId: 'old-session', record: { id: 'old-record', kind: 'every', title: 'Reminder', prompt: 'Check in', everySeconds: 3600 } }]
-  let next = 0
-  const schedule = {
-    async list({ sessionId }) { return tasks.filter(task => task.sessionId === sessionId).map(task => task.record) },
-    async create(sessionId, request) {
-      const record = { id: `new-record-${++next}`, kind: 'every', title: request.title, prompt: request.prompt, everySeconds: request.every_seconds }
-      tasks.push({ sessionId, record })
-      return record
-    },
-    async delete({ sessionId, id }) {
-      if (sessionId === 'old-session') throw new Error('old delete failed')
-      if (failRollback) throw new Error('rollback delete failed')
-      const index = tasks.findIndex(task => task.sessionId === sessionId && task.record.id === id)
-      tasks.splice(index, 1)
-      return { id, deleted: true }
-    },
-  }
-  const warnings = []
-  const rt = {
-    ctx: { get: name => name === 'schedule' ? schedule : undefined, effect: () => {} },
-    state: { rooms: {} },
-    chatOwners: new Map(),
-    groupOwners: new Map(),
-    pastOwners: new Map(),
-    roomOf: () => undefined,
-    warn: (...args) => warnings.push(args.join(' ')),
-  }
-  install(rt)
-  return { rt, tasks, warnings }
-}
-
-test('a failed old-task delete rolls back the newly created task', async () => {
-  const { rt, tasks, warnings } = moveHarness()
-  await rt.moveSchedules('old-session', 'new-session')
-  assert.deepEqual(tasks.map(task => [task.sessionId, task.record.id]), [['old-session', 'old-record']])
-  assert.equal(warnings.length, 1)
-})
-
-test('a failed schedule rollback warns with both record ids', async () => {
-  const { rt, tasks, warnings } = moveHarness({ failRollback: true })
-  await rt.moveSchedules('old-session', 'new-session')
-  assert.deepEqual(tasks.map(task => [task.sessionId, task.record.id]), [
-    ['old-session', 'old-record'],
-    ['new-session', 'new-record-1'],
-  ])
-  assert.match(warnings[0], /old-record/)
-  assert.match(warnings[0], /new-record-1/)
 })

@@ -219,6 +219,50 @@ test('an idle Bot\'s own chat moves to its new folder at once, and back', async 
   assert.match(handoffOf(agentOf('s2')), new RegExp(`because your working folder changed to ${escapeRegExp(team)}\\.`))
 })
 
+for (const failDelete of [false, true]) test(`part switches retain scheduled tasks when deletion ${failDelete ? 'fails' : 'works'}`, async t => {
+  const original = { sessionId: 'b', record: { id: 'reminder', kind: 'every', title: 'Check in', prompt: 'Report status', everySeconds: 3600, scheduledAt: '2030-01-01T01:00:00.000Z' } }
+  const tasks = new Map([[original.record.id, original]])
+  let creates = 0
+  let deletes = 0
+  const schedule = {
+    async list({ sessionId }) { return [...tasks.values()].filter(task => task.sessionId === sessionId).map(task => task.record) },
+    async catalog() { return [...tasks.values()].map(task => ({ ...task.record, sessionId: task.sessionId, status: 'active' })) },
+    async create(sessionId, request) {
+      const record = { ...original.record, ...request, id: `copy-${++creates}` }
+      tasks.set(record.id, { sessionId, record })
+      return record
+    },
+    async delete({ id }) {
+      deletes++
+      if (failDelete) throw new Error('Deletion service unavailable')
+      return { id, deleted: tasks.delete(id) }
+    },
+  }
+  const { call, workingIn, project, team, state, preStep, agentOf, stop } = await start({ services: { schedule } })
+  t.after(stop)
+  for (const workDir of [project, team]) {
+    assert.equal((await call('update-bot', { id: 'b', workDir })).ok, true)
+    await workingIn('b', workDir)
+    assert.equal(creates, 0)
+    assert.equal(deletes, 0)
+    assert.deepEqual([...tasks.values()], [original])
+    const listed = (await call('schedules', {})).value.tasks
+    assert.equal(listed.length, 1)
+    assert.equal(listed[0].sessionId, 'b')
+    assert.equal(listed[0].botId, 'b')
+    assert.equal(listed[0].scheduledAt, original.record.scheduledAt)
+  }
+  const current = agentOf(state().bots.b.sessionId)
+  current.calls.length = 0
+  const reminder = { id: 'due-message', role: 'user', content: [{ type: 'text', text: 'Report status' }], source: { kind: 'schedule' } }
+  assert.deepEqual(await preStep('b', [reminder]), { kind: 'reject' })
+  assert.equal(current.calls.length, 1)
+  const [kind, delivered] = current.calls[0]
+  assert.equal(kind, 'followup', 'a due reminder must wake the current part, not just inject idle context')
+  assert.deepEqual(delivered.content, reminder.content)
+  assert.deepEqual(delivered.source, reminder.source)
+})
+
 test('a running Bot moves at its next step and carries that step\'s input along', async (t) => {
   const { requests, services } = approvalServices('allowed-once')
   const { tool, preStep, agentOf, created, project, state, stop } = await start({ services })

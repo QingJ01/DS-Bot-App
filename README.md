@@ -28,6 +28,8 @@ DS Bot App connects your phone to the Bots running on your own [DeepSeek Harness
 | Notifications | Task and approval reminders with Android background reception and optional cloud push. |
 | Appearance and language | Chinese/English and light/dark/system appearance. Cached conversations and drafts remain available offline. |
 
+Scheduled tasks keep their original Session binding when a Bot's chat moves to a new part. Due reminders are forwarded to the current part; switching parts does not copy or recreate tasks.
+
 <p align="center">
   <img src="docs/images/mobile/group.en.png?v=0.1.0-15" width="250" alt="Group conversation with Bot authors">
   <img src="docs/images/mobile/create.en.png?v=0.1.0-15" width="250" alt="Create a Bot and customize its avatar">
