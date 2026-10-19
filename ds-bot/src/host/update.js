@@ -218,6 +218,10 @@ export function install(rt) {
     target = null
     Object.assign(status, { phase: 'idle', error: null, errorCode: null, latest: null, latestRef: null, latestRevision: null, currentRevision: null, checkError: null, checkErrorCode: null, blockedReason: null })
     try {
+      if (process.env.DS_BOT_APP === '1') {
+        status.source = 'app'
+        return
+      }
       const spec = await installSpecOf(ctx)
       const source = sourceOf(spec)
       status.source = source.kind

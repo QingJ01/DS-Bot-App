@@ -1,7 +1,6 @@
-import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createElement as h, useLayoutEffect, useRef, useState } from 'react'
 import { BotMark, toolState } from './mark.js'
-import { Shimmer, workPhrase } from './cells.js'
-import { elapsedLabel } from './activity-row.js'
+import { Elapsed, Shimmer, workPhrase } from './cells.js'
 import { SPRING_SHAPE, SPRING_TAP, spring, useLinger } from './motion.js'
 import { t } from './i18n.js'
 
@@ -124,17 +123,10 @@ export function MemberDock({ sessionId, useRoster, useWork, actions }) {
           model.doing ? h('span', { className: 'bt-mw-doing' }, h(Shimmer, null, model.doing)) : null))))
 }
 
-function useNow(active) {
-  const [now, setNow] = useState(Date.now)
-  useEffect(() => {
-    if (!active) return undefined
-    const timer = setInterval(() => setNow(Date.now()), 30000)
-    return () => clearInterval(timer)
-  }, [active])
-  return now
-}
-
-const since = (now, at) => (typeof at === 'number' && now - at >= 60000 ? ` · ${elapsedLabel(now - at)}` : '')
+// The clock stays whole at the end; only what comes before it is cut.
+const stateLine = (className, at, ...what) => h('span', { className },
+  h('span', { className: 'bt-member-what' }, ...what),
+  typeof at === 'number' ? h(Elapsed, { at, className: 'bt-member-time' }) : null)
 
 function ApprovalCard({ approval, bot, actions }) {
   const [busy, setBusy] = useState(false)
@@ -158,21 +150,20 @@ function ApprovalCard({ approval, bot, actions }) {
 }
 
 // A member's second line in the group's details: what it is doing and where, or its role.
-export function MemberState({ entry, bot, room, roster, now }) {
-  if (entry?.state === 'ask') return h('span', { className: 'bt-member-state bt-mw-ask' }, `${t('Waiting for your approval')}${since(now, entry.approvals[0].at)}`)
-  if (entry?.state !== 'work') return bot.role ? h('span', { className: 'bt-member-state' }, bot.role) : null
+export function MemberState({ entry, bot, room, roster }) {
+  if (entry?.state === 'ask') return stateLine('bt-member-state bt-mw-ask', entry.approvals[0].at, t('Waiting for your approval'))
+  if (entry?.state !== 'work') return bot.role ? stateLine('bt-member-state', undefined, bot.role) : null
   const where = entry.doing.roomId === room.id ? ''
     : entry.doing.roomId ? t('in {name}', { name: roster.roomsById[entry.doing.roomId]?.name ?? t('a group chat') })
       : t('in its own chat')
-  return h('span', { className: 'bt-member-state' },
-    h(Shimmer, null, `${workPhrase(entry.doing)}…`), where ? ` ${where}` : '', since(now, entry.doing.since))
+  return stateLine('bt-member-state', entry.doing.since, h(Shimmer, null, `${workPhrase(entry.doing)}…`), where ? ` ${where}` : '')
 }
 
 // Work in this group can be stopped from its details, since the user cannot reach the
-// member's group Session otherwise.
+// member's group Session otherwise; a turn waiting for an approval still holds its work.
 export function StopMemberWork({ entry, bot, room, actions }) {
   const [stopping, setStopping] = useState(false)
-  if (entry?.state !== 'work' || !entry.here) return null
+  if (!entry?.here || (entry.state !== 'work' && entry.state !== 'ask')) return null
   const stop = () => {
     setStopping(true)
     void Promise.resolve(actions.stopMemberWork(room.id, bot.id))
@@ -189,9 +180,7 @@ export function MemberApprovals({ entry, bot, actions }) {
 
 export function useMemberWork(room, useWork) {
   const work = useWork?.(value => value) ?? NO_WORK
-  const entries = room ? memberWork(room, work) : []
-  const now = useNow(entries.some(entry => entry.state !== 'idle'))
-  return { entries, now }
+  return { entries: room ? memberWork(room, work) : [] }
 }
 
 export const MEMBER_CSS = `
@@ -225,7 +214,9 @@ body[data-ds-dark-theme] .bt-mw-ask{color:#f0b84a}
 .bt-member-line{display:flex;align-items:center;gap:6px;min-width:0}
 .bt-member-name{min-width:0;font-size:14px;line-height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bt-member-line>.bt-tag{font-size:11px;line-height:15px;padding:0 5px}
-.bt-member-state{min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-member-state{display:flex;min-width:0;font-size:12px;line-height:16px;color:var(--bt-ink-3);white-space:nowrap}
+.bt-member-what{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bt-member-time{flex:none;margin-left:.3em;font-variant-numeric:tabular-nums}
 .bt-member-state.bt-mw-ask{color:#b7791f}
 body[data-ds-dark-theme] .bt-member-state.bt-mw-ask{color:#f0b84a}
 .bt-member-stop{flex:none;height:26px;padding:0 11px;border:0;border-radius:13px;background:var(--bt-main);box-shadow:inset 0 0 0 .5px var(--bt-line-2);color:var(--bt-ink-2);font:inherit;font-size:12px;cursor:pointer;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, 'scale')}}

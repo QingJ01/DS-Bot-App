@@ -690,3 +690,127 @@ test('a create that fails lets its name go', async (t) => {
   ctx.sessionController.create = create
   assert.equal((await call('create-bot', { name: 'Coder' })).ok, true)
 })
+
+// #99: the team tools take a Bot's thinking level. `effort` is optional, an empty
+// string returns to the model's default, and a level the model does not serve is
+// refused before anything about the Bot changes.
+const TOOL_REASONING = {
+  'deepseek/deepseek-v4-flash': { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'high' } },
+}
+
+test('create_bot and update_bot advertise an optional thinking level without a fixed enum', async (t) => {
+  const { ctx, stop } = start(undefined, { models: ['deepseek-v4-flash'] })
+  t.after(stop)
+  for (const name of ['create_bot', 'update_bot']) {
+    const schema = ctx.registeredTools.get(name).parameters
+    assert.equal(schema.properties.effort?.type, 'string')
+    assert.equal(schema.required?.includes('effort') ?? false, false)
+    assert.equal(schema.properties.effort.enum, undefined)
+  }
+})
+
+test('update_bot sets, keeps and clears the thinking level', async (t) => {
+  const { ctx, call, stop, selected, sent } = start(undefined, { models: ['deepseek-v4-flash'], reasoning: TOOL_REASONING })
+  t.after(stop)
+  const chief = (await call('state', {})).value.mainBotId
+  const writer = (await call('create-bot', { name: 'Writer' })).value
+  await until(() => sent.some(entry => entry.sessionId === writer.id))
+  const tool = args => ctx.registeredTools.get('update_bot').execute({ bot: 'Writer', ...args }, { agent: { id: chief } })
+  const current = async () => (await call('state', {})).value.bots.find(bot => bot.id === writer.id)
+
+  assert.equal(await tool({ effort: 'low' }), 'Updated Writer.')
+  assert.equal((await current()).effort, 'low')
+  await until(() => selected.at(-1)?.sessionId === writer.id && selected.at(-1).reasoningEffort === 'low')
+
+  // Left out, the pick is kept; an empty string returns to the model's default.
+  assert.equal(await tool({ instructions: 'Be concise' }), 'Updated Writer.')
+  assert.equal((await current()).effort, 'low')
+  assert.equal(await tool({ effort: '' }), 'Updated Writer.')
+  assert.equal((await current()).effort, undefined)
+})
+
+test('update_bot checks a level against the model it names, and a failure changes nothing', async (t) => {
+  const reasoning = {
+    ...TOOL_REASONING,
+    'deepseek/other': { reasoning: { efforts: [{ id: 'medium', name: 'Medium' }] } },
+  }
+  const { ctx, call, stop, selected, sent } = start(undefined, { models: ['deepseek-v4-flash', 'other'], reasoning })
+  t.after(stop)
+  const chief = (await call('state', {})).value.mainBotId
+  const writer = (await call('create-bot', { name: 'Writer', model: 'deepseek/deepseek-v4-flash', effort: 'low' })).value
+  await until(() => sent.some(entry => entry.sessionId === writer.id))
+  const tool = args => ctx.registeredTools.get('update_bot').execute({ bot: 'Writer', ...args }, { agent: { id: chief } })
+  const current = async () => (await call('state', {})).value.bots.find(bot => bot.id === writer.id)
+
+  // Model and level together resolve the level against the new model.
+  assert.equal(await tool({ model: 'deepseek/other', effort: 'medium' }), 'Updated Writer.')
+  assert.equal((await current()).model, 'deepseek/other')
+  assert.equal((await current()).effort, 'medium')
+  await until(() => selected.at(-1)?.sessionId === writer.id && selected.at(-1).reasoningEffort === 'medium')
+
+  // A level the new model does not serve leaves name, model and level as they were.
+  assert.match(await tool({ name: 'Renamed', model: 'deepseek/deepseek-v4-flash', effort: 'bogus' }), /^Could not update the Bot: Thinking level bogus is not available/)
+  assert.equal((await current()).name, 'Writer')
+  assert.equal((await current()).model, 'deepseek/other')
+  assert.equal((await current()).effort, 'medium')
+  // A level the kept model does not serve fails the same way.
+  assert.match(await tool({ effort: 'low' }), /^Could not update the Bot: Thinking level low is not available/)
+  assert.equal((await current()).effort, 'medium')
+  // A model that is not served fails before anything changes too.
+  assert.match(await tool({ name: 'Renamed', model: 'deepseek/nothing' }), /^Could not update the Bot: Model deepseek\/nothing is not available/)
+  assert.equal((await current()).name, 'Writer')
+})
+
+test('create_bot stores a named thinking level and refuses one without a model', async (t) => {
+  const { ctx, call, stop, sent } = start(undefined, { models: ['deepseek-v4-flash'], reasoning: TOOL_REASONING })
+  t.after(stop)
+  const chief = (await call('state', {})).value.mainBotId
+  const exec = { agent: { id: chief } }
+  const create = args => ctx.registeredTools.get('create_bot').execute(args, exec)
+  assert.match(await create({ name: 'Writer', role: 'Write', instructions: 'Write clearly', model: 'deepseek/deepseek-v4-flash', effort: 'low' }), /^Created Writer/)
+  const writer = (await call('state', {})).value.bots.find(bot => bot.name === 'Writer')
+  assert.equal(writer.model, 'deepseek/deepseek-v4-flash')
+  assert.equal(writer.effort, 'low')
+  await until(() => sent.some(entry => entry.sessionId === writer.id))
+  // A level the model does not serve leaves no Bot behind.
+  assert.match(await create({ name: 'Phantom', role: 'Write', instructions: 'Write', model: 'deepseek/deepseek-v4-flash', effort: 'bogus' }), /^Could not create the Bot: Thinking level bogus is not available/)
+  assert.equal((await call('state', {})).value.bots.some(bot => bot.name === 'Phantom'), false)
+})
+
+test('create_bot with a level but no resolvable model fails before a Session is made', async (t) => {
+  // No models are served, so no model can be resolved and an effort has nothing to
+  // resolve against.
+  const { ctx, call, stop } = start(undefined, { models: [] })
+  t.after(stop)
+  const chief = (await call('state', {})).value.mainBotId
+  let created = 0
+  const create = ctx.sessionController.create
+  ctx.sessionController.create = async (...args) => { created += 1; return create(...args) }
+  const answer = await ctx.registeredTools.get('create_bot').execute({ name: 'Phantom', role: 'Write', instructions: 'Write', effort: 'low' }, { agent: { id: chief } })
+  assert.match(answer, /^Could not create the Bot: Pick a model before choosing a thinking level/)
+  assert.equal(created, 0)
+  assert.equal((await call('state', {})).value.bots.some(bot => bot.name === 'Phantom'), false)
+})
+
+test('a non-Main Bot still cannot change another Bot\u2019s thinking level', async (t) => {
+  const { ctx, call, stop, sent } = start(undefined, { models: ['deepseek-v4-flash'], reasoning: TOOL_REASONING })
+  t.after(stop)
+  await call('state', {})
+  const writer = (await call('create-bot', { name: 'Writer', model: 'deepseek/deepseek-v4-flash', effort: 'high' })).value
+  await until(() => sent.some(entry => entry.sessionId === writer.id))
+  const exec = { agent: { id: writer.id } }
+  assert.match(await ctx.registeredTools.get('update_bot').execute({ bot: 'Chief', effort: 'low' }, exec), /^Only a Main Bot can change another Bot/)
+  // Its own level it may change.
+  assert.equal(await ctx.registeredTools.get('update_bot').execute({ effort: 'low' }, exec), 'Updated Writer.')
+  assert.equal((await call('state', {})).value.bots.find(bot => bot.id === writer.id).effort, 'low')
+})
+
+test('list_models names the thinking levels of the models a Bot runs on', async (t) => {
+  const { ctx, call, stop } = start(undefined, { models: ['deepseek-v4-flash', 'plain'], reasoning: TOOL_REASONING })
+  t.after(stop)
+  const chief = (await call('state', {})).value.mainBotId
+  await call('update-bot', { id: chief, model: 'deepseek/deepseek-v4-flash' })
+  const result = await ctx.registeredTools.get('list_models').execute({}, { agent: { id: chief } })
+  assert.match(result, /deepseek\/deepseek-v4-flash.*thinking: low, high \(default: high\)/)
+  assert.doesNotMatch(result.split('\n').find(line => line.includes('deepseek/plain')), /thinking/)
+})

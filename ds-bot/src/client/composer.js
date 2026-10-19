@@ -122,14 +122,16 @@ export function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
   }, [open])
   const target = roster.byId?.[sessionId]?.id ?? roster.roomsById?.[sessionId]?.id
   if (sessionId === undefined || target === undefined) return null
+  const fileInput = () => button.current?.closest('[data-composer-card]')?.querySelector('input[type=file]')
   const toggle = () => {
     if (open) { setOpen(null); return }
     const rect = button.current.getBoundingClientRect()
-    setOpen({ left: rect.left, bottom: window.innerHeight - rect.top + 8 })
+    // Files go through the composer's own file input; a composer without one takes none.
+    setOpen({ left: rect.left, bottom: window.innerHeight - rect.top + 8, files: Boolean(fileInput()) })
   }
   const attach = () => {
     setOpen(null)
-    button.current?.closest('[data-composer-card]')?.querySelector('input[type=file]')?.click()
+    fileInput()?.click()
   }
   const schedule = () => {
     setOpen(null)
@@ -151,7 +153,7 @@ export function ComposerPlus({ sessionId, inputActions, useRoster, actions }) {
       ref: menu, className: 'bt-menu bt-menu-up bt-plus-menu', role: 'menu', 'aria-label': t('Add'),
       style: { left: shown.left, bottom: shown.bottom }, 'data-leaving': leaving || undefined,
     },
-    h('button', { type: 'button', role: 'menuitem', onClick: attach }, h(PaperclipIcon), h('span', { className: 'bt-menu-label' }, t('Add files'))),
+    shown.files ? h('button', { type: 'button', role: 'menuitem', onClick: attach }, h(PaperclipIcon), h('span', { className: 'bt-menu-label' }, t('Add files'))) : null,
     canReference ? h('button', { type: 'button', role: 'menuitem', onMouseDown: keepComposerFocus, onClick: reference }, h(ChatsIcon), h('span', { className: 'bt-menu-label' }, t('Reference a chat'))) : null,
     h('button', { type: 'button', role: 'menuitem', onClick: schedule }, h(ClockIcon), h('span', { className: 'bt-menu-label' }, t('Scheduled task')))), document.body) : null)
 }

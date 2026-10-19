@@ -1,4 +1,4 @@
-import { createElement as h, useEffect, useState } from 'react'
+import { createElement as h, useEffect, useRef, useState } from 'react'
 import { Segmented } from './motion.js'
 import { t } from './i18n.js'
 
@@ -13,12 +13,30 @@ export const presetName = (value, catalog) => (LABELS[value] ? t(LABELS[value]) 
 // false. `repick` lets the shown preset be picked again.
 export function PermissionPicker({ catalog, saved, onPick, repick = false }) {
   const [pending, setPending] = useState(null)
-  useEffect(() => { if (pending === saved) setPending(null) }, [pending, saved])
+  // One save runs at a time. A pick made while one is in flight waits as `latest`
+  // (newer ones overwrite it), so a request that settles cannot clear or reorder a
+  // pick made after it; two saves never land out of order on the server.
+  const flight = useRef({ value: undefined, latest: undefined })
+  useEffect(() => {
+    const flying = flight.current.value
+    if (pending === saved && (flying === undefined || flying === pending)) setPending(null)
+  }, [pending, saved])
+  const send = (value) => {
+    flight.current.value = value
+    void Promise.resolve(onPick(value)).then(done => done !== false, () => false).then((ok) => {
+      const wanted = flight.current.latest
+      flight.current.latest = undefined
+      if (wanted !== undefined && !(wanted === value && ok)) { send(wanted); return }
+      flight.current.value = undefined
+      if (!ok) setPending(null)
+    })
+  }
   const current = pending ?? saved
   const pick = (value) => {
     if (value === current && !repick) return
     setPending(value)
-    void Promise.resolve(onPick(value)).then((done) => { if (done === false) setPending(null) })
+    if (flight.current.value !== undefined) { flight.current.latest = value; return }
+    send(value)
   }
   return h(Segmented, { label: t('Permissions'), value: current },
     catalog.options.map(option => h('button', {

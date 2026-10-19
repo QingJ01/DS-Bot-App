@@ -59,7 +59,7 @@ function selectorOf(when) {
 }
 
 export function install(rt) {
-  const { ctx, state } = rt
+  const { ctx } = rt
   let service = null
 
   const attach = (sub) => {
@@ -78,7 +78,7 @@ export function install(rt) {
     if (rt.roomOf(sessionId) !== undefined) return { roomId: sessionId }
     return rt.groupOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)
   }
-  const known = owner => owner !== undefined && (owner.botId === undefined ? state.rooms[owner.roomId] !== undefined : state.bots[owner.botId] !== undefined)
+  const known = owner => owner !== undefined && (owner.botId === undefined ? rt.roomOf(owner.roomId) !== undefined : rt.botOf(owner.botId) !== undefined)
 
   async function schedulesView() {
     if (service === null) return { available: false, tasks: [] }
@@ -95,8 +95,8 @@ export function install(rt) {
     schedules: () => schedulesView(),
     async 'schedule-create'(body) {
       if (service === null) throw invalid('Automation tasks are off in DSH')
-      const bot = state.bots[body.target]
-      const room = state.rooms[body.target]
+      const bot = rt.botOf(body.target)
+      const room = rt.roomOf(body.target)
       if (bot === undefined && room === undefined) throw invalid('No such Bot or group chat')
       const title = String(body.title ?? '').trim()
       const prompt = String(body.prompt ?? '').trim()

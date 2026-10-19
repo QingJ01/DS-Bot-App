@@ -2,6 +2,8 @@ DS Bot
 Copyright 2026 Fei2411 and the DS Bot contributors
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+This fork is based on Fei2411's DeepSeek-Bot and includes upstream code
+adapted under Apache-2.0: https://github.com/Fei2411/DeepSeek-Bot.
 
 ==============================================================================
 Third-party code in this repository
@@ -14,6 +16,21 @@ MIT License, Copyright (c) 2026 DeepSeek
     apps/desktop/scripts/dev.ts in DeepSeek Harness and reuses a few of its
     lines (the release record and the Electron launch arguments). It is a
     developer script for screenshots on Linux and is not in the npm package.
+  - app/src/web.mjs adapts apps/desktop/src/web-document.ts: the launch-token
+    cookie exchange and the request forwarding.
+  - app/src/host.mjs and app/src/profile.mjs follow
+    apps/desktop-host/src/index.ts: the profile boot and the ready, fatal and
+    shutdown messages.
+  - app/src/host-process.mjs follows apps/desktop/src/host-process.ts: the
+    Host in Electron's Node mode and the shutdown escalation.
+  - app/src/main.mjs follows apps/desktop/src/main.ts for the dsh-app scheme
+    and the request routing.
+  - app/engine/cordis.patch.yml follows the bundle patch of
+    @deepseek-ai/dsh-web-app (packages/bundle/web-app/cordis.patch.yml): the
+    transport and host-service rows and the agent-plane rows it turns off.
+    app/engine/preset-standard.patch.yml copies its standard preset
+    (presets/standard.patch.yml), including the plan-mode prompt text,
+    without the goal rows.
 
   Full license text:
 
@@ -37,7 +54,13 @@ MIT License, Copyright (c) 2026 DeepSeek
 
 No other third-party code is copied into this repository. At run time the
 plugin uses the @deepseek-ai/* packages of the DeepSeek Harness install it
-runs in; they are not bundled. esbuild is a build tool only.
+runs in; they are not bundled. esbuild is a build tool only. The desktop app
+in app/ installs the pinned @deepseek-ai/* packages, Electron and pnpm from
+npm; they keep their own licenses. The build of its window (app/ui) bundles,
+from npm, React and React DOM (MIT, Copyright (c) Meta Platforms, Inc. and
+affiliates), and react-markdown and remark-gfm with the packages they use
+(MIT, most of them Copyright (c) Titus Wormer; @ungap/structured-clone is ISC,
+Copyright (c) Andrea Giammarchi). Vite is a build tool only.
 
 ==============================================================================
 Projects that gave us ideas (no code copied)

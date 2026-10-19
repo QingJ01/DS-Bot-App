@@ -16,7 +16,7 @@ DS Bot (`ds-bot/`) is a plugin for DeepSeek Harness (DSH). It turns DSH Desktop 
 
 1. **Plugin only.** Never patch DeepSeek Harness or depend on files inside a DSH install. Use the documented plugin APIs. If something is missing in DSH, stop and say so; do not work around it with a patch.
 2. **No secrets.** Never write, print or commit API keys, tokens, cookies or `DSH_HOME` contents. Use the mock model (`ds-bot/dev/mock-llm.mjs`) for tests; it needs no key.
-3. **Only original material.** Do not copy code, text, icons, logos or graphics from other products or websites.
+3. **Only original material.** Do not copy code, text, icons, logos or graphics from other products or websites. Code under a license compatible with Apache 2.0 is the only exception: say where it comes from and add its notice to the `NOTICE` file.
 4. **`client.js` is generated.** Change `ds-bot/src/client/`, then run `npm run build` and commit both files. Never edit `client.js` by hand.
 5. **Do not touch the user's own DSH data.** The test bench keeps its data in `.dsh-test-<name>/`. Never point a test at `~/.dsh` or at a DSH that the user runs.
 6. Before you change behavior, read the design for it in `docs/plans/` (and `docs/vision.md`). A change to a decided design needs the maintainer; a new large feature adds its design note to the same pull request.

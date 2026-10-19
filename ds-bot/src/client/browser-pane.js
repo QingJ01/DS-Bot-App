@@ -7,6 +7,7 @@ import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from
 import { createPortal } from 'react-dom'
 import { BotMark } from './mark.js'
 import { STORAGE } from './storage.js'
+import { installStyles } from './styles.js'
 import { SPRING_SHAPE, springEasing } from './motion.js'
 import { DetailsDrawer } from './details-drawer.js'
 import { t } from './i18n.js'
@@ -77,10 +78,7 @@ const roomRule = () => {
   if (live && !selector) return room.rule
   const declarations = room.rule?.style.cssText ?? ''
   room.rule?.parentStyleSheet?.ownerNode?.remove()
-  const style = document.createElement('style')
-  style.dataset.dshBot = 'chat-room'
-  style.textContent = `${selector || '[class*="_centerCol"]'}{${declarations}}`
-  document.head.append(style)
+  const style = installStyles(`${selector || '[class*="_centerCol"]'}{${declarations}}`, 'chat-room')
   room.rule = style.sheet.cssRules[0]
   room.selector = selector
   return room.rule

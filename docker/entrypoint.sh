@@ -112,7 +112,6 @@ if [ "$installed_ver" != "$image_ver" ] || [ "$installed_sha" != "$image_sha" ];
     echo "entrypoint: could not snapshot the web profile; skipping reinstall" >&2
   fi
 fi
-
 # This dsh release accepts only 127.0.0.1 for --host, so an overlay binds all
 # interfaces instead; the container's publish rule is the network boundary.
 # DSH_LISTEN_PORT only matters with network_mode: host — published ports

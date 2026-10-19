@@ -22,6 +22,7 @@ function botHint(update) {
   if (update.available) return t('DS Bot {version} is available', { version: update.latestRef ?? update.latest })
   if (update.checkError) return hostText(update.checkError)
   if (update.blockedReason) return hostText(update.blockedReason)
+  if (update.source === 'app') return t('Updates come with the DS Bot App.')
   if (update.enabled === false) return t('Update checks are off.')
   if (update.source === 'path') return t('Installed from a local folder; update it there.')
   if (!update.checkedAt) return null
@@ -70,11 +71,11 @@ export function AboutPage({ useUpdate, actions, run, Section, Row, updatesOnly =
   // Same rule as the sidebar card.
   const dshNew = showsDshRow(dsh, update.app)
   const dshShown = dshNew && dsh.available
-  const botControl = phase === 'installed' ? null
+  const botControl = phase === 'installed' || update.source === 'app' ? null
     : update.available || phase === 'installing'
       ? h('button', { type: 'button', className: 'bt-fb-primary', disabled: phase === 'installing', onClick: () => run(actions.installUpdate({ targetId: update.targetId })) },
           phase === 'installing' ? t('Updating…') : phase === 'failed' ? t('Try again') : t('Update'))
-      : null
+      : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: checking || update.enabled === false, onClick: check }, checking ? t('Checking…') : t('Check for updates'))
   const dshControl = !dshNew || dshPhase === 'installed' ? null
     : dsh.kind === 'app'
       ? dsh.available ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.openAppUpdates(dsh.verified)) }, t('Open updates')) : null

@@ -41,10 +41,197 @@ jobs:
       - run: node scripts/build-client.mjs --check
       - run: npm run lint
 
+  scan:
+    name: Leak scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # Scan exactly the tracked files, as they would be published.
+      - run: mkdir -p "$RUNNER_TEMP/tree" && git archive HEAD | tar -x -C "$RUNNER_TEMP/tree"
+      - run: node scripts/scan.mjs "$RUNNER_TEMP/tree"
+        env:
+          SCAN_EXTRA_PATTERNS: ${{ secrets.SCAN_EXTRA_PATTERNS }}
+
+  app:
+    name: Desktop app profile
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # The test composes the profile and starts no window, so it needs no Electron binary.
+      - run: npm ci --no-fund --no-audit
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm test
+
+  app-package:
+    name: Desktop app package (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --no-fund --no-audit
+      - run: npm run dist
+      - name: Check the packaged app
+        run: node scripts/check-packed.mjs
+      # The runner is a fresh machine, so the installer may run here. It must install for the
+      # current user only, the installed app must pass the same check, and the uninstaller must
+      # remove it again.
+      - name: Install and check
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Find-Entry($root) {
+            Get-ChildItem "$root\Software\Microsoft\Windows\CurrentVersion\Uninstall" |
+              Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -like 'DS Bot App*' }
+          }
+          $installer = Get-Item dist-pack/DS-Bot-App-*-win-x64.exe
+          Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\DS Bot App'
+          $exe = Join-Path $dir 'DS Bot App.exe'
+          if (-not (Test-Path $exe)) { throw "The installer did not put the app in $dir" }
+          $entry = Find-Entry 'HKCU:'
+          if (-not $entry) { throw 'No uninstall entry for the current user' }
+          if (Find-Entry 'HKLM:') { throw 'The installer installed for all users' }
+          node scripts/check-packed.mjs $exe
+          if ($LASTEXITCODE -ne 0) { throw 'The installed app failed its check' }
+
+      # The update builds the app a second time, so it runs only for changes to the app or the
+      # workflows. A build of the next version is the feed; the installed app downloads it, checks
+      # its sha512, and installs it as it quits.
+      - name: Does the change touch the app?
+        id: scope
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != pull_request ] || git diff --name-only "origin/$GITHUB_BASE_REF...HEAD" | grep -qE '^(app/|\.github/workflows/)'; then
+            echo "update=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build the next version
+        if: steps.scope.outputs.update == 'true'
+        run: |
+          next="$(node -p "const [a, b, c] = require('./package.json').version.split(/[.-]/u); [a, b, Number(c) + 1].join('.')")"
+          echo "NEXT_VERSION=$next" >> "$GITHUB_ENV"
+          npx electron-builder --publish never -c.extraMetadata.version="$next" -c.directories.output=dist-next
+      - name: Update the installed app and check it
+        if: steps.scope.outputs.update == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\DS Bot App\DS Bot App.exe'
+          node scripts/check-update.mjs $exe dist-next
+          if ($LASTEXITCODE -ne 0) { throw 'The installed app did not take the update' }
+          # The installer goes on after the app has quit.
+          function Installed-Version {
+            Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' |
+              ForEach-Object { Get-ItemProperty $_.PSPath } |
+              Where-Object { $_.DisplayName -like 'DS Bot App*' } |
+              Select-Object -ExpandProperty DisplayVersion
+          }
+          $deadline = (Get-Date).AddSeconds(240)
+          while ((Installed-Version) -ne $env:NEXT_VERSION -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3 }
+          if ((Installed-Version) -ne $env:NEXT_VERSION) { throw "The installed version is $(Installed-Version), not $env:NEXT_VERSION" }
+          while ((Get-Process | Where-Object { $_.Path -like '*ds-bot-app-updater*' }) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          node scripts/check-packed.mjs $exe
+          if ($LASTEXITCODE -ne 0) { throw 'The updated app failed its check' }
+
+      - name: Uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Find-Entry($root) {
+            Get-ChildItem "$root\Software\Microsoft\Windows\CurrentVersion\Uninstall" |
+              Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -like 'DS Bot App*' }
+          }
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\DS Bot App'
+          $exe = Join-Path $dir 'DS Bot App.exe'
+          # The uninstaller removes the program only: the data location and the app's own data stay.
+          $kept = foreach ($folder in (Join-Path $HOME '.ds-bot-app'), (Join-Path $env:APPDATA 'DS Bot App')) {
+            New-Item -ItemType Directory -Force $folder | Out-Null
+            $file = Join-Path $folder 'kept.txt'
+            Set-Content $file 'kept'
+            $file
+          }
+          $uninstaller = Join-Path $dir 'Uninstall DS Bot App.exe'
+          Start-Process -FilePath $uninstaller -ArgumentList '/currentuser', '/S' -Wait
+          # The uninstaller goes on from a copy in the temp folder, so wait for its result.
+          $deadline = (Get-Date).AddSeconds(120)
+          while (((Test-Path $exe) -or (Find-Entry 'HKCU:')) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          if (Test-Path $exe) { throw 'The uninstaller left the app in place' }
+          if (Find-Entry 'HKCU:') { throw 'The uninstaller left its uninstall entry' }
+          foreach ($file in $kept) { if (-not (Test-Path $file)) { throw "The uninstaller removed $file" } }
+
+  app-package-macos:
+    name: Desktop app package (macOS ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: arm64, runner: macos-latest }
+          - { arch: x64, runner: macos-26-intel }
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --no-fund --no-audit
+      - run: npm run dist
+        env:
+          # Ad-hoc identity '-' uses no certificate or secret, so PR signing is safe; otherwise electron-builder skips signing and leaves an unsealed bundle.
+          CSC_FOR_PULL_REQUEST: 'true'
+      - name: Check the DMG
+        run: |
+          dmg="dist-pack/DS-Bot-App-$(node -p "require('./package.json').version")-mac-${{ matrix.arch }}.dmg"
+          test -f "$dmg"
+      - name: Check the packaged app
+        run: node scripts/check-packed.mjs
+      - name: Install from the dmg and check
+        run: |
+          mkdir -p "$RUNNER_TEMP/dmg"
+          dmg="dist-pack/DS-Bot-App-$(node -p "require('./package.json').version")-mac-${{ matrix.arch }}.dmg"
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/dmg" "$dmg"
+          ditto "$RUNNER_TEMP/dmg/DS Bot App.app" "/Applications/DS Bot App.app"
+          hdiutil detach "$RUNNER_TEMP/dmg"
+          app="/Applications/DS Bot App.app"
+          exe="$app/Contents/MacOS/DS Bot App"
+          codesign --verify --deep --strict "$app"
+          file "$exe"
+          expected="${{ matrix.arch }}"
+          if [ "$expected" = x64 ]; then expected=x86_64; fi
+          file -b "$exe" | grep -F "$expected"
+          node scripts/check-packed.mjs "$exe"
+          node scripts/check-update.mjs "$exe" 99.0.0
+
   docker:
     name: Docker startup and data migration
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -54,3 +241,13 @@ jobs:
       - run: docker compose -f docker/compose.yml config --quiet
       - run: docker build -f docker/Dockerfile -t ds-bot:test .
       - run: node docker/test.mjs ds-bot:test
+  # The one check that branch rules require. A job whose needs failed is skipped,
+  # and GitHub counts a skipped required check as passed, so this job always runs
+  # and fails unless the matrix, leak scan, desktop app and Docker checks passed.
+  result:
+    name: Test result
+    needs: [test, scan, app, app-package, app-package-macos, docker]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.test.result }}" = success && test "${{ needs.scan.result }}" = success && test "${{ needs.app.result }}" = success && test "${{ needs.app-package.result }}" = success && test "${{ needs.app-package-macos.result }}" = success && test "${{ needs.docker.result }}" = success

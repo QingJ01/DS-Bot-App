@@ -2,10 +2,11 @@
 // reaches a model that cannot read them, each image becomes text from a vision model.
 // Texts are kept per attachment, so later requests repeat the same words and the
 // prompt cache still hits.
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import { OCR_CACHE_MAX, OCR_PROMPT, OCR_RETRY_MS, OCR_TIMEOUT_MS } from './constants.js'
+import { replaceFile } from './files.js'
 import { splitRef } from './text.js'
 
 export function offloadTargets(session, beforeSeq) {
@@ -82,7 +83,7 @@ export function install(rt) {
       await mkdir(home, { recursive: true })
       const temp = `${ocrPath}.${process.pid}.tmp`
       await writeFile(temp, snapshot, 'utf8')
-      await rename(temp, ocrPath)
+      await replaceFile(temp, ocrPath)
     }).catch(error => rt.warn('ds-bot: OCR cache write failed: %s', error))
   }
 

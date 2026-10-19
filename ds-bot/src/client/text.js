@@ -45,6 +45,13 @@ export function relativeShort(ms) {
   return new Date(ms).toLocaleDateString(dateLocale(), { month: 'short', day: 'numeric' })
 }
 
+// A running clock: "8s", "1m 8s", "1h 2m 8s", in every language.
+export function elapsedLabel(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const hours = Math.floor(total / 3600)
+  return `${hours > 0 ? `${hours}h ` : ''}${total >= 60 ? `${Math.floor(total / 60) % 60}m ` : ''}${total % 60}s`
+}
+
 export const contentText = content => (content ?? []).filter(block => block?.type === 'text').map(block => block.text).join('\n')
 export const HEADER = /^\[(Message from|Reply from|Group chat|Group post from|Bot team setup|Handoff · part|Secret card)[^\]]*\]\n?/
 export const currentPart = bot => bot.sessionId ?? bot.id
@@ -229,4 +236,40 @@ export function usageOf(list, ids) {
   if (input + output === 0) return ''
   const hit = input > 0 ? Math.round((cacheRead / input) * 100) : 0
   return t('{tokens} tok · Cache hit {hit}%', { tokens: formatTokens(input + output), hit })
+}
+
+// A share that is not whole never reads as 100%: it gets decimals until it does not.
+function percentText(part, whole) {
+  if (part >= whole) return '100'
+  for (let places = 0; places < 3; places += 1) {
+    const text = ((part / whole) * 100).toFixed(places)
+    if (Number(text) < 100) return text
+  }
+  return '99.99'
+}
+
+// One Session's figures from DSH's sessionStats, tokenUsage and contextPressure views, as
+// its status bar counts them: turns, output tokens over decode time, cache reads over
+// every prompt-side token, and the context in use. Figures with nothing to count yet are left out.
+export function runStatsOf(values) {
+  const stats = values?.sessionStats
+  const usage = values?.tokenUsage
+  const pressure = values?.contextPressure
+  const shown = []
+  if (stats?.turns > 0) shown.push({ key: 'turns', text: stats.turns === 1 ? t('1 turn') : t('{count} turns', { count: stats.turns }) })
+  if (stats?.decodeMs > 0 && stats.decodeTokens > 0) {
+    const speed = stats.decodeTokens / (stats.decodeMs / 1000)
+    shown.push({ key: 'speed', text: t('{speed} tok/s', { speed: speed >= 10 ? Math.round(speed) : Math.round(speed * 10) / 10 }) })
+  }
+  const prompt = (usage?.uncachedInputTokens ?? 0) + (usage?.cacheReadTokens ?? 0) + (usage?.cacheWriteTokens ?? 0)
+  if (prompt > 0) shown.push({ key: 'cache', text: t('Cache hit {hit}%', { hit: percentText(usage.cacheReadTokens ?? 0, prompt) }) })
+  const used = pressure?.projectedTokens ?? pressure?.pressureTokens
+  if (Number.isFinite(used) && pressure.contextWindow > 0) {
+    shown.push({
+      key: 'context',
+      text: t('Context {percent}%', { percent: Math.min(100, Math.round((used / pressure.contextWindow) * 100)) }),
+      title: t('{used} of {total} tokens of context in use', { used: formatTokens(used), total: formatTokens(pressure.contextWindow) }),
+    })
+  }
+  return shown
 }

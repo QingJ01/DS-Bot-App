@@ -77,6 +77,18 @@ iOS 源码已提供，当前没有 IPA 安装包；构建与支持说明见 [iOS
 
 从本仓库检出构建镜像，说明见 [`docker/README.md`](docker/README.md)（英文）。容器是 Bot 的沙箱。此镜像尚未发布或验证 Docker 内的手机配对和移动桥接功能。
 
+## 桌面应用
+
+Windows 和 macOS 桌面应用位于 [`app/`](app/README.md)（英文）。开发时在目标电脑上运行：
+
+```sh
+cd app
+npm ci
+npm start
+```
+
+在对应目标系统上用 `npm run dist` 构建安装包。本地 Linux 不是受支持的安装包目标；Windows/macOS 原生打包由各自的 CI runner 验证。macOS 安装包没有公证。桌面更新元数据只随普通 `vX.Y.Z` 版本发布；`-rN` 修订版仍仅用于插件和 Android 资产，因此桌面更新必须使用下一个语义版本。
+
 ## 开发
 
 App 使用 React Native 与 Expo，共用 SDK 连接 DSH 插件。
@@ -87,11 +99,11 @@ App 使用 React Native 与 Expo，共用 SDK 连接 DSH 插件。
 | [packages/mobile-sdk](packages/mobile-sdk) | 手机与主机通信 SDK |
 | [ds-bot](ds-bot/README.md) | DSH 插件、手机桥接与电脑端界面 |
 
-开发使用 Node.js 24。环境安装、测试与贡献流程见 [贡献指南](CONTRIBUTING.md)。[GitHub Actions](.github/workflows/build.yml) 执行检查并构建插件及 Android APK；签名与发布步骤见 [发布文档](docs/releasing.zh.md)。
+开发使用 Node.js 24。环境安装、测试与贡献流程见 [贡献指南](CONTRIBUTING.md)。[GitHub Actions](.github/workflows/build.yml) 检查插件、桌面安装包和手机 App，并构建 Android APK；签名与发布步骤见 [发布文档](docs/releasing.zh.md)。
 
 主机兼容基线为 DSH `0.2.0-rc.2`，CI 同时检查 `0.2.1-alpha.1`。语音和桌面浏览器控制需要对应的主机服务，详见 [功能说明](docs/mobile-features.zh.md)。
 
-主分支已[同步上游 v0.1.7](docs/mobile-upstream.zh.md)：队友状态、可返回的交接、等待状态和长消息处理，并适配手机端显示等待对象名称；这些改动将在下次发布提供。
+本 fork 移植了冻结的 upstream `dev`：`a5bba4d4ce0c08d1a1965ca89df652c9220275ef`，基于 v0.1.7（`939a6635830cb5b246e7dd19c67b0e1352ad1c07`）。Docker 刻意保留本 fork 的离线插件归档重装、供应链策略元数据预置和事务回滚；上游已移除这些能力。
 
 [本地调试](docs/mobile-local-debug.zh.md) · [上游同步](docs/mobile-upstream.zh.md) · [更新记录](CHANGELOG.md)
 

@@ -144,6 +144,18 @@ test('a bundled package manager means the app owns the runtime: report only, nev
   assert.throws(() => rt.dshUpdateStart(), /updates with its app/)
 })
 
+test('the desktop app pins its DSH: it reports the running version, asks no network and offers nothing', async (t) => {
+  process.env.DS_BOT_APP = '1'
+  t.after(() => { delete process.env.DS_BOT_APP })
+  const { rt, fetched } = start({ app: true, source: `${PKG.name}@^${PKG.version}`, answers: registryLatest({ verifiedDsh: '9.9.9' }) })
+  const view = await rt.dshUpdateCheck({ fresh: true })
+  assert.equal(view.current, '0.1.0')
+  assert.equal(view.kind, 'app')
+  assert.equal(view.verified, null)
+  assert.equal(view.available, false)
+  assert.deepEqual(fetched, [])
+})
+
 test('without a running version there is nothing to compare against', async () => {
   const { rt } = start({ current: null, source: `${PKG.name}@^${PKG.version}` })
   const view = await rt.dshUpdateCheck()

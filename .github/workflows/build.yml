@@ -1,4 +1,4 @@
-name: Build plugin and Android
+name: Build plugin, desktop and Android
 
 on:
   push:
@@ -36,10 +36,12 @@ jobs:
           cache-dependency-path: |
             ds-bot/package-lock.json
             apps/mobile/package-lock.json
+            app/package-lock.json
       - name: Check release versions and notes
         env:
           RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
         run: node scripts/check-release.cjs
+      - run: node --test scripts/release-target.test.cjs
       - run: npm ci --no-fund --no-audit
         working-directory: ds-bot
       - run: npm run harness
@@ -131,9 +133,79 @@ jobs:
           path: out/android-${{ matrix.label }}/
           if-no-files-found: error
 
+  desktop-windows:
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-r')
+    needs: validate
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --no-fund --no-audit
+      - run: npm run dist
+      - run: node scripts/check-packed.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsbot-desktop-windows
+          path: |
+            app/dist-pack/*.exe
+            app/dist-pack/*.blockmap
+            app/dist-pack/latest.yml
+          if-no-files-found: error
+
+  desktop-macos:
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-r')
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: arm64, runner: macos-latest }
+          - { arch: x64, runner: macos-26-intel }
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --no-fund --no-audit
+      - run: npm run dist
+        env:
+          CSC_FOR_PULL_REQUEST: 'true'
+      - name: Check the packaged app
+        run: node scripts/check-packed.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsbot-desktop-macos-${{ matrix.arch }}
+          path: app/dist-pack/*.dmg
+          if-no-files-found: error
+
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [validate, android]
+    if: >-
+      always() &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.validate.result == 'success' &&
+      needs.android.result == 'success' &&
+      (
+        (contains(github.ref_name, '-r') &&
+          needs.desktop-windows.result == 'skipped' &&
+          needs.desktop-macos.result == 'skipped') ||
+        (!contains(github.ref_name, '-r') &&
+          needs.desktop-windows.result == 'success' &&
+          needs.desktop-macos.result == 'success')
+      )
+    needs: [validate, android, desktop-windows, desktop-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -165,6 +237,10 @@ jobs:
           notes_file=$(node -p "require('./release-target.json').notesFile")
           sums_file=$(node -p "require('./release-target.json').checksumsFile")
           mkdir release
+          if [[ -z "$revision" ]]; then
+            cp out/dsbot-desktop-windows/*.exe out/dsbot-desktop-windows/*.blockmap out/dsbot-desktop-windows/latest.yml release/
+            cp out/dsbot-desktop-macos-arm64/*.dmg out/dsbot-desktop-macos-x64/*.dmg release/
+          fi
           if [[ -n "$revision" ]]; then
             mkdir legacy
             gh release download "$publish_tag" --repo "$REPOSITORY" --dir legacy \
@@ -185,7 +261,13 @@ jobs:
           cp out/dsbot-android-x86_64/dsbot-android-x86_64.apk "release/dsbot-android-x86_64-$RELEASE_TAG.apk"
           notes="$GITHUB_WORKSPACE/$notes_file"
           cd release
-          sha256sum *.tgz *.apk *.cer > "$sums_file"
+          if [[ -z "$revision" ]]; then
+            desktop_assets=( ./*.exe ./*.blockmap ./*.dmg latest.yml )
+            sha256sum *.tgz *.apk *.cer "${desktop_assets[@]}" > "$sums_file"
+          else
+            desktop_assets=()
+            sha256sum *.tgz *.apk *.cer > "$sums_file"
+          fi
           if [[ -n "$revision" ]]; then
             existing=$(gh release view "$publish_tag" --repo "$REPOSITORY" --json assets --jq '.assets[].name')
             for asset in "$plugin_file" ./*.apk "$sums_file"; do
@@ -199,6 +281,10 @@ jobs:
             gh release edit "$publish_tag" --repo "$REPOSITORY" --title "DS Bot $publish_tag" \
               --notes-file "$notes"
           else
-            gh release create "$publish_tag" "$plugin_file" ./*.apk SHA256SUMS DeepSeekBot.cer \
+            if gh release view "$publish_tag" --repo "$REPOSITORY" >/dev/null 2>&1; then
+              echo 'The stable release already exists; refusing to replace its desktop update metadata.' >&2
+              exit 1
+            fi
+            gh release create "$publish_tag" "$plugin_file" ./*.apk "$sums_file" DeepSeekBot.cer "${desktop_assets[@]}" \
               --repo "$REPOSITORY" --title "DS Bot $publish_tag" --notes-file "$notes" --verify-tag
           fi

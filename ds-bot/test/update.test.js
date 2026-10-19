@@ -69,6 +69,16 @@ test('release validation rejects incomplete assets, moving commits, drafts and f
   const f=fixture();change(f);const view=await f.rt.updateCheck();assert.equal(view.available,false);assert.equal(view.checkErrorCode,'release-invalid');assert.equal(f.calls.length,0)
  }
 })
+test('the desktop app updates as a whole without fetching plugin releases', async (t) => {
+  process.env.DS_BOT_APP = '1'
+  t.after(() => { delete process.env.DS_BOT_APP })
+  const f = fixture({ source: 'ds-bot@^0.1.2' })
+  const view = await f.rt.updateCheck({ fresh: true })
+  assert.equal(view.source, 'app')
+  assert.equal(view.available, false)
+  assert.deepEqual(f.fetched, [])
+  assert.throws(() => f.rt.updateStart(), /No DS Bot update/)
+})
 test('concurrent checks share one lookup and network failures clear a stale offer',async()=>{
  const f=fixture(),views=await Promise.all([f.rt.updateCheck(),f.rt.updateCheck(),f.rt.updateCheck({fresh:true})])
  assert.ok(views.every(view=>view.available));assert.equal(f.fetched.filter(url=>url.endsWith('releases/latest')).length,1)

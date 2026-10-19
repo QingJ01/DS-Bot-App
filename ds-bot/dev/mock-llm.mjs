@@ -588,7 +588,14 @@ function searchApi(req, res) {
 
 const server = createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/api/web_search') return searchApi(req, res)
-  if (req.method !== 'POST' || !req.url.endsWith('/v1/messages')) {
+  // Anthropic's own client, which a provider set up by hand uses, adds a query string.
+  const path = req.url.split('?')[0]
+  if (req.method === 'GET' && path.endsWith('/v1/models')) {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ data: [{ type: 'model', id: 'mock-model', display_name: 'Mock Model' }, { type: 'model', id: 'mock-model-mini', display_name: 'Mock Model Mini' }], has_more: false }))
+    return
+  }
+  if (req.method !== 'POST' || !path.endsWith('/v1/messages')) {
     res.writeHead(404, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ error: { message: `no route ${req.method} ${req.url}` } }))
     return

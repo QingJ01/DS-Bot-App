@@ -2,17 +2,24 @@
 // host on the same data from writing it, and the indexes that map a Session to the Bot
 // or group chat it belongs to.
 import { mkdirSync, statSync } from 'node:fs'
-import { copyFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES, TEXT_KEPT } from './constants.js'
+import { replaceFile } from './files.js'
 import { homeLock } from './home-lock.js'
 import { currentColor, headOf, normalize, unquote } from './text.js'
+
+// A table read that sees only the keys the table holds itself. Ids that come from
+// outside (a request body, a tool argument, a name a model gives) go through this, so
+// "__proto__" and other inherited names read as "not there" instead of returning
+// Object.prototype.
+export const own = (table, key) => (table != null && Object.hasOwn(table, key) ? table[key] : undefined)
 
 export function install(rt) {
   const { ctx, home, statePath } = rt
 
   /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, rooms:Record<string,any>, agents:Record<string,any>, capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, questions: {}, prefs: {}, revision: 0 }
+  const state = { version: 1, mainBotIds: [], bots: {}, rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, questions: {}, prefs: {}, switching: {}, revision: 0 }
   let loaded = null
   let writing = Promise.resolve()
   const { warn } = rt
@@ -293,9 +300,10 @@ export function install(rt) {
         ensureLock()
         await writeFile(temp, snapshot, 'utf8')
         ensureLock()
-        await rename(temp, statePath)
+        await replaceFile(temp, statePath, ensureLock)
         seen = stamp()
         rt.capabilitiesStateSaved?.()
+        rt.stateSaved?.()
       } catch (error) {
         await unlink(temp).catch(() => {})
         throw error
@@ -313,8 +321,8 @@ export function install(rt) {
     return writing.finally(() => lock.release())
   }, 'ds-bot: state lock')
 
-  const botOf = id => (id === undefined ? undefined : state.bots[id])
-  const roomOf = id => (id === undefined ? undefined : state.rooms[id])
+  const botOf = id => (id === undefined ? undefined : own(state.bots, id))
+  const roomOf = id => (id === undefined ? undefined : own(state.rooms, id))
   const isMain = id => id !== undefined && state.mainBotIds.includes(id)
 
   // Group Sessions. A member speaks in each group from a hidden Session of its own,
@@ -361,7 +369,9 @@ export function install(rt) {
     const sessionId = room.sessions?.[botId]
     if (sessionId === undefined) return
     delete room.sessions[botId]
+    for (const segment of room.segments?.[botId] ?? []) delete state.switching[segment.sessionId]
     if (room.segments !== undefined) delete room.segments[botId]
+    delete state.switching[sessionId]
     groupOwners.delete(sessionId)
     rt.cancelApprovals?.(sessionId)
     // A plain archive refuses a running Session, which would go on working for a group
@@ -380,21 +390,23 @@ export function install(rt) {
   }
   const findBot = (ref) => {
     if (ref === undefined) return undefined
-    if (state.bots[ref]) return state.bots[ref]
+    const byId = own(state.bots, ref)
+    if (byId) return byId
     const wanted = normalize(ref).replace(/^@/, '')
     return Object.values(state.bots).find(bot => normalize(bot.name) === wanted)
   }
   // Every group chat whose id or name matches; callers refuse an ambiguous name.
   const findRooms = (ref) => {
     if (ref === undefined || ref === null) return []
-    if (state.rooms[ref]) return [state.rooms[ref]]
+    const byId = own(state.rooms, ref)
+    if (byId) return [byId]
     const wanted = normalize(unquote(ref))
     return Object.values(state.rooms).filter(room => normalize(room.name) === wanted)
   }
   const isAdminOf = (room, id) => id !== undefined && room.admin === id
 
   Object.assign(rt, {
-    state, load, save, refresh, readOnly,
+    state, load, save, refresh, readOnly, own,
     botOf, roomOf, isMain, chatOf, selfOf, isBotSession,
     chatOwners, groupOwners, pastOwners,
     groupSessionsOf, dropGroupSession, retireGroupSession, findBot, findRooms, isAdminOf,

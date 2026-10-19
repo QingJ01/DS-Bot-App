@@ -26,6 +26,7 @@ import { appendFile, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { replaceFile } from './files.js'
 import { splitRef, unquote } from './text.js'
 import { speakerOf } from '../shared/mentions.js'
 import { output } from './tools.js'
@@ -457,7 +458,7 @@ export function install(rt) {
     await mkdir(dirname(path), { recursive: true })
     const temp = `${path}.${process.pid}.tmp`
     await writeFile(temp, text, 'utf8')
-    await rename(temp, path)
+    await replaceFile(temp, path)
   }
   async function journal(record) {
     await mkdir(root, { recursive: true })
