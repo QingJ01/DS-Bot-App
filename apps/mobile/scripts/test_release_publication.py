@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 @unittest.skipUnless(shutil.which("node") and shutil.which("bash"), "Node and Bash are required")
 class ReleasePublicationTests(unittest.TestCase):
-    def run_publication(self, tag, published=False, bad_checksum=False, partial=False):
+    def run_publication(self, tag, published=False, bad_checksum=False, partial=False, stable_published=False):
         with tempfile.TemporaryDirectory(prefix="dsbot-release-test-") as directory:
             task = Path(directory)
             (task / "scripts").mkdir()
@@ -31,6 +31,20 @@ class ReleasePublicationTests(unittest.TestCase):
                 (destination / "DeepSeekBot.cer").write_bytes(b"unchanged certificate")
             (task / "out/dsbot-plugin").mkdir()
             (task / "out/dsbot-plugin/ds-bot-0.1.1.tgz").write_bytes(b"revised plugin")
+            desktop_assets = {
+                "dsbot-desktop-windows": [
+                    "DS-Bot-App-0.1.1-win-x64.exe",
+                    "DS-Bot-App-0.1.1-win-x64.exe.blockmap",
+                    "latest.yml",
+                ],
+                "dsbot-desktop-macos-arm64": ["DS-Bot-App-0.1.1-mac-arm64.dmg"],
+                "dsbot-desktop-macos-x64": ["DS-Bot-App-0.1.1-mac-x64.dmg"],
+            }
+            for directory, assets in desktop_assets.items():
+                destination = task / "out" / directory
+                destination.mkdir(parents=True)
+                for asset in assets:
+                    (destination / asset).write_bytes(b"desktop asset")
             script = task / "bin/gh"
             script.write_text('''#!/usr/bin/env python3
 import json,os,shutil,sys
@@ -43,7 +57,10 @@ calls.append(args);log.write_text(json.dumps(calls))
 if args[:2]==['release','download']:
     for item in (root/'legacy-input').iterdir():shutil.copyfile(item,root/'legacy'/item.name)
 elif args[:2]==['release','view']:
-    print('ds-bot-0.1.1-r2.tgz' if os.environ.get('REVISION_PUBLISHED')=='partial' else 'SHA256SUMS-r2' if os.environ.get('REVISION_PUBLISHED')=='1' else 'SHA256SUMS')
+    if '--json' in args:
+        print('ds-bot-0.1.1-r2.tgz' if os.environ.get('REVISION_PUBLISHED')=='partial' else 'SHA256SUMS-r2' if os.environ.get('REVISION_PUBLISHED')=='1' else 'SHA256SUMS')
+    elif os.environ.get('STABLE_RELEASE_EXISTS') != '1':
+        sys.exit(1)
 elif args[:2] not in [['release','upload'],['release','edit'],['release','create']]:sys.exit(2)
 ''')
             script.chmod(0o755)
@@ -52,7 +69,8 @@ elif args[:2] not in [['release','upload'],['release','edit'],['release','create
             program = "\n".join(line[10:] for line in block.splitlines())
             environment = dict(os.environ, PATH=str(task / "bin") + os.pathsep + os.environ["PATH"],
                                RELEASE_TAG=tag, REPOSITORY="owner/repo", GITHUB_WORKSPACE=str(task),
-                               REVISION_PUBLISHED="partial" if partial else "1" if published else "0")
+                               REVISION_PUBLISHED="partial" if partial else "1" if published else "0",
+                               STABLE_RELEASE_EXISTS="1" if stable_published else "0")
             result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", program], cwd=task,
                                     env=environment, capture_output=True, text=True)
             calls = json.loads((task / "commands.json").read_text()) if (task / "commands.json").exists() else []
@@ -66,6 +84,7 @@ elif args[:2] not in [['release','upload'],['release','edit'],['release','create
         self.assertIn("./dsbot-android-arm64-v0.1.1-r2.apk", upload)
         self.assertIn("SHA256SUMS-r2", upload)
         self.assertNotIn("--clobber", upload)
+        self.assertFalse(any(asset.endswith((".exe", ".blockmap", ".dmg", "latest.yml")) for asset in upload))
         for original in ["ds-bot-0.1.1.tgz", "SHA256SUMS", "DeepSeekBot.cer"]:
             self.assertNotIn(original, upload)
         self.assertTrue(any(call[:3] == ["release", "edit", "v0.1.1"] for call in calls))
@@ -78,12 +97,20 @@ elif args[:2] not in [['release','upload'],['release','edit'],['release','create
         create = next(call for call in calls if call[:2] == ["release", "create"])
         self.assertIn("ds-bot-0.1.1.tgz", create)
         self.assertIn("--verify-tag", create)
+        for extension in [".exe", ".blockmap", ".dmg", "latest.yml"]:
+            self.assertTrue(any(asset.endswith(extension) for asset in create), extension)
         self.assertFalse(any(call[:2] == ["release", "upload"] for call in calls))
 
     def test_published_revision_cannot_be_overwritten(self):
         code, calls, _ = self.run_publication("v0.1.1-r2", published=True)
         self.assertNotEqual(code, 0)
         self.assertFalse(any(call[1] in ["upload", "edit"] for call in calls))
+
+    def test_published_stable_release_cannot_be_overwritten(self):
+        code, calls, error = self.run_publication("v0.1.1", stable_published=True)
+        self.assertNotEqual(code, 0)
+        self.assertIn("The stable release already exists", error)
+        self.assertFalse(any(call[:2] == ["release", "create"] for call in calls))
 
     def test_original_integrity_failure_stops_publication(self):
         code, calls, _ = self.run_publication("v0.1.1-r2", bad_checksum=True)

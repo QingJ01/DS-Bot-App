@@ -18,6 +18,14 @@ class ReleaseVersionTests(unittest.TestCase):
                 'ds-bot/package.json': {'version': '1.2.3'},
                 'apps/mobile/package.json': {'version': '1.2.3'},
                 'apps/mobile/app.json': {'expo': {'version': '1.2.3'}},
+                'app/package.json': {'name': 'ds-bot-app-desktop', 'version': '1.2.3'},
+                'app/package-lock.json': {
+                    'version': '1.2.3',
+                    'packages': {
+                        '': {'version': '1.2.3'},
+                        'node_modules/ds-bot': {'version': '1.2.3'},
+                    },
+                },
             }
             for package in ['ds-bot', 'apps/mobile']:
                 files[f'{package}/package-lock.json'] = {'version': '1.2.3', 'packages': {'': {'version': '1.2.3'}}}
@@ -41,6 +49,15 @@ class ReleaseVersionTests(unittest.TestCase):
             ('ds-bot/package-lock.json', {'version': '1.2.2', 'packages': {'': {'version': '1.2.3'}}}),
             ('apps/mobile/package-lock.json', {'version': '1.2.3', 'packages': {'': {'version': '1.2.2'}}}),
             ('apps/mobile/app.json', {'expo': {'version': '1.2.2'}}),
+            ('app/package.json', {'name': 'ds-bot-app-desktop', 'version': '1.2.2'}),
+            ('app/package-lock.json', {
+                'version': '1.2.3',
+                'packages': {
+                    '': {'version': '1.2.3'},
+                    'node_modules/ds-bot': {'version': '1.2.2'},
+                },
+            }),
+            ('app/package.json', {'name': 'wrong-desktop-name', 'version': '1.2.3'}),
         ]:
             with self.subTest(path=path):
                 self.assertNotEqual(self.check(change=(path, value)).returncode, 0)
