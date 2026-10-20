@@ -30,6 +30,8 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ### Fixed
 
+- Wait for the Harness session catalog when opening a newly listed Bot, rather than throwing an unknown-session error during startup. A delayed navigation no longer overrides a newer selection.
+
 - Seed pnpm's package store and registry metadata for offline Docker upgrades, and roll back failed or timed-out plugin reinstalls so the prior profile remains usable.
 - Keep the collapsed sidebar footer centered in one unclipped column while preserving the expanded layout.
 - Apply a Bot's permission preset to every eligible Session before saving it, leaving the preset retryable after a partial failure.

@@ -3,6 +3,7 @@ import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
 import { teamActions } from './team-actions.js'
+import { createNavigation } from './navigation.js'
 import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes } from './themes.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
 import { SHELL_CSS, CONVERSATION_CSS, installStyles, installCompiledStyles } from './styles.js'
@@ -347,6 +348,13 @@ export function apply(ctx) {
     for (const [id, owner] of pendingAdopt) if (owner === agentId && !ids.includes(id)) ids.push(id)
     return ids
   }
+  const navigation = createNavigation({
+    sessions: ctx.sessions,
+    open: id => ctx.uiWorkspace.openSession(id),
+    reportError: error => actions.reportError(error, 'open-session'),
+  })
+  ctx.effect(() => () => navigation.dispose(), 'ds-bot: session navigation')
+  const navigate = (target, plain) => navigation.open(target, () => { setPlain(plain); expected = target })
   const actions = {
     ...teamActions({ call, after, partFor, roster, ui, live, cards, turnClock }),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
@@ -356,18 +364,13 @@ export function apply(ctx) {
       // A DSH Agent Session id lands on the plain surface, not the Bot skin.
       if (isAgentSessionId(id)) return actions.openAgentSession(id)
       ui.set(state => (state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state))
-      setPlain(false)
-      const target = partFor(id)
-      expected = target
-      ctx.uiWorkspace.openSession(target)
+      return navigate(partFor(id), false)
     },
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
       ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, details: null, view: 'details', renaming: false, tab: null }))
-      setPlain(true)
-      expected = sessionId
-      ctx.uiWorkspace.openSession(sessionId)
+      return navigate(sessionId, true)
     },
     addAgent: async () => {
       const agent = await after(call('add-agent'))
@@ -423,10 +426,8 @@ export function apply(ctx) {
     landOn: async (id, last) => {
       if (last) await pull().catch(() => {})
       const bot = last ? roster.getSnapshot().byId[last.botId] : undefined
-      setPlain(false)
       const target = bot && currentPart(bot) !== last.sessionId ? currentPart(bot) : partFor(id)
-      expected = target
-      ctx.uiWorkspace.openSession(target)
+      return navigate(target, false)
     },
     selectPanel: (id) => { ctx.layout.selectPanel(id) },
     toggleSidebar: () => { ctx.layout.toggleSidebar() },
@@ -435,6 +436,7 @@ export function apply(ctx) {
     setSurface: (mode) => {
       if (mode !== 'bot' && mode !== 'agent') return
       if (surface.getSnapshot().mode === mode) return
+      navigation.cancel()
       if (mode === 'agent') {
         ui.set(state => ({ ...state, details: null, view: 'details', settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }))
       }
@@ -615,7 +617,7 @@ export function apply(ctx) {
   actions.openMobileApproval = sessionId => {
     actions.closeSettings()
     actions.closeMemory()
-    ctx.uiWorkspace.openSession(sessionId)
+    return navigate(sessionId, isAgentSessionId(sessionId))
   }
   const approvalFace = () => ({ actions, hooks: { roster, mobileApprovals } })
   ctx.effect(() => {

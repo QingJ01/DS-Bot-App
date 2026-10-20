@@ -1655,6 +1655,35 @@ function teamActions({ call: call2, after, partFor, roster, ui: ui2, live, cards
   };
 }
 
+// src/client/navigation.js
+function createNavigation({ sessions, open, reportError }) {
+  let generation = 0;
+  let disposed = false;
+  return {
+    async open(id, prepare = () => {
+    }) {
+      if (disposed) return;
+      const request = ++generation;
+      try {
+        if (sessions.list.getSnapshot().byId[id] === void 0) await sessions.refresh();
+        if (disposed || request !== generation) return;
+        if (sessions.list.getSnapshot().byId[id] === void 0) throw new Error("The conversation is not available. Refresh and try again.");
+        prepare();
+        open(id);
+      } catch (error) {
+        if (!disposed && request === generation) reportError(error);
+      }
+    },
+    cancel() {
+      generation++;
+    },
+    dispose() {
+      disposed = true;
+      generation++;
+    }
+  };
+}
+
 // src/client/themes.js
 var THEME_KEYS = ["bg", "sidebar", "bubble", "card", "text", "user", "userText", "accent"];
 var THEMES = {
@@ -15198,6 +15227,16 @@ function apply(ctx) {
     for (const [id, owner] of pendingAdopt) if (owner === agentId && !ids.includes(id)) ids.push(id);
     return ids;
   };
+  const navigation = createNavigation({
+    sessions: ctx.sessions,
+    open: (id) => ctx.uiWorkspace.openSession(id),
+    reportError: (error) => actions.reportError(error, "open-session")
+  });
+  ctx.effect(() => () => navigation.dispose(), "ds-bot: session navigation");
+  const navigate = (target, plain) => navigation.open(target, () => {
+    setPlain(plain);
+    expected = target;
+  });
   const actions = {
     ...teamActions({ call, after, partFor, roster, ui: ui2, live, cards, turnClock }),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
@@ -15206,18 +15245,13 @@ function apply(ctx) {
     openSession: (id) => {
       if (isAgentSessionId(id)) return actions.openAgentSession(id);
       ui2.set((state) => state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state);
-      setPlain(false);
-      const target = partFor(id);
-      expected = target;
-      ctx.uiWorkspace.openSession(target);
+      return navigate(partFor(id), false);
     },
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
       ui2.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, details: null, view: "details", renaming: false, tab: null }));
-      setPlain(true);
-      expected = sessionId;
-      ctx.uiWorkspace.openSession(sessionId);
+      return navigate(sessionId, true);
     },
     addAgent: async () => {
       const agent = await after(call("add-agent"));
@@ -15273,10 +15307,8 @@ function apply(ctx) {
       if (last) await pull().catch(() => {
       });
       const bot = last ? roster.getSnapshot().byId[last.botId] : void 0;
-      setPlain(false);
       const target = bot && currentPart(bot) !== last.sessionId ? currentPart(bot) : partFor(id);
-      expected = target;
-      ctx.uiWorkspace.openSession(target);
+      return navigate(target, false);
     },
     selectPanel: (id) => {
       ctx.layout.selectPanel(id);
@@ -15289,6 +15321,7 @@ function apply(ctx) {
     setSurface: (mode) => {
       if (mode !== "bot" && mode !== "agent") return;
       if (surface.getSnapshot().mode === mode) return;
+      navigation.cancel();
       if (mode === "agent") {
         ui2.set((state) => ({ ...state, details: null, view: "details", settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }));
       }
@@ -15395,8 +15428,8 @@ function apply(ctx) {
   actions.openHarnessSettings = openHarnessSettings;
   actions.openHarnessOnboarding = openHarnessOnboarding;
   actions.voiceSetup = () => {
-    const navigation = ctx.get("pluginNavigation");
-    return navigation ? () => navigation.openBundle(VOICE_BUNDLE) : null;
+    const navigation2 = ctx.get("pluginNavigation");
+    return navigation2 ? () => navigation2.openBundle(VOICE_BUNDLE) : null;
   };
   actions.seatAccount = (on) => ui2.set((state) => state.accountSeated === on ? state : { ...state, accountSeated: on });
   actions.installUpdate = async ({ repair = false, targetId = update.getSnapshot().targetId } = {}) => {
@@ -15455,7 +15488,7 @@ function apply(ctx) {
   actions.openMobileApproval = (sessionId) => {
     actions.closeSettings();
     actions.closeMemory();
-    ctx.uiWorkspace.openSession(sessionId);
+    return navigate(sessionId, isAgentSessionId(sessionId));
   };
   const approvalFace = () => ({ actions, hooks: { roster, mobileApprovals } });
   ctx.effect(() => {
