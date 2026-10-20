@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { after, before, describe, test } from 'node:test'
 import { parse } from 'yaml'
 import { findTeam, importTeam, newerSessions, sessionIdsOf, teamInUse, userDshHome } from '../src/import.mjs'
+import { createAuthStore } from '../../ds-bot/src/mobile/auth.js'
 
 const write = (path, text) => {
   mkdirSync(dirname(path), { recursive: true })
@@ -135,6 +136,58 @@ describe('importTeam', () => {
   test('does not replace a team that is there', async () => {
     await assert.rejects(importTeam({ from, to, workspace }), /already has a Bot team/u)
   })
+})
+
+test('import leaves mobile trust behind while preserving user-authored skills', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-app-mobile-import-'))
+  let source, target
+  try {
+    const from = oldHome(root)
+    const { to, workspace } = newHome(root)
+    const mobile = join(from, 'bot', 'mobile')
+    source = await createAuthStore(mobile)
+    const pairing = source.createPairing('https://127.0.0.1:8788')
+    const claim = source.beginPairing({ code: pairing.code, deviceName: 'Test phone' })
+    source.decidePairing(claim.requestId, true)
+    const session = await source.completePairing(claim.claimToken)
+    write(join(mobile, 'local-https.json'), JSON.stringify({ version: 1, enabled: true, port: 8788 }))
+    write(join(mobile, 'tls', 'computer.key'), 'synthetic identity marker')
+    write(join(mobile, 'future-authorization.json'), '{}')
+    const skills = JSON.stringify({ revision: 0, skills: [] })
+    write(join(mobile, 'skills.json'), skills)
+    const oldTree = treeHash(from)
+    await importTeam({ from, to, workspace })
+    const imported = join(to, 'bot', 'mobile')
+    assert.deepEqual(readdirSync(imported), ['skills.json'])
+    assert.equal(readFileSync(join(imported, 'skills.json'), 'utf8'), skills)
+    assert.equal(treeHash(from), oldTree)
+    target = await createAuthStore(imported)
+    assert.notEqual(target.data.serverId, source.data.serverId)
+    assert.deepEqual(target.devices(), [])
+    assert.throws(() => target.verifyAccess(session.accessToken), { code: 'UNAUTHORIZED' })
+    await assert.rejects(target.refresh(session.refreshToken), { code: 'UNAUTHORIZED' })
+    assert.equal(source.verifyAccess(session.accessToken).id, session.deviceId)
+  } finally {
+    await source?.close()
+    await target?.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('import does not retain a mobile directory link into the source host', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ds-bot-app-mobile-link-'))
+  try {
+    const from = oldHome(root)
+    const { to, workspace } = newHome(root)
+    const mobile = join(root, 'external-mobile')
+    write(join(mobile, 'bridge.json'), 'synthetic authorization marker')
+    symlinkSync(mobile, join(from, 'bot', 'mobile'), 'junction')
+    await importTeam({ from, to, workspace })
+    assert.equal(existsSync(join(to, 'bot', 'mobile')), false)
+    assert.equal(readFileSync(join(mobile, 'bridge.json'), 'utf8'), 'synthetic authorization marker')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 describe('finding the team', () => {

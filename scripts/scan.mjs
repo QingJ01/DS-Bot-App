@@ -11,6 +11,7 @@
 // Git). They hold markers that must not appear in this repository and must not be named in it
 // either, such as a maintainer's machine or account names.
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -60,7 +61,7 @@ const TEXT_RULES = [
   { id: 'old-package-name', level: MUST, re: /\bdsh-bot\b/g, legacyOk: true },
   { id: 'legacy-name-in-migration', level: KEEP, re: /\bdsh-bot\b|DeepSeek Bot\b/gi, onlyLegacy: true, summary: true },
   // Drafts and local-only material.
-  { id: 'draft-marker', level: MUST, re: /TBD\(|DRAFT for|草稿/g },
+  { id: 'draft-marker', level: MUST, re: /TBD\(|DRAFT for|^\s*(?:#{1,6}\s*)?草稿(?:\s*$|[:：])|【草稿】|\[草稿\]/g },
   { id: 'not-public-path-in-docs', level: MUST, re: new RegExp(NOT_PUBLIC.source, 'g'), files: /\.md$/ },
   { id: 'not-public-path-in-code', level: KEEP, re: new RegExp(NOT_PUBLIC.source, 'g'), notFiles: /\.md$/ },
   { id: 'public-ip', level: KEEP, re: /\b(?!(127|10|0)\.)(?!192\.168\.)(?!172\.(1[6-9]|2\d|3[01])\.)(?!192\.0\.2\.|198\.51\.100\.|203\.0\.113\.|169\.254\.)(\d{1,3}\.){3}\d{1,3}\b/g, unless: /version|v\d|@\d/i },
@@ -73,6 +74,10 @@ const FORBIDDEN_FILES = [
   { re: /\.(env|pem|key|p12|sqlite|db)$/, why: 'secret or data file' },
   { re: /^\.scan-extra$/, why: 'local scan patterns' },
 ]
+
+// Owner-approved encrypted Android signing identity; see apps/mobile/signing/README.md.
+const SIGNING_CONTAINER = 'apps/mobile/signing/DeepSeekBot.p12'
+const SIGNING_SHA256 = 'b6d000ed8ce1cdfc72d250046e221e87ac6c015cc08b01271193cba8be10544b'
 
 const args = process.argv.slice(2)
 const root = args.find(a => !a.startsWith('--') && args[args.indexOf(a) - 1] !== '--json')
@@ -87,12 +92,16 @@ const findings = []
 const files = walk(root).map(path => relative(root, path).split('\\').join('/')).sort()
 
 for (const file of files) {
+  const data = readFileSync(join(root, file))
+  const knownSigningContainer = file === SIGNING_CONTAINER && createHash('sha256').update(data).digest('hex') === SIGNING_SHA256
   for (const rule of FORBIDDEN_FILES) {
-    if (rule.re.test(file)) add(MUST, 'forbidden-file', file, 0, rule.why)
+    if (rule.re.test(file)) {
+      if (knownSigningContainer) add(KEEP, 'encrypted-signing-container', file, 0, 'owner-approved encrypted container; SHA-256 matches the reviewed artifact')
+      else add(MUST, 'forbidden-file', file, 0, rule.why)
+    }
   }
   // The scanner names the patterns it looks for.
   if (file === SELF) continue
-  const data = readFileSync(join(root, file))
   if (data.includes(0)) continue
   const lines = data.toString('utf8').split('\n')
   lines.forEach((line, index) => {

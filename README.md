@@ -16,6 +16,8 @@ DS Bot App connects your phone to the Bots running on your own [DeepSeek Harness
 
 ## What you can do
 
+The standalone desktop app imports a team from DeepSeek Harness without inheriting the old host's mobile authorization or TLS identity. Mobile access starts disabled; enable it and pair phones again. User-authored mobile skills are preserved, and the original host is unchanged.
+
 | Feature | In the App |
 | --- | --- |
 | Bot team | Create and personalize Bots, choose their models, and assign Main Bots to manage the team. Each Bot keeps a long-lived conversation. |

@@ -1,5 +1,5 @@
 // The first-run import: a copy of the Bot team in the user's own DSH home. It only reads there.
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { chmod, cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
@@ -13,6 +13,13 @@ import { parse, stringify } from 'yaml'
 export const MODEL_ROWS = ['llm-deepseek', 'llm-deepseek-account', 'llm-pi-ai', 'agent-default-model', 'agent-preset-registry']
 // The team's lock, its turns in flight and its workspace belong to the old home.
 const LEFT_BEHIND = new Set(['state.lock', 'inflight.json', 'workspace'])
+// Only user-authored skills cross hosts; mobile identity and authorization never do.
+function copyBotFile(root, path) {
+  const parts = relative(root, path).split(/[\\/]/u)
+  if (LEFT_BEHIND.has(parts[0])) return false
+  if (parts[0] !== 'mobile') return true
+  return !lstatSync(path).isSymbolicLink() && (parts.length === 1 || (parts.length === 2 && parts[1] === 'skills.json'))
+}
 const LOCK_STALE_MS = 60_000
 
 /** The DSH home of the user's own DSH, read as DSH reads DSH_HOME. */
@@ -146,7 +153,7 @@ export async function importTeam({ from, to, workspace, profile, dsh }) {
   if (Object.keys(present?.bots ?? {}).length > 0) throw new Error(`${to} already has a Bot team`)
   const stage = join(to, `.import-${String(Date.now())}`)
   const oldBot = join(from, 'bot')
-  await cp(oldBot, join(stage, 'bot'), { recursive: true, filter: path => !LEFT_BEHIND.has(relative(oldBot, path).split(/[\\/]/u)[0]) })
+  await cp(oldBot, join(stage, 'bot'), { recursive: true, filter: path => copyBotFile(oldBot, path) })
   const team = readJson(join(stage, 'bot', 'state.json'))
   // The new data location registers its own team workspace. A DSH Agent's Sessions do not move
   // to a fresh part, so they would go on working in the old team folder in the user's DSH home.

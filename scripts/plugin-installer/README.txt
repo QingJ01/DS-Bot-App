@@ -29,7 +29,7 @@ It never edits DSH files, deletes chats, or disables integrity verification.
 macOS / Linux:
 Save the .tgz in a permanent folder. Check its SHA-256 against SHA256SUMS.txt.
 In DSH > Plugins > Add plugin, enter ds-bot@file: followed by its absolute path,
-for example ds-bot@file:/Users/you/DSBot/packages/ds-bot-0.1.2-r1.tgz.
+for example ds-bot@file:/opt/DSBot/packages/ds-bot-0.1.2-r1.tgz.
 Install, enable and restart DSH. Do not move or delete the saved archive.
 
 Package SHA-256:

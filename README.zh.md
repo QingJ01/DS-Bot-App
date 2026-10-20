@@ -16,6 +16,8 @@ DS Bot App 连接自己电脑或服务器上的 [DeepSeek Harness](https://githu
 
 ## 可以做什么
 
+独立桌面 App 从 DeepSeek Harness 导入 Bot 团队时，不继承旧主机的手机授权或 TLS 身份。手机入口默认关闭，需要重新启用并配对；用户编写的手机技能会保留，原主机不受影响。
+
 | 功能 | 手机端体验 |
 | --- | --- |
 | Bot 团队 | 创建 Bot，自定义名称、角色、头像和模型；指定 Main Bot 管理团队。每个 Bot 保留长期对话。 |

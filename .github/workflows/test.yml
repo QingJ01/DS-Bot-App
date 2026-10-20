@@ -50,6 +50,7 @@ jobs:
         with:
           node-version: 24
       # Scan exactly the tracked files, as they would be published.
+      - run: node --test scripts/scan.test.mjs
       - run: mkdir -p "$RUNNER_TEMP/tree" && git archive HEAD | tar -x -C "$RUNNER_TEMP/tree"
       - run: node scripts/scan.mjs "$RUNNER_TEMP/tree"
         env:

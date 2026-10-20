@@ -18,7 +18,7 @@ github:QingJ01/DS-Bot-App#2495b96a52836090a5bb458d4fcd40b22d8a9ac8&path:ds-bot
 
 ## 备用：本地文件安装
 
-从 [v0.1.2 Release](https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.2) 下载 `ds-bot-0.1.2-r1.tgz`，放到长期保留的目录，使用 `SHA256SUMS-r1` 校验。在 DSH **添加插件** 中填写 `.tgz` 的绝对路径，例如 `C:\Users\you\DSBot\ds-bot-0.1.2-r1.tgz`；macOS/Linux 填写对应的绝对路径。安装后重启，保留文件供 pnpm 以后修复依赖使用。
+从 [v0.1.2 Release](https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.2) 下载 `ds-bot-0.1.2-r1.tgz`，放到长期保留的目录，使用 `SHA256SUMS-r1` 校验。在 DSH **添加插件** 中填写 `.tgz` 的绝对路径，例如 `C:\DSBot\ds-bot-0.1.2-r1.tgz`；macOS/Linux 填写对应的绝对路径。安装后重启，保留文件供 pnpm 以后修复依赖使用。
 
 旧版 Windows 准备助手仍保留为历史附件；普通安装使用上面的 GitHub 文本即可。若手动使用助手准备的包，在 GUI 中使用包的绝对路径，不要把命令行的 `ds-bot@file:…` 别名当成通用 GUI 安装文本。
 

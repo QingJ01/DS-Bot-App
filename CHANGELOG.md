@@ -14,6 +14,10 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## Unreleased
 
+### Security
+
+- Desktop team import no longer copies mobile device authorization, server identity, HTTPS enablement or TLS files. Mobile access starts disabled and requires fresh pairing; user-authored mobile skills and the source host are preserved.
+
 ### Added
 
 - Sync upstream source `939a6635830cb5b246e7dd19c67b0e1352ad1c07`: `list_bots` and `message_bot` report teammate status; hand-offs return results and waiting Bots show their character state; add a Docker image.
