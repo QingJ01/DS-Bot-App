@@ -1,5 +1,5 @@
 import { createElement as h, useRef, useState } from 'react'
-import { FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
+import { FishLogo } from './dsh-primitives.js'
 import { PlusIcon, PeopleIcon, ArrowUpIcon } from './icons.js'
 import { AdminStar, BotMark } from './mark.js'
 import { useEscape, usePaneLeft } from './overlay-hooks.js'
@@ -97,7 +97,7 @@ export function NewChat({ mode, roster, actions }) {
     options.push({ key: 'new', icon: h(PlusIcon), label: t('Create new Bot'), run: createBot })
     options.push({ key: 'group', icon: h(PeopleIcon), label: t('Create group chat'), run: () => { setGroup(true); setCursor(0); inputRef.current?.focus() } })
     // A team holds at most one DSH Agent; the entry exists only while there is none.
-    if ((roster.agents ?? []).length === 0) {
+    if ((roster.agents ?? []).length === 0 && actions.addAgent) {
       options.push({ key: 'agent', icon: h(FishLogo, { size: 16 }), label: t('Add DSH Agent'), run: () => run(async () => { await actions.addAgent(); close() }) })
     }
   }

@@ -298,6 +298,11 @@ export function install(rt) {
     return bots
   }
 
+  // Per Session, when its running turn began.
+  const turnsView = () => Object.fromEntries([...live]
+    .filter(([, entry]) => entry.turn !== undefined && entry.since !== undefined)
+    .map(([id, entry]) => [id, entry.since]))
+
   // Per group, the members whose turn there is running or who move on to a fresh part;
   // the round's current speaker is marked, since its round shows it.
   const roomWorkView = () => {
@@ -430,6 +435,7 @@ export function install(rt) {
             botId: source.senderSessionId,
             name: source.senderName,
             reportBack: source.reportBack === true,
+            ...(source.member ? { member: true } : {}),
             ...(source.sub ? { sub: source.sub } : {}),
             ...(source.late ? { late: true } : {}),
             ...(source.progress ? { progress: true } : {}),
@@ -440,6 +446,9 @@ export function install(rt) {
             ...(source.stopped ? { stopped: true } : {}),
             ...(source.done ? { done: true } : {}),
             ...(source.askedBy ? { askedBy: source.askedBy } : {}),
+            // A post written into a running round already carries its log seq, or true
+            // when its event needed none; the relay must not write it again.
+            ...(source.logged !== undefined ? { logged: source.logged } : {}),
           })
         } else if (source?.kind === SOURCE_KIND && source.role === 'kickoff' && rt.roomOf(id)) {
           queueRoomMessage(id, { text: '', kickoff: true })
@@ -627,5 +636,5 @@ export function install(rt) {
     }
   })
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, callDetail, doingOf, stopRoomTurn, releaseBot })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, turnsView, callDetail, doingOf, stopRoomTurn, releaseBot })
 }

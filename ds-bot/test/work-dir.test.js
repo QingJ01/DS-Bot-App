@@ -71,7 +71,11 @@ async function start({ services = {}, workspaces = [], llm, team: saved = TEAM }
       get: id => registry.get(id),
       list: () => [...registry.values()],
       resolveByPath: async path => [...registry.values()].find(workspace => workspace.path === path),
-      create: async path => ({ id: 'w-new', path }),
+      create: async (path) => {
+        const workspace = { id: 'w-new', path, title: 'DS Bot' }
+        registry.set(workspace.id, workspace)
+        return workspace
+      },
       archiveSession: async () => {},
     },
     sessionController: {
@@ -108,8 +112,9 @@ async function start({ services = {}, workspaces = [], llm, team: saved = TEAM }
     await until(() => agentOf(state().bots[botId].sessionId).session.header.cwd === dir)
     await settle()
   }
-  const stop = () => {
-    ctx.dispose()
+  const stop = async () => {
+    // The writes still running finish before their folder goes.
+    await ctx.dispose()
     if (previousHome === undefined) delete process.env.DSH_HOME
     else process.env.DSH_HOME = previousHome
     rmSync(root, { recursive: true, force: true, maxRetries: 5 })
@@ -586,6 +591,29 @@ test('a Bot whose folder is gone changes to the team folder before DSH checks it
   // A folder that is there is left as it is.
   assert.equal(await assemble(ctx, agentOf('a')), true)
   assert.equal(sets.length, 1)
+})
+
+test('a team copied from another DSH_HOME moves on to a fresh part in the folder the app names at its first turn', async (t) => {
+  const copied = { ...TEAM }
+  delete copied.workspaceId
+  const previous = process.env.DS_BOT_WORKSPACE
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'ds-bot-app-workspace-')))
+  process.env.DS_BOT_WORKSPACE = root
+  const { agentOf, created, state, preStep, stop } = await start({ team: copied })
+  t.after(async () => {
+    await stop()
+    if (previous === undefined) delete process.env.DS_BOT_WORKSPACE
+    else process.env.DS_BOT_WORKSPACE = previous
+    rmSync(root, { recursive: true, force: true })
+  })
+  const input = { id: 'm1', role: 'user', content: [{ type: 'text', text: 'Hello again' }], source: { kind: 'user' } }
+  assert.deepEqual(await preStep('b', [input]), { kind: 'reject' })
+  await until(() => state().bots.b.sessionId === 's1')
+  assert.equal(state().workspaceId, 'w-new')
+  assert.deepEqual(created, [{ workspaceId: 'w-new' }])
+  assert.equal(agentOf('s1').session.header.cwd, root)
+  await until(() => agentOf('s1').calls.length >= 2)
+  assert.deepEqual(agentOf('s1').calls.map(([kind, message]) => [kind, message.source.role ?? textOf(message)]), [['followup', 'handoff'], ['followup', 'Hello again']])
 })
 
 test('a team folder that was deleted is made again before DSH checks it', async (t) => {

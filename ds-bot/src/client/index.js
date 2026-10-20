@@ -1,12 +1,14 @@
 import { call } from './api.js'
 import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
-import { countCards, createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
+import { createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
+import { teamActions } from './team-actions.js'
+import { createNavigation } from './navigation.js'
 import { themeCss, shellTokens, registry, registerShape, registerTheme, allThemes } from './themes.js'
 import { MENTION_ORIGIN, currentPart } from './text.js'
 import { SHELL_CSS, CONVERSATION_CSS, installStyles, installCompiledStyles } from './styles.js'
 import { lookOf } from './mark.js'
-import { TeamSidebar, ConnectPlugins, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts } from './sidebar.js'
+import { TeamSidebar, ConnectPlugins, YouAvatar, AccountLauncher, FooterAccount, BrandMark, BrandName, BotReturn, SIDEBAR_CSS, RETURN_CSS, holdShellShortcuts, openHarnessOnboarding, openHarnessSettings } from './sidebar.js'
 import { HeaderPill } from './header.js'
 import { ComposerPlus, ComposerVoice, menuIcons } from './composer.js'
 import { CHATS_SOURCE, atSources } from './at-menu.js'
@@ -346,7 +348,15 @@ export function apply(ctx) {
     for (const [id, owner] of pendingAdopt) if (owner === agentId && !ids.includes(id)) ids.push(id)
     return ids
   }
+  const navigation = createNavigation({
+    sessions: ctx.sessions,
+    open: id => ctx.uiWorkspace.openSession(id),
+    reportError: error => actions.reportError(error, 'open-session'),
+  })
+  ctx.effect(() => () => navigation.dispose(), 'ds-bot: session navigation')
+  const navigate = (target, plain) => navigation.open(target, () => { setPlain(plain); expected = target })
   const actions = {
+    ...teamActions({ call, after, partFor, roster, ui, live, cards, turnClock }),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
     isAgentSession: id => isAgentSessionId(id),
@@ -354,18 +364,13 @@ export function apply(ctx) {
       // A DSH Agent Session id lands on the plain surface, not the Bot skin.
       if (isAgentSessionId(id)) return actions.openAgentSession(id)
       ui.set(state => (state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state))
-      setPlain(false)
-      const target = partFor(id)
-      expected = target
-      ctx.uiWorkspace.openSession(target)
+      return navigate(partFor(id), false)
     },
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
       ui.set(state => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, details: null, view: 'details', renaming: false, tab: null }))
-      setPlain(true)
-      expected = sessionId
-      ctx.uiWorkspace.openSession(sessionId)
+      return navigate(sessionId, true)
     },
     addAgent: async () => {
       const agent = await after(call('add-agent'))
@@ -421,49 +426,17 @@ export function apply(ctx) {
     landOn: async (id, last) => {
       if (last) await pull().catch(() => {})
       const bot = last ? roster.getSnapshot().byId[last.botId] : undefined
-      setPlain(false)
       const target = bot && currentPart(bot) !== last.sessionId ? currentPart(bot) : partFor(id)
-      expected = target
-      ctx.uiWorkspace.openSession(target)
+      return navigate(target, false)
     },
     selectPanel: (id) => { ctx.layout.selectPanel(id) },
     toggleSidebar: () => { ctx.layout.toggleSidebar() },
-    openNewChat: (mode) => { ui.set(state => ({ ...state, newChat: mode, menu: null, palette: null })) },
-    openPalette: (query = '') => { ui.set(state => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null })) },
-    // The token keeps a late exit timer from closing a palette opened again since.
-    closePalette: (token) => { ui.set(state => (state.palette && (token === undefined || state.palette.token === token) ? { ...state, palette: null } : state)) },
-    openExchange: (a, b) => { if (a && b) ui.set(state => ({ ...state, exchange: [a, b] })) },
-    openVoice: (id) => { if (id) ui.set(state => ({ ...state, voice: id, menu: null })) },
-    closeVoice: () => { ui.set(state => (state.voice ? { ...state, voice: null } : state)) },
-    toggleDetails: (id, force) => {
-      ui.set((state) => {
-        const details = force || state.details !== id || state.view !== 'details' ? id : null
-        return { ...state, renaming: false, tab: null, details, view: 'details' }
-      })
-    },
-    // The open panel follows the main view; a subject with no browser (a group
-    // chat, an outside Session) settles on the details view.
-    followPanel: (id) => {
-      ui.set((state) => {
-        if (!state.details || state.details === id) return state
-        const view = state.view === 'browser' && roster.getSnapshot().byId[id] === undefined ? 'details' : state.view
-        return { ...state, details: id, view, renaming: false, tab: null }
-      })
-    },
-    showDetails: (id, tab = null) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: false, tab })) },
-    // Opening the conversation would move focus to its composer and blur the name field.
-    renameBot: (id) => { ui.set(state => ({ ...state, details: id, view: 'details', renaming: true, tab: null })) },
-    // `id` opens one Bot (page 'bots') or one group chat (page 'groups').
-    openSettings: (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null })) },
-    closeSettings: () => { ui.set(state => (state.settings ? { ...state, settings: null } : state)) },
-    openMemory: (botId) => { ui.set(state => ({ ...state, memory: botId, menu: null, palette: null })) },
-    closeMemory: () => { ui.set(state => (state.memory ? { ...state, memory: null } : state)) },
-    openConnectors: () => { ui.set(state => ({ ...state, settings: { page: 'connectors', id: null }, menu: null, palette: null, newChat: null })) },
     // Agent mode hands the surface back to the shell; everything open on the Bot
     // surface closes first so nothing stale reopens on the way back.
     setSurface: (mode) => {
       if (mode !== 'bot' && mode !== 'agent') return
       if (surface.getSnapshot().mode === mode) return
+      navigation.cancel()
       if (mode === 'agent') {
         ui.set(state => ({ ...state, details: null, view: 'details', settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }))
       }
@@ -510,62 +483,7 @@ export function apply(ctx) {
       const reactions = reactionStore.update(saved => toggleReaction(saved, key, index, emoji), ui.getSnapshot().reactions)
       ui.set(state => ({ ...state, reactions }))
     },
-    quote: (sessionId, text) => ui.set(state => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
-    clearQuote: token => ui.set(state => (state.quote?.token === token ? { ...state, quote: null } : state)),
     clearUnread: id => writeUnread(id, false),
-    setFlags: (id, flags) => after(call('set-flags', { id, ...flags })),
-    deleteRoom: id => after(call('delete-room', { id })),
-    openMenu: (menu) => { ui.set(state => ({ ...state, menu })) },
-    closeMenu: () => { ui.set(state => (state.menu ? { ...state, menu: null } : state)) },
-    closeOverlay: () => { ui.set(state => ({ ...state, newChat: null, exchange: null, details: state.newChat || state.exchange ? state.details : null })) },
-    createBot: payload => after(call('create-bot', payload)),
-    createRoom: (members, options = {}) => after(call('create-room', { members, ...options })),
-    updateBot: (id, patch) => after(call('update-bot', { id, ...patch })),
-    refreshModels: () => after(call('models')).catch(() => {}),
-    efforts: ref => call('efforts', { ref }),
-    folders: () => call('folders'),
-    folderPick: () => call('folder-pick'),
-    folderList: path => call('folder-list', { path: path ?? '' }),
-    deleteBot: id => after(call('delete-bot', { id })),
-    duplicateBot: id => after(call('duplicate-bot', { id })),
-    setPrefs: prefs => after(call('set-prefs', prefs)),
-    setMain: (id, main = true, options = {}) => after(call('set-main', { id, main, ...options })),
-    updateRoom: (id, patch) => after(call('update-room', { id, ...patch })),
-    send: (sessionId, text) => after(call('send', { sessionId: partFor(sessionId), text })),
-    answerQuestion: (sessionId, questionId, answer) => after(call('answer-question', { sessionId: partFor(sessionId), questionId, answer })),
-    dismissQuestion: sessionId => after(call('dismiss-question', { sessionId })),
-    answerApproval: (id, choice) => after(call('approval-answer', { id, choice })),
-    stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
-    // Values go out in these requests and never come back in a response.
-    secretSet: payload => after(call('secret-set', payload)),
-    secretAllow: requestId => after(call('secret-allow', { requestId })),
-    secretCancel: requestId => after(call('secret-cancel', { requestId })),
-    secretUpdate: (name, scope) => after(call('secret-update', { name, scope })),
-    secretDelete: name => after(call('secret-delete', { name })),
-    connectorConnect: (id, token) => after(call('connector-connect', { id, token })),
-    connectorDisconnect: id => after(call('connector-disconnect', { id })),
-    connectorRetry: id => after(call('connector-retry', { id })),
-    saveCapability: capability => after(call('capability-save', capability)),
-    deleteCapability: name => after(call('capability-delete', { name })),
-    approveCapability: name => after(call('capability-approve', { name })),
-    setBotCapability: (botId, name, attached) => after(call('bot-capability', { botId, name, attached })),
-    schedules: () => call('schedules'),
-    scheduleCreate: task => call('schedule-create', task),
-    scheduleDelete: (sessionId, id) => call('schedule-delete', { sessionId, id }),
-    exchange: (a, b) => call('exchange', { a, b }).catch(() => []),
-    exchangeText: id => call('exchange-text', { id }).catch(() => undefined),
-    fileText: file => call('file-text', { file }).catch(() => undefined),
-    roomProgress: roomId => call('room-progress', { roomId }).catch(() => []),
-    earlier: (sessionId, cursor) => call('earlier', { sessionId, cursor: cursor ?? null }),
-    // Hours come back in this browser's time zone, so days start at local midnight.
-    usage: () => call('usage', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
-    // `summarize` starts a summary when the entries changed; `regenerate` always does.
-    memoryView: (botId, flags = {}) => call('memory-view', { botId, ...flags }),
-    memoryAsk: (botId, text) => call('memory-ask', { botId, text }),
-    memoryForget: (botId, entry) => call('memory-forget', { botId, scope: entry.scope, topic: entry.topic, text: entry.text }),
-    diagnostics: payload => call('diagnostics', payload),
-    diagnosticsLog: () => call('diagnostics-log'),
-    diagnosticsClear: () => call('diagnostics-clear'),
     // DSH's right sidebar (files, terminals), which a plugin may load after this one.
     hasRightSidebar: () => ctx.get('sidebarRight') !== undefined,
     toggleRightSidebar: () => {
@@ -575,12 +493,6 @@ export function apply(ctx) {
         actions.reportError(error, 'right-sidebar')
       }
     },
-    // A failed action away from any form (a menu, the palette) shows as a toast.
-    reportError: (error, where = 'action') => {
-      noteClientError(where, error)
-      ui.set(state => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }))
-    },
-    dismissToast: token => ui.set(state => (state.toast && (token === undefined || state.toast.token === token) ? { ...state, toast: null } : state)),
   }
   // Without the Desktop bridge these stay undefined, and no browser control renders.
   if (browsers) {
@@ -632,6 +544,9 @@ export function apply(ctx) {
   actions.accountT = () => ctx.get('locale').bind('settings.account')
   // The Voice Input plugin's speech Remote; absent while that plugin is off.
   actions.speech = () => ctx.get('remote.speech') ?? undefined
+  // DSH's own settings: models, providers, keys and its plugins.
+  actions.openHarnessSettings = openHarnessSettings
+  actions.openHarnessOnboarding = openHarnessOnboarding
   actions.voiceSetup = () => {
     const navigation = ctx.get('pluginNavigation')
     return navigation ? () => navigation.openBundle(VOICE_BUNDLE) : null
@@ -661,47 +576,6 @@ export function apply(ctx) {
     update.set(previous => ({ ...value, app: previous.app }))
     wakeUpdate()
   }
-  actions.repoStars = () => call('repo-stars')
-  actions.noteTurnTime = (sessionId, turn, key, time) => {
-    if (sessionId === undefined || !Number.isFinite(turn) || !Number.isFinite(time)) return
-    turnClock.set((state) => {
-      const turns = state[sessionId] ?? {}
-      const entry = turns[turn] ?? {}
-      const next = key === 'first' && entry.first !== undefined ? Math.min(entry.first, time) : time
-      if (entry[key] === next) return state
-      return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, [key]: next } } }
-    })
-  }
-  actions.noteTurnPeer = (sessionId, turn, peerId) => {
-    if (sessionId === undefined || !Number.isFinite(turn)) return
-    turnClock.set((state) => {
-      const turns = state[sessionId] ?? {}
-      const entry = turns[turn] ?? {}
-      if (entry.peer === peerId) return state
-      return { ...state, [sessionId]: { ...turns, [turn]: { ...entry, peer: peerId } } }
-    })
-  }
-  actions.noteLive = (sessionId, id, entry) => {
-    if (sessionId === undefined) return
-    live.set((state) => {
-      const own = state[sessionId] ?? {}
-      const prev = own[id]
-      if (entry === null ? prev === undefined : prev !== undefined && JSON.stringify({ ...prev, at: 0 }) === JSON.stringify({ ...entry, at: 0 })) return state
-      const next = { ...own }
-      if (entry === null) delete next[id]
-      else next[id] = { ...entry, at: prev?.at ?? Date.now() }
-      return { ...state, [sessionId]: next }
-    })
-  }
-  actions.noteCards = (sessionId, callIds, delta) => {
-    if (sessionId !== undefined) cards.set(state => countCards(state, sessionId, callIds, delta))
-  }
-  actions.clearLive = sessionId => live.set((state) => {
-    if (!state[sessionId]) return state
-    const next = { ...state }
-    delete next[sessionId]
-    return next
-  })
   const browserPages = browsers?.pages ?? createSource({})
   const browserTabs = browsers?.tabs ?? createSource({})
   const face = () => ({ actions, hooks: { roster, ui, activity, work, memoryNews, registry, turnClock, live, cards, browserPages, browserTabs, surface, update } })
@@ -743,7 +617,7 @@ export function apply(ctx) {
   actions.openMobileApproval = sessionId => {
     actions.closeSettings()
     actions.closeMemory()
-    ctx.uiWorkspace.openSession(sessionId)
+    return navigate(sessionId, isAgentSessionId(sessionId))
   }
   const approvalFace = () => ({ actions, hooks: { roster, mobileApprovals } })
   ctx.effect(() => {
@@ -849,10 +723,7 @@ export function apply(ctx) {
     () => shadow('conversation.input.dock', { id: 'bot-secret', order: -90, inject: face }, SecretDock),
   ]
   // The return button belongs to neither group: it renders only in Agent mode.
-  ctx.effect(() => {
-    const style = installStyles(RETURN_CSS, 'return')
-    return () => style.remove()
-  }, 'ds-bot: return styles')
+  ctx.effect(() => installCompiledStyles(RETURN_CSS, 'return'), 'ds-bot: return styles')
   shadow('sidebar.footer.action', { id: 'bot-return', order: -300, inject: face }, BotReturn)
 
   // The main view decides `plain`: a DSH Agent Session keeps the Bot shell but

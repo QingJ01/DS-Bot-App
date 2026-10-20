@@ -23,7 +23,8 @@ export function install(rt) {
       await keepTeamFolder()
       return state.workspaceId
     }
-    const path = config.workspace ?? join(home, 'workspace')
+    // The desktop app names the folder the user chose for the Bots' files.
+    const path = config.workspace ?? (process.env.DS_BOT_WORKSPACE?.trim() || join(home, 'workspace'))
     await mkdir(path, { recursive: true })
     const workspace = await ctx.workspaceRegistry.resolveByPath(path) ?? await ctx.workspaceRegistry.create(path, 'DS Bot')
     state.workspaceId = workspace.id
@@ -108,7 +109,10 @@ export function install(rt) {
     const cleanAvatarValue = cleanAvatar(avatar)
     // The model is fixed at creation, so a later change of the DSH default leaves it alone.
     const modelRef = model ? await rt.resolveModel(model) : pickModel ? undefined : await rt.defaultModel()
-    const effortId = modelRef !== undefined && effort !== undefined ? await rt.resolveEffort(modelRef, effort) : undefined
+    // A thinking level needs a model to resolve against; with none it would be dropped
+    // silently, so the create fails before a Session is made.
+    if (effort !== undefined && effort !== '' && modelRef === undefined) throw new Error('Pick a model before choosing a thinking level')
+    const effortId = modelRef === undefined ? undefined : await rt.resolveEffort(modelRef, effort)
     const dir = workDir === undefined || workDir === null ? undefined : await rt.cleanWorkDir(workDir)
     const id = await createSession(cleanName, { dir })
     try {
@@ -206,9 +210,24 @@ export function install(rt) {
   async function updateBot(id, patch) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
-    // Checked first, so a folder that does not pass leaves the rest unchanged too.
+    // Checked first, so a folder, model or level that does not pass leaves the rest
+    // unchanged too.
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
+    const modelRef = patch.model === undefined ? undefined
+      : patch.model === null || patch.model === '' ? null
+      : await rt.resolveModel(patch.model)
+    // A new level resolves against the model the Bot will run on: the new one, the
+    // model it keeps, or — the model cleared — the one it last ran on.
+    const effortRef = modelRef === undefined ? bot.model ?? bot.appliedModel : modelRef ?? bot.appliedModel
+    let effortId
+    if (patch.effort !== undefined) {
+      if (patch.effort === null || patch.effort === '') effortId = null
+      else {
+        if (effortRef === undefined) throw new Error('Pick a model before choosing a thinking level')
+        effortId = await rt.resolveEffort(effortRef, patch.effort)
+      }
+    }
     if (patch.name !== undefined) {
       const next = String(patch.name).trim().slice(0, 40)
       const clash = rt.findBot(next)
@@ -235,17 +254,13 @@ export function install(rt) {
       else delete bot.avatar
     }
     if (patch.model !== undefined) {
-      if (patch.model === null || patch.model === '') delete bot.model
-      else bot.model = await rt.resolveModel(patch.model)
+      if (modelRef === null) delete bot.model
+      else bot.model = modelRef
       modelChanged = true
     }
     if (patch.effort !== undefined) {
-      if (patch.effort === null || patch.effort === '') delete bot.effort
-      else {
-        const ref = bot.model ?? bot.appliedModel
-        if (ref === undefined) throw new Error('Pick a model before choosing a thinking level')
-        bot.effort = await rt.resolveEffort(ref, patch.effort)
-      }
+      if (effortId === null) delete bot.effort
+      else bot.effort = effortId
       modelChanged = true
     }
     if (patch.permission !== undefined) await rt.setPermission(bot, patch.permission)
@@ -267,7 +282,7 @@ export function install(rt) {
   }
 
   async function setFlags(id, { pinned, hidden }) {
-    const entry = rt.botOf(id) ?? rt.roomOf(id) ?? state.agents[id]
+    const entry = rt.botOf(id) ?? rt.roomOf(id) ?? rt.own(state.agents, id)
     if (entry === undefined) throw new Error('Unknown conversation')
     if (typeof pinned === 'boolean') entry.pinned = pinned
     if (typeof hidden === 'boolean') entry.hidden = hidden
@@ -524,6 +539,7 @@ export function install(rt) {
     for (const part of parts) {
       delete state.questions[part]
       delete state.exchangeTurns[part]
+      delete state.switching[part]
     }
     const touched = []
     for (const room of Object.values(state.rooms)) {

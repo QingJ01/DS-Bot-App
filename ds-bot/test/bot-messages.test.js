@@ -654,12 +654,9 @@ test('Bots keep messaging and posting with no count of messages or rounds', asyn
   assert.equal(agents.get('r1').calls.length, 5)
 })
 
-test('an earlier part keeps the request its Bot answered', async () => {
+// A Writer whose earlier part b1 holds `events`.
+function earlierParts(events) {
   const writer = { id: 'b', name: 'Writer', createdAt: 1, sessionId: 'b2', segments: [{ sessionId: 'b1', endedAt: 2 }] }
-  const events = [
-    { type: 'user/message', seq: 1, time: 10, data: { turn: 1, content: [{ type: 'text', text: '[Message from Chief]\nDo not delete that' }], source: replySource('request') } },
-    { type: 'assistant/message', seq: 2, time: 11, data: { turn: 1, message: { content: [{ type: 'text', text: 'Understood, I stopped.' }] } } },
-  ]
   const rt = {
     ctx: { on() {}, effect() {}, get() {}, sessionController: { page: async () => ({ records: events.map(event => ({ event })), hasMore: false }) } },
     config: {},
@@ -672,9 +669,25 @@ test('an earlier part keeps the request its Bot answered', async () => {
     resolveAgent: async id => ({ session: { id, seq: 3 } }),
   }
   installParts(rt)
+  return rt
+}
+
+test('an earlier part keeps the request its Bot answered', async () => {
+  const rt = earlierParts([
+    { type: 'user/message', seq: 1, time: 10, data: { turn: 1, content: [{ type: 'text', text: '[Message from Chief]\nDo not delete that' }], source: replySource('request') } },
+    { type: 'assistant/message', seq: 2, time: 11, data: { turn: 1, message: { content: [{ type: 'text', text: 'Understood, I stopped.' }] } } },
+  ])
   const { items } = await rt.earlierPage('b2')
   assert.deepEqual(items.map(item => [item.kind, item.role ?? item.text]), [['event', 'request'], ['bot', 'Understood, I stopped.']])
   assert.equal(items[0].botId, 'a')
+})
+
+test('each text block of a Bot message is an entry of its own, as each is a bubble of its own', async () => {
+  const rt = earlierParts([
+    { type: 'assistant/message', seq: 1, time: 11, data: { turn: 1, message: { content: [{ type: 'text', text: 'First.' }, { type: 'tool-call', id: 'c1' }, { type: 'text', text: '  ' }, { type: 'text', text: 'Second.' }] } } },
+  ])
+  const { items } = await rt.earlierPage('b2')
+  assert.deepEqual(items.map(item => [item.kind, item.text, item.time]), [['bot', 'First.', 11], ['bot', 'Second.', 11]])
 })
 
 test('a request the model keeps turning down moves the Bot on, without its latest messages the second time; a connection failure does not', async (t) => {

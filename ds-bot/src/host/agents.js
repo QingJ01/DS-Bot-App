@@ -78,7 +78,7 @@ export function install(rt) {
     if (readOnly !== undefined) throw new Error(readOnly)
   }
   const record = (agentId) => {
-    const agent = state.agents[agentId]
+    const agent = rt.own(state.agents, agentId)
     if (agent === undefined) throw new Error('Unknown DSH Agent')
     return agent
   }

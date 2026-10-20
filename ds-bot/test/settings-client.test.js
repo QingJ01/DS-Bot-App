@@ -20,7 +20,7 @@ runInNewContext(outputFiles[0].text, {
 })
 const render = page => renderToStaticMarkup(React.createElement(module.exports.SettingsDialog, {
   page, roster: { prefs: {}, bots: [], rooms: [], byId: {}, roomsById: {} },
-  actions: {}, useUpdate: select => select({ current: '0.1.2', source: 'path' }),
+  actions: { providers: {} }, useUpdate: select => select({ current: '0.1.2', source: 'path' }),
 }))
 
 test('settings opens with every navigation icon rendered by React', () => {

@@ -14,15 +14,23 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## Unreleased
 
+### Security
+
+- Desktop team import no longer copies mobile device authorization, server identity, HTTPS enablement or TLS files. Mobile access starts disabled and requires fresh pairing; user-authored mobile skills and the source host are preserved.
+
 ### Added
 
 - Sync upstream source `939a6635830cb5b246e7dd19c67b0e1352ad1c07`: `list_bots` and `message_bot` report teammate status; hand-offs return results and waiting Bots show their character state; add a Docker image.
+- Port frozen upstream `dev` at `a5bba4d4ce0c08d1a1965ca89df652c9220275ef`, including the desktop app, tests, documentation and compatible CI; brand the app for this fork and keep its package and bundled plugin at `0.1.2`.
+- Keep the fork's offline Docker plugin-archive reinstall, cached policy metadata and transactional restore; upstream removed this fork-specific integrity-preserving behavior.
 
 ### Changed
 
 - Remove the message, unread, group-round and forwarding count limits; keep work requested in a group in that group; send very long messages as files and fold them in chat.
 
 ### Fixed
+
+- Wait for the Harness session catalog when opening a newly listed Bot, rather than throwing an unknown-session error during startup. A delayed navigation no longer overrides a newer selection.
 
 - Seed pnpm's package store and registry metadata for offline Docker upgrades, and roll back failed or timed-out plugin reinstalls so the prior profile remains usable.
 - Keep the collapsed sidebar footer centered in one unclipped column while preserving the expanded layout.

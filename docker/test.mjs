@@ -21,7 +21,7 @@ function docker(args, { allowFailure = false } = {}) {
     maxBuffer: 1024 * 1024,
   })
   if (!allowFailure && (result.error || result.status !== 0)) {
-    throw new Error(`docker ${args[0]} failed: ${result.error?.message ?? result.stderr}`)
+    throw new Error(`docker ${args[0]} failed (${result.status}): ${result.error?.message ?? result.stderr}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
   }
   return result
 }

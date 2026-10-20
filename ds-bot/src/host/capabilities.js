@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { encodeUrlComponent } from './secrets.js'
+import { own } from './store.js'
 
 const MCP_CLIENT = '@deepseek-ai/dsh-mcp-client'
 const NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
@@ -17,11 +18,11 @@ export function validateCapabilityName(value) {
 export function expandCapabilityNames(capabilities, library) {
   const expanded = new Set()
   for (const name of capabilities ?? []) {
-    const item = library[name]
+    const item = own(library, name)
     if (!item) throw new Error(`No capability named ${name}.`)
     if (item.kind === 'pack') {
       for (const childName of item.items ?? []) {
-        const child = library[childName]
+        const child = own(library, childName)
         if (!child || !['mcp', 'skill'].includes(child.kind)) throw new Error(`Pack ${name} refers to an unavailable capability ${childName}.`)
         expanded.add(childName)
       }
@@ -74,8 +75,10 @@ export function install(rt) {
   }
   const allowedToEdit = (item, botId) => rt.isMain(botId) || item.createdBy === botId
   const usedByOthers = (name, botId) => Object.values(state.bots).some(bot => bot.id !== botId
-    && (bot.capabilities ?? []).some(attached => attached === name
-      || (library()[attached]?.kind === 'pack' && (library()[attached].items ?? []).includes(name))))
+    && (bot.capabilities ?? []).some((attached) => {
+      const item = own(library(), attached)
+      return attached === name || (item?.kind === 'pack' && (item.items ?? []).includes(name))
+    }))
   // A creator that is not a Main Bot could otherwise rewrite what a Main Bot runs.
   const editCheck = (item, botId, verb) => {
     if (!allowedToEdit(item, botId)) throw new Error(`Only ${item.createdBy ? 'its creator or a Main Bot' : 'a Main Bot'} can ${verb} ${item.name}.`)
@@ -86,7 +89,7 @@ export function install(rt) {
     const kind = body.kind
     if (!['mcp', 'skill', 'pack'].includes(kind)) throw new Error('Choose an MCP server, skill, or pack.')
     const items = ensureLibrary()
-    const previous = items[name]
+    const previous = own(items, name)
     if (body.create === true && previous) throw new Error(`A capability named ${name} already exists. Edit it or choose another name.`)
     if (previous && !ui) editCheck(previous, botId, 'change')
     if (previous && previous.kind !== kind) throw new Error('A capability cannot change its kind. Delete it and save a new one.')
@@ -122,7 +125,7 @@ export function install(rt) {
     } else {
       const names = [...new Set(strings(body.items))]
       for (const childName of names) {
-        const child = items[childName]
+        const child = own(items, childName)
         if (!child || !['mcp', 'skill'].includes(child.kind)) throw new Error(`Packs can include only saved MCP servers and skills. ${childName} is not one.`)
       }
       item.items = names
@@ -141,7 +144,7 @@ export function install(rt) {
     await rt.load()
     writeCheck()
     const items = ensureLibrary()
-    const item = items[String(name ?? '')]
+    const item = own(items, String(name ?? ''))
     if (!item) throw new Error(`No capability named ${name}.`)
     if (!ui) editCheck(item, botId, 'delete')
     delete items[item.name]
@@ -158,7 +161,7 @@ export function install(rt) {
     const target = targetRef ? rt.findBot(targetRef) : caller
     if (!target) throw new Error(`No Bot named ${targetRef}.`)
     if (target.id !== caller.id && !rt.isMain(callerId)) throw new Error('Only a Main Bot can change another Bot’s capabilities.')
-    const item = ensureLibrary()[String(name ?? '')]
+    const item = own(ensureLibrary(), String(name ?? ''))
     if (!item) throw new Error(`No capability named ${name}.`)
     await setAttached(target, item.name, endpoint === 'attach')
     return { bot: target.name, attached: endpoint === 'attach' }
@@ -212,7 +215,7 @@ export function install(rt) {
     for (const bot of Object.values(state.bots)) {
       const statuses = {}
       for (const name of bot.capabilities ?? []) {
-        const item = library()[name]
+        const item = own(library(), name)
         if (!item) continue
         if (item.kind !== 'pack') {
           const status = statusFor(bot.id, name)
@@ -261,9 +264,10 @@ export function install(rt) {
     return resolved
   }
   const resolveUrl = (url, botId) => String(url).replace(SECRET_REFERENCE, (_match, name) => encodeUrlComponent(secretFor(name, botId)))
+  const resolveList = (list, botId) => (list ?? []).map(raw => String(raw).replace(SECRET_REFERENCE, (_match, name) => secretFor(name, botId)))
   const configFor = (item, botId) => {
     if (item.kind === 'skill') return { name: item.name, description: item.description, content: item.content }
-    if (item.transport === 'stdio') return { transport: 'stdio', serverName: item.name, command: item.command, args: item.args ?? [], env: resolveValues(item.env, botId), failOnStartupError: true }
+    if (item.transport === 'stdio') return { transport: 'stdio', serverName: item.name, command: item.command, args: resolveList(item.args, botId), env: resolveValues(item.env, botId), failOnStartupError: true }
     return { transport: 'streamable-http', serverName: item.name, url: resolveUrl(item.url, botId), headers: resolveValues(item.headers, botId), failOnStartupError: true }
   }
   const disposeMount = async mount => {
@@ -271,7 +275,7 @@ export function install(rt) {
   }
   const mountOne = async (agent, bot, agentMounts, name) => {
     const sessionId = agent.session.id
-    const item = library()[name]
+    const item = own(library(), name)
     const drop = async () => {
       await disposeMount(agentMounts.get(name))
       agentMounts.delete(name)
@@ -457,7 +461,7 @@ export function install(rt) {
     if (endpoint === 'capability-approve') {
       await rt.load()
       writeCheck()
-      const item = library()[String(body.name ?? '')]
+      const item = own(library(), String(body.name ?? ''))
       if (!item || item.kind !== 'mcp' || item.transport !== 'stdio') throw new Error(`No unapproved stdio MCP named ${body.name}.`)
       item.approved = true
       item.updatedAt = Date.now()
@@ -470,7 +474,7 @@ export function install(rt) {
       const bot = rt.botOf(String(body.botId ?? ''))
       if (!bot) throw new Error('Unknown Bot')
       const name = String(body.name ?? '')
-      if (!library()[name]) throw new Error(`No capability named ${name}.`)
+      if (!own(library(), name)) throw new Error(`No capability named ${name}.`)
       return setAttached(bot, name, body.attached === true)
     }
     throw new Error('Unknown capability operation.')

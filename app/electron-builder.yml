@@ -1,0 +1,43 @@
+appId: io.github.qingj01.dsbotapp
+productName: DS Bot App
+copyright: Copyright 2026 Fei2411 and the DS Bot contributors
+artifactName: DS-Bot-App-${version}-${os}-${arch}.${ext}
+directories:
+  output: dist-pack
+files:
+  - package.json
+  - src/**
+  - assets/**
+# The Host runs pnpm as a separate Node process to install plugins, so it must be a plain file.
+asarUnpack:
+  - node_modules/pnpm/**
+# node-pty, sharp and koffi ship prebuilt binaries for each platform. A rebuild would compile
+# node-pty from source and needs a C++ toolchain.
+npmRebuild: false
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: assets/icon.ico
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  include: build/installer.nsh
+  installerLanguages: [zh_CN, en_US]
+  multiLanguageInstaller: true
+mac:
+  target: dmg
+  # Ad-hoc signing seals the bundle; no Developer ID or notarization.
+  identity: '-'
+  hardenedRuntime: false
+  icon: assets/icon.png
+  category: public.app-category.productivity
+# Where the installed app looks for updates (app-update.yml in the package). The build writes
+# latest.yml beside the installer; the release workflow attaches both to the GitHub release,
+# so the build itself never publishes (--publish never).
+publish:
+  provider: github
+  owner: QingJ01
+  repo: DS-Bot-App

@@ -1,0 +1,148 @@
+# The engine layer of the desktop app's profile, over dsh-base and under
+# ds-bot. It adds the loopback transport for ds-bot's channel, the host
+# services ds-bot uses, and the agent preset that Bot Sessions run on. It has
+# no DSH Web front-end rows: the window is the app's own page (../ui), which
+# talks only to ds-bot.
+#
+# The rows follow @deepseek-ai/dsh-web-app's bundle patch (MIT; see NOTICE).
+# When the app moves to another DSH version, compare this file and
+# preset-standard.patch.yml with that version's dsh-web-app bundle patch and
+# standard preset.
+
+- id: system-prompt
+  config:
+    personaSuffix: Your working directory is {{cwd}}.
+    personaPrefix: >-
+      You are a coding agent powered by the {{model}} model.
+
+- insert:
+    # The shell is the only client: it trades the launch token for the Host
+    # cookie and forwards the window's /api/ requests. Port 0 lets the system
+    # choose a free port, which the Host reports to the shell.
+    - id: webserver
+      name: '@deepseek-ai/dsh-host-webserver'
+      config:
+        host: 127.0.0.1
+        port: 0
+        compression: gzip
+        compressionLevel: 1
+        compressionThresholdBytes: 1024
+
+    - id: connection
+      name: '@deepseek-ai/dsh-client-connection'
+      config:
+        trustedHosts: []
+
+    # This package's own plugin (index.js): the launch-token exchange.
+    - id: engine-index
+      name: deepseek-bot-engine
+
+    - id: api-remotes
+      name: '@deepseek-ai/dsh-api-remotes'
+
+    # Uploads staged for later prompts; the session controller needs it.
+    - id: file-upload
+      name: '@deepseek-ai/dsh-client-file-upload'
+
+    - id: workspace
+      name: '@deepseek-ai/dsh-workspace'
+
+    - id: session-controller
+      name: '@deepseek-ai/dsh-api-session-controller'
+
+    # ds-bot's folder chooser for Bot and group working folders.
+    - id: directory-picker
+      name: '@deepseek-ai/dsh-host-directory-picker-auto'
+
+    # The sessionStats projection: the turns and output speed in a Bot's
+    # details.
+    - id: session-stats
+      name: '@deepseek-ai/dsh-session-stats'
+
+    # Read by the standard preset's subagent tool (modelSelectionSettings).
+    - id: subagent-model-selection-settings
+      name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
+
+# Every Session mounts an agent preset, so the base rows that compose one
+# agent's tools and prompt sections are off on the host plane. The registries
+# they feed (jobs, skills, goals, subagents, the token meter) stay on.
+
+- id: tool-plugin-manager
+  disabled: true
+
+- id: tool-bash
+  disabled: true
+
+- id: tool-pwsh
+  disabled: true
+
+- id: tool-jobs
+  disabled: true
+
+- id: tool-fs
+  disabled: true
+
+- id: tool-fs-search
+  disabled: true
+
+- id: skill-filesystem
+  disabled: true
+
+- id: tool-skill
+  disabled: true
+
+- id: command-goal
+  disabled: true
+
+- id: tool-goal
+  disabled: true
+
+- id: plan-mode
+  disabled: true
+
+- id: compaction-basic
+  disabled: true
+
+- id: command-compact
+  disabled: true
+
+- id: tool-result-pruner
+  disabled: true
+
+- id: tool-subagent-control
+  disabled: true
+
+- id: tool-subagent-list-agents
+  disabled: true
+
+- id: tool-subagent
+  disabled: true
+
+- id: tool-subagent-fork
+  disabled: true
+
+- id: workflow-ptc
+  disabled: true
+
+- id: tool-workflow
+  disabled: true
+
+# The preset gate reads declared row ids whether or not they are disabled, so
+# this row stays to keep tool-ralph off the host plane.
+- id: tool-ralph
+  disabled: true
+
+- id: agent-instructions
+  disabled: true
+
+- id: tool-todo
+  disabled: true
+
+- id: tool-web
+  disabled: true
+
+- insert:
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: standard

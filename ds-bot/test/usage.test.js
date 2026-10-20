@@ -206,7 +206,7 @@ test('a subagent Session is read through its parent, even a parent that is gone;
     listedExtra: [
       { sessionId: 's-orphan', parentSessionId: 's-gone', origin: 'subagent', projections: { kind: 'cached', asOfSeq: 1, values: {} } },
       { sessionId: 's-lost', origin: 'subagent', projections: { kind: 'cached', asOfSeq: 1, values: {} } },
-      { sessionId: 's-broken', projections: { kind: 'cached', asOfSeq: 1, values: {} } },
+      { sessionId: 's-broken', projections: { kind: 'sequenced', asOfSeq: 1, values: {} } },
     ],
     logsExtra: {
       's-orphan': [header('deepseek', 'v4-flash'), message(1, 0, usage(8, 1), HOUR)],
@@ -230,4 +230,52 @@ test('a subagent Session is read through its parent, even a parent that is gone;
   await call('usage', { timeZone: 'Asia/Shanghai' })
   assert.equal(pages.filter(sessionId => sessionId === 's-orphan').length, 1)
   assert.deepEqual(unread(), ['s-broken'])
+})
+
+test('a cached projection watermark beyond the log is not used as a page cursor', async (t) => {
+  const { call, ctx, stop, warnings } = start(undefined, {
+    listedExtra: [{ sessionId: 's-x', projections: { kind: 'cached', asOfSeq: 202, values: {} } }],
+  })
+  t.after(stop)
+  const page = ctx.sessionController.page
+  ctx.sessionController.page = async (request) => {
+    if (request.address.sessionId === 's-x' && request.throughSeq > 1) throw new Error(`session page through seq ${request.throughSeq} is past cursor 1`)
+    return page(request)
+  }
+  const view = (await call('usage', { timeZone: 'Asia/Shanghai' })).value
+  assert.equal(totals(view)['other/chat'], 44)
+  assert.deepEqual(warnings, [])
+})
+
+test('a cached projection watermark behind the log does not omit later usage', async (t) => {
+  const { call, stop, warnings } = start(undefined, {
+    listedExtra: [{ sessionId: 's-x', projections: { kind: 'cached', asOfSeq: 0, values: {} } }],
+  })
+  t.after(stop)
+  const view = (await call('usage', { timeZone: 'Asia/Shanghai' })).value
+  assert.equal(totals(view)['other/chat'], 44)
+  assert.deepEqual(warnings, [])
+})
+
+test('a sequenced projection watermark cuts the page without another projection read', async (t) => {
+  const { call, ctx, stop } = start(undefined, {
+    listedExtra: [{ sessionId: 's-x', projections: { kind: 'sequenced', asOfSeq: 1, values: {} } }],
+  })
+  t.after(stop)
+  const projections = ctx.sessionController.projections
+  ctx.sessionController.projections = async (request) => {
+    assert.notEqual(request.sessionId, 's-x')
+    return projections(request)
+  }
+  const view = (await call('usage', { timeZone: 'Asia/Shanghai' })).value
+  assert.equal(totals(view)['other/chat'], 44)
+})
+
+test('a projection hint without a sequence space is not used as a page cursor', async (t) => {
+  const { call, stop } = start(undefined, {
+    listedExtra: [{ sessionId: 's-x', projections: { asOfSeq: 0, values: {} } }],
+  })
+  t.after(stop)
+  const view = (await call('usage', { timeZone: 'Asia/Shanghai' })).value
+  assert.equal(totals(view)['other/chat'], 44)
 })

@@ -3,9 +3,10 @@
 // their shell, tool results lose it before they are saved, and every model request
 // has it replaced by [secret:<NAME>] before it leaves.
 import { randomUUID } from 'node:crypto'
-import { chmod, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { replaceFile } from './files.js'
 import { output } from './tools.js'
 
 export const SECRET_NAME = /^[A-Z][A-Z0-9_]{0,63}$/
@@ -150,7 +151,7 @@ export function install(rt) {
       try {
         await writeFile(temp, snapshot, { encoding: 'utf8', mode: 0o600 })
         await chmod(temp, 0o600)
-        await rename(temp, path)
+        await replaceFile(temp, path)
       } catch (error) {
         await unlink(temp).catch(() => {})
         throw error
@@ -171,7 +172,14 @@ export function install(rt) {
     usedTimer.unref?.()
   }
 
-  const requestsOf = botId => ((state.secretRequests ??= {})[botId] ??= [])
+  // A Bot's pending secret cards, keyed by its id. A key that is not a real Bot (and
+  // never an inherited name like "__proto__", which a plain assignment would not even
+  // set as a key) gets a throwaway list instead of a stored one.
+  const requestsOf = (botId) => {
+    const requests = (state.secretRequests ??= {})
+    if (!Object.hasOwn(requests, botId) && rt.botOf(botId) === undefined) return []
+    return (requests[botId] ??= [])
+  }
   const findRequest = (id) => {
     for (const [botId, list] of Object.entries(state.secretRequests ?? {})) {
       const request = list.find(entry => entry.id === id)

@@ -145,8 +145,12 @@ UI, which writes the same config.
   profiles, settings and the login cookie key (`.credentials.yaml`).
 - `/workspace` (`WORKSPACE_DIR`) is the team workspace where the Bots work.
 
-**Backup**: stop the container, then copy `DATA_DIR`. Restore by putting the
-folder back and starting again.
+A rebuild reuses the persisted data and workspace. Keep their container
+destinations `/data` and `/workspace` unchanged when you rebuild or move the
+host directories; the team records those destinations, not the host paths.
+
+**Backup**: stop the container, then copy both `DATA_DIR` and `WORKSPACE_DIR`.
+Restore by putting both folders back and starting again.
 
 On every start, entries in `/data` with a different owner or group are assigned
 to `PUID`/`PGID`, including existing profiles and restored files. This scans the
@@ -167,10 +171,19 @@ profile inside the data volume, so the entrypoint compares both the installed
 ds-bot version and the packaged archive's SHA-256 with the image on every start.
 A changed plugin archive reinstalls into an existing volume even when a fork
 revision keeps the same version; failed reinstalls leave the prior plugin and
-retry on the next start. To force a fresh profile, stop the container and
-delete `DATA_DIR/profiles/web` (not the whole data dir). The image is built and tested with dsh `0.2.0-rc.2`, the version
-DS Bot is verified with; a `DSH_VERSION` build arg exists, but other releases
-are untested and newer ones change how the server binds.
+retry on the next start. Reinstallations are bounded and transactional: a failed
+install restores the previous plugin profile and leaves its archive stamp
+unchanged. To force a fresh profile, stop the container and delete
+`DATA_DIR/profiles/web` (not the whole data dir). The image is built and tested
+with dsh `0.2.0-rc.2`, the version DS Bot is verified with; a `DSH_VERSION`
+build arg exists, but other releases are untested and newer ones change how
+the server binds.
+
+This fork intentionally retains the archive-based offline reinstall and
+rollback behavior removed by the frozen upstream `dev` tree
+(`a5bba4d4ce0c08d1a1965ca89df652c9220275ef`). It pre-seeds pnpm's package
+store and policy metadata while keeping lockfile supply-chain and integrity
+checks enabled.
 
 ## Importing an existing team
 
@@ -195,6 +208,7 @@ After building the image, run `node docker/test.mjs ds-bot:local` from the
 repository root. The test uses isolated, network-disabled containers and
 temporary Docker volumes, with no host directory mounts or model calls. It
 checks entrypoint permissions, first start, UID/GID changes, restored files,
-workspace ownership, offline plugin reinstall and web startup. All test
-containers and volumes are removed when it finishes. CI builds the image from
-the Linux checkout and runs this test as part of the required Test result check.
+workspace ownership and web startup. All test containers and volumes are
+removed when it finishes.
+CI builds the image from the Linux checkout and runs this test as part of the
+required Test result check.

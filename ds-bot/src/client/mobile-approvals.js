@@ -139,21 +139,21 @@ export function MobileApprovalNotice({ useMobileApprovals, useSessions, useRoste
 }
 
 export const MOBILE_APPROVAL_CSS = `
-.bt-mobile-approvals{box-sizing:border-box;width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto 8px;max-height:50vh;overflow:auto;font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:var(--bt-ink,#181818)}
-.bt-mobile-approval{margin-bottom:8px;border:1px solid var(--dsw-alias-state-warn-secondary,#d0b26d);border-radius:16px;overflow:hidden;background:var(--bt-card,#fff)}
-.bt-mobile-approval-strip{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--dsw-alias-state-warn-tertiary,#fff8df);color:var(--dsw-alias-state-warn-primary,#765d12);font-weight:600}
+.bt-mobile-approvals{box-sizing:border-box;width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto 8px;max-height:50vh;overflow:auto;font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:var(--bt-ink)}
+.bt-mobile-approval{margin-bottom:8px;border:1px solid var(--dsw-alias-state-warn-secondary,var(--bt-line-2));border-radius:16px;overflow:hidden;background:var(--bt-card)}
+.bt-mobile-approval-strip{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--dsw-alias-state-warn-tertiary,var(--bt-hover));color:var(--dsw-alias-state-warn-primary,var(--bt-ink));font-weight:600}
 .bt-mobile-approval-strip code{margin-left:auto;font-size:12px;font-weight:400;overflow-wrap:anywhere}
 .bt-mobile-approval-body{padding:12px 14px 0;max-height:260px;overflow:auto}
 .bt-mobile-approval-body p{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 8px;font-size:14px}
 .bt-mobile-approval-command{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace}
 .bt-mobile-approval-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 14px;flex-wrap:wrap}
-.bt-mobile-approval-hint{font-size:12px!important;color:var(--bt-ink-2,var(--dsw-alias-label-tertiary,#666));font-weight:400}
+.bt-mobile-approval-hint{font-size:12px!important;color:var(--bt-ink-2);font-weight:400}
 .bt-mobile-approval-actions>.bt-mobile-approval-hint{margin-right:auto}
-.bt-mobile-approval button,.bt-mobile-approval-notice{font:inherit;cursor:pointer;border:1px solid var(--bt-line,#e5e5e5);border-radius:10px;padding:7px 13px;background:var(--bt-hover,#f4f4f4);color:inherit}
+.bt-mobile-approval button,.bt-mobile-approval-notice{font:inherit;cursor:pointer;border:1px solid var(--bt-line);border-radius:10px;padding:7px 13px;background:var(--bt-hover);color:inherit}
 .bt-mobile-approval button:disabled{opacity:.5;cursor:default}
-.bt-mobile-approval button.bt-mobile-approval-allow{background:var(--bt-accent,#3964fe);color:var(--bt-accent-ink,#fff);border-color:transparent}
-.bt-mobile-approval-error{margin:8px 14px;color:var(--dsw-alias-state-error-primary,#b42318)}
+.bt-mobile-approval button.bt-mobile-approval-allow{background:var(--bt-accent);color:var(--bt-accent-ink);border-color:transparent}
+.bt-mobile-approval-error{margin:8px 14px;color:var(--dsw-alias-state-error-primary,var(--bt-danger))}
 .bt-mobile-approval-notices{position:fixed;right:20px;top:72px;z-index:160;display:flex;flex-direction:column;gap:8px;max-width:min(360px,calc(100vw - 40px));font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
-.bt-mobile-approval-notice{display:flex;flex-direction:column;text-align:left;background:var(--bt-card,#fff);color:var(--bt-ink,#181818)}
-.bt-mobile-approval button:focus-visible,.bt-mobile-approval-body:focus-visible,.bt-mobile-approval-notice:focus-visible{outline:2px solid var(--bt-accent,#3964fe);outline-offset:2px}
+.bt-mobile-approval-notice{display:flex;flex-direction:column;text-align:left;background:var(--bt-card);color:var(--bt-ink)}
+.bt-mobile-approval button:focus-visible,.bt-mobile-approval-body:focus-visible,.bt-mobile-approval-notice:focus-visible{outline:2px solid var(--bt-accent);outline-offset:2px}
 `

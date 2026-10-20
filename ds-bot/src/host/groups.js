@@ -500,12 +500,13 @@ export function install(rt) {
       const queued = rt.roomInbox.get(room.id) ?? []
       rt.roomInbox.delete(room.id)
       const posts = queued.length > 0 ? queued : [{ text: '' }]
-      const startSeq = room.seq + 1
+      // A post a running round already logged stays inside the round this relay opens.
+      const startSeq = Math.min(room.seq + 1, ...posts.map(post => post.logged).filter(seq => typeof seq === 'number'))
       // The opening greeting is a cue for the admin, not a line of the group; a member's
       // late failure, its work picked up after a restart, its work the user stopped, or
       // the end of work whose result it already posted is an event of the round.
       const event = item => item.failed || item.resumed || item.stopped || item.done
-      for (const post of posts.filter(item => !item.kickoff && !event(item))) {
+      for (const post of posts.filter(item => !item.kickoff && !event(item) && item.logged === undefined)) {
         // Image readings go into the log only; `@` names are picked from what the user typed.
         // A file stays with its line and reaches each member the line is shown to.
         const readings = post.images === undefined ? [] : await rt.imagesForGroup(post.images, room.id)
@@ -518,8 +519,10 @@ export function install(rt) {
       }
       if (posts.some(post => !post.botId && !post.kickoff)) room.lateRounds = 0
       await rt.save()
-      // An event post never picks the speakers over a message queued with it.
-      const opener = posts.findLast(post => !event(post)) ?? posts.at(-1)
+      // An event post, and a member post that calls nobody, never pick the speakers
+      // over a message queued with them.
+      const callsNobody = post => post.member === true && openingSpeakers(room, post).length === 0
+      const opener = posts.findLast(post => !event(post) && !callsNobody(post)) ?? posts.findLast(post => !event(post)) ?? posts.at(-1)
       const references = posts.flatMap(post => post.references ?? [])
       // A member a Bot's post calls by name works for that Bot.
       const named = opener.botId === undefined ? [] : mentionsIn(opener.text ?? '', room.members.map(rt.botOf).filter(Boolean)).found
@@ -542,14 +545,14 @@ export function install(rt) {
         failed: [],
         started: [],
       }
-      for (const post of posts.filter(item => item.failed)) {
+      for (const post of posts.filter(item => item.failed && item.logged === undefined)) {
         const bot = rt.botOf(post.botId)
         const { code, status, message } = post.failed
         round.failed.push(bot?.name ?? post.name)
         round.replies.push({ kind: 'failed', botId: post.botId, name: bot?.name ?? post.name, color: bot?.color, code, ...(status ? { status } : {}), text: message, time: Date.now() })
       }
       // The log line tells the admin and the other members on their next turn.
-      for (const post of posts.filter(item => item.resumed || item.stopped || item.done)) {
+      for (const post of posts.filter(item => (item.resumed || item.stopped || item.done) && item.logged === undefined)) {
         const bot = rt.botOf(post.botId)
         const name = bot?.name ?? post.name
         const kind = post.done ? 'done' : post.stopped ? 'stopped' : post.again ? 'cut' : 'resumed'
@@ -678,17 +681,44 @@ export function install(rt) {
     const found = named.filter(bot => bot.id !== opener.botId)
     if (opener.progress) return found
     if (opener.late) return found.length > 0 ? found : members.filter(bot => bot.id === opener.askedBy)
+    if (opener.member) return found
     if (found.length > 0 && !all) return found
     if (!all && room.mode === 'admin' && admin) return [admin]
     return admin ? [admin, ...members.filter(bot => bot !== admin)] : members
   }
 
   // A Bot's message into the group's own Session, which relays it as a new round.
+  // While a round runs, the post goes into the group's log and that round's replies at
+  // once, so it is not held back until the round ends; the relay it still opens does not
+  // write it again (source `logged`).
   async function postToRoom(room, sender, text, extra = {}, files = []) {
+    const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id)
+    let logged
+    if (running !== undefined) {
+      ensureRoomLog(room)
+      if (extra.failed !== undefined) {
+        // A failed model call is an event of the round only: no log line, as the relay does it.
+        const { code, status, message } = extra.failed
+        running.failed.push(sender.name)
+        running.replies.push({ kind: 'failed', botId: sender.id, name: sender.name, color: sender.color, code, ...(status ? { status } : {}), text: message, time: Date.now() })
+        logged = true
+      } else if (extra.resumed === true || extra.stopped === true || extra.done === true) {
+        const kind = extra.done === true ? 'done' : extra.stopped === true ? 'stopped' : extra.again === true ? 'cut' : 'resumed'
+        appendRoom(room, { who: sender.name, botId: sender.id, kind, text: '' })
+        running.replies.push({ kind, botId: sender.id, name: sender.name, color: sender.color, time: Date.now() })
+        logged = room.seq
+      } else {
+        const line = [text, ...files.map(fileLine)].filter(Boolean).join('\n')
+        appendRoom(room, { who: sender.name, botId: sender.id, text: line, ...(files.length > 0 ? { files } : {}) })
+        running.replies.push({ botId: sender.id, name: sender.name, color: sender.color, text: line, time: Date.now() })
+        logged = room.seq
+      }
+      await rt.save()
+    }
     const agent = await rt.resolveAgent(room.id)
     agent.followup(createUserMessage({
       content: [{ type: 'text', text: `[Group post from ${sender.name}]\n${text}` }, ...files.map(attachment => ({ type: 'file', attachment }))],
-      source: { kind: SOURCE_KIND, form: 'relay', role: 'post', exchangeId: randomUUID(), senderName: sender.name, senderSessionId: sender.id, roomId: room.id, ...extra },
+      source: { kind: SOURCE_KIND, form: 'relay', role: 'post', exchangeId: randomUUID(), senderName: sender.name, senderSessionId: sender.id, roomId: room.id, ...extra, ...(logged !== undefined ? { logged } : {}) },
     }))
     await ctx.sessions.flush(agent.session)
   }
@@ -785,7 +815,7 @@ export function install(rt) {
     await rt.load()
     const room = rt.roomOf(roomId)
     const member = rt.botOf(botId)
-    const sessionId = room?.sessions?.[botId]
+    const sessionId = rt.own(room?.sessions, botId)
     if (room === undefined || member === undefined || sessionId === undefined || rt.live.get(sessionId)?.turn === undefined) return false
     const agent = await rt.resolveAgent(sessionId)
     agent.cancel({ kind: 'user' })
