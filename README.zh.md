@@ -52,16 +52,16 @@ Bot 对话换段时，定时任务保留原 Session 绑定，到期提醒转发�
 ## 快速开始
 
 1. 安装 [DSH Desktop](https://github.com/deepseek-ai/deepseek-harness/releases)，打开 **插件 → 添加插件**，粘贴下方安装文本并安装、启用、重启。
-2. 在电脑上配置模型；从 [Releases](https://github.com/QingJ01/DS-Bot-App/releases/latest) 下载 Android ARM64 APK，`0.1.2` 请选带 `r1` 的文件。
+2. 在电脑上配置模型；从 [v0.1.3 Release](https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.3) 下载 `dsbot-android-arm64-v0.1.3.apk` 安装到手机；`dsbot-android-x86_64-v0.1.3.apk` 用于对应模拟器。
 3. 手机安装 APK。电脑打开 DS Bot **设置 → 移动设备 → 启用手机连接**，手机扫码，电脑批准设备。
 
 ```text
-github:QingJ01/DS-Bot-App#2495b96a52836090a5bb458d4fcd40b22d8a9ac8&path:ds-bot
+github:QingJ01/DS-Bot-App#a115f2b722387b3a401bd34e26fe48ad7d34f78d&path:ds-bot
 ```
 
-以上是完整安装文本，直接复制，不需要下载插件压缩包或运行脚本。
+以上是完整安装文本，直接复制。Release 还提供 `ds-bot-0.1.3.tgz`；下载后使用 `SHA256SUMS` 校验。插件归档 SHA-256：`ab65ce3033a88890c3410c371aa7a2fc8c88f96437f4620889128b6a7b1c5b1f`。
 
-修订 1 修复了缺少 Plugin updates 图标导致设置窗口无法打开的问题。已安装 `0.1.2` 的用户也必须手动粘贴这个新固定地址；同版本修复不保证自动提示更新。原始 `0.1.2` 附件仅为兼容已有锁文件保留，不再推荐。详见 [r1 发布说明](docs/releases/v0.1.2-r1.md)。
+该固定地址指向已发布的 v0.1.3 源码。历史 v0.1.2 下载仍原样保留以兼容已有锁文件；新安装请使用 v0.1.3。详见 [v0.1.3 发布说明](docs/releases/v0.1.3.md)。
 
 初次配对建议使用同一 Wi-Fi。插件自动配置本地 HTTPS，无需域名或手动安装证书。Bot、工具和任务由电脑或服务器执行，模型使用主机配置的提供商；使用时需保持主机在线。
 
