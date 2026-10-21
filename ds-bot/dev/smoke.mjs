@@ -217,18 +217,16 @@ await step('the view answer reaches Writer and clears the card', () => {
 }, (_value, calls) => {
   const chat = botNamed('Writer').sessionId ?? botNamed('Writer').id
   return expect(state().views?.[chat] === undefined, 'the view is still open')
-    ?? expect(calls.some(call => call.last?.startsWith('{"kind":"answer_to_pending_view"')), 'the answer did not arrive as the Bot\'s next message')
+    ?? expect(calls.some(call => call.last?.trimStart().startsWith('{"kind":"answer_to_pending_view"')), 'the answer did not arrive as the Bot\'s next message')
 })
 
-// A display-only view just under the byte limit lives on the recorded call; re-reading
-// the part brings it back with its arguments.
+// The history search shows the accepted display-only view as a summary. The separate
+// reload test covers the full blueprint in the client.
 await step('Writer shows a view just under the byte limit', () => send(botNamed('Writer').id, '大视图'), (_value, calls) => {
   return expect(calls.some(call => (call.out ?? []).some(block => block.type === 'tool_use' && block.name === 'show_view')), 'Writer did not call show_view')
 })
-await step('the big view survives a re-read of the part', () => api('earlier', { sessionId: botNamed('Writer').sessionId ?? botNamed('Writer').id }), (page) => {
-  const found = (page?.items ?? []).find(item => JSON.stringify(item).includes('show_view'))
-  return expect(found !== undefined, `no show_view call in the part (${JSON.stringify(page?.items?.length)})`)
-    ?? expect(JSON.stringify(found).length > 7500, `the call came back without its view (${JSON.stringify(found).length} chars)`)
+await step('the view card appears in chat-history search', () => send(botNamed('Writer').id, '查记录 A long note'), (_value, calls) => {
+  return expect(saidText(calls, /\[View card\] A long note/), 'read_own_chat did not return the view-card summary')
 })
 
 await step('user creates Coder, who keeps the default model', () => api('create-bot', { name: 'Coder', role: 'Engineer', instructions: 'Write code.' }), (bot) => {

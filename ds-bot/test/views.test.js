@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { checkShownView, normalizeView, validateView, validateViewAnswer, VIEW_BYTE_LIMIT, viewBytes, viewSummary } from '../src/shared/views.js'
+import { LONG_NOTE_TITLE, makeLongNoteView } from '../dev/view-fixtures.mjs'
 
 const text = (value = 'hello') => ({ type: 'text', text: value })
 const metric = (label = '进度', value = '70%') => ({ type: 'metric', label, value })
@@ -121,6 +122,13 @@ test('viewBytes counts the blueprint JSON plus the title in UTF-8', () => {
   const room = VIEW_BYTE_LIMIT - viewBytes('', view)
   assert.equal(viewBytes('x'.repeat(room), view), VIEW_BYTE_LIMIT)
   assert.equal(viewBytes(`${'x'.repeat(room)}y`, view), VIEW_BYTE_LIMIT + 1)
+})
+
+test('the mock near-limit view fixture passes the production byte and view checks', () => {
+  const view = makeLongNoteView()
+  const bytes = viewBytes(LONG_NOTE_TITLE, view)
+  assert.ok(bytes > 7500 && bytes < VIEW_BYTE_LIMIT, `${bytes} bytes`)
+  assert.deepEqual(checkShownView(LONG_NOTE_TITLE, view), { title: LONG_NOTE_TITLE, interactive: false })
 })
 
 test('viewSummary keeps a short list of component values', () => {

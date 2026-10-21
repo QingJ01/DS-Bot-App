@@ -59,6 +59,7 @@ import { createHash } from 'node:crypto'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { LONG_NOTE_TITLE, makeLongNoteView } from './view-fixtures.mjs'
 
 const PORT = Number(process.env.MOCK_PORT ?? 8765)
 const LOG = process.env.MOCK_LOG ?? fileURLToPath(new URL('../../.dsh-test/mock.jsonl', import.meta.url))
@@ -505,7 +506,7 @@ function decide(body) {
     })]
   }
   if (/^\s*大视图/.test(userText) && tools.has('show_view')) {
-    return [tool('show_view', { title: 'A long note', view: { type: 'text', text: 'x'.repeat(7800) }, await_reply: false })]
+    return [tool('show_view', { title: LONG_NOTE_TITLE, view: makeLongNoteView(), await_reply: false })]
   }
   // Streams slowly, then checks the team: exercises the activity row stepping aside
   // for a streaming reply and coming back for the tool.
