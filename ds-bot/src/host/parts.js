@@ -20,6 +20,7 @@ import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './cons
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
+import { validateViewAnswer, viewSummary } from '../shared/views.js'
 
 // An ask_user card as the user saw it. The user's reply is often just an option label,
 // which means nothing without the card. Arguments the tool would refuse (no question,
@@ -36,6 +37,19 @@ export function cardText(args) {
   if (question === '' || options.length === 0) return ''
   const detail = typeof card.detail === 'string' ? card.detail.trim() : ''
   return `[Question card] ${question}${detail ? ` (${detail})` : ''}\nOptions: ${options.join(' / ')}`
+}
+
+// A show_view card as the user saw it. A call the tool would refuse (no title,
+// or a view that is not a component object) showed no card, so it gives no text.
+export function viewCardText(args) {
+  let card = args
+  if (typeof card === 'string') {
+    try { card = JSON.parse(card) } catch { return '' }
+  }
+  const title = typeof card?.title === 'string' ? card.title.trim() : ''
+  if (title === '' || card?.view === null || typeof card?.view !== 'object' || Array.isArray(card?.view)) return ''
+  const summary = viewSummary(card.view)
+  return summary === '' ? `[View card] ${title}` : `[View card] ${title}\n${summary}`
 }
 
 // What one event adds to a Bot's chat history: an answer of the Bot's (its text, or a
@@ -67,18 +81,59 @@ export function questionReply(question, answer) {
   }
 }
 
+// The user's answer to a show_view card. The message carries the blueprint with
+// the answer, so the answer still makes sense after a checkpoint drops the card.
+export function viewReply(record, action, values) {
+  const checked = validateViewAnswer(record?.view, action, values)
+  if (checked.error !== undefined) return undefined
+  const callId = record.callId ?? record.id
+  const shown = { id: record.id, title: record.title, view: record.view }
+  const given = { id: record.id, action, values: checked }
+  return {
+    text: JSON.stringify({ kind: 'answer_to_pending_view', tool: 'show_view', callId, views: [shown], answers: [given] }),
+    source: { kind: REPLY_KIND, callId, outcome: 'answered' },
+  }
+}
+
+const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+
 export function readReply(text) {
   let value
   try { value = JSON.parse(text) } catch { return undefined }
+  if (value?.kind === 'answer_to_pending_view' || (Array.isArray(value?.views) && value.views.length > 0 && value?.kind !== 'answer_to_pending_question')) {
+    const views = (Array.isArray(value.views) ? value.views : []).filter(item => typeof item?.id === 'string' && typeof item.title === 'string' && isRecord(item.view))
+    if (views.length === 0) return undefined
+    const answers = (Array.isArray(value.answers) ? value.answers : []).filter(item => typeof item?.id === 'string' && typeof item.action === 'string' && isRecord(item.values))
+    return { views, answers }
+  }
   const questions = Array.isArray(value?.questions) ? value.questions.filter(item => typeof item?.id === 'string' && typeof item.question === 'string') : []
   if (questions.length === 0) return undefined
   const answers = (Array.isArray(value.answers) ? value.answers : []).filter(item => typeof item?.id === 'string' && Array.isArray(item.selected))
   return { questions, answers }
 }
 
+// The submitted component only. A long form is cut so a checkpoint stays small.
+function actionSummary(answer) {
+  const values = answer?.values
+  if (!isRecord(values)) return '(skipped)'
+  let text
+  if (Array.isArray(values.selected)) text = `selected: ${values.selected.join(', ')}`
+  else if (typeof values.confirmed === 'boolean') text = values.confirmed ? 'confirmed' : 'cancelled'
+  else if (isRecord(values.fields)) text = Object.entries(values.fields).map(([key, value]) => `${key}: ${value}`).join('; ')
+  else text = typeof answer.action === 'string' && answer.action !== '' ? answer.action : '(skipped)'
+  if (text === '') text = '(empty)'
+  return text.length > 500 ? text.slice(0, 500) : text
+}
+
 export function replyText(text) {
   const reply = readReply(text)
   if (reply === undefined) return text
+  if (reply.views !== undefined) {
+    return reply.views.map((view) => {
+      const answer = reply.answers.find(item => item.id === view.id)
+      return `[Answer to view card] ${view.title}\nAnswer: ${actionSummary(answer)}`
+    }).join('\n\n')
+  }
   return reply.questions.map((question) => {
     const answer = reply.answers.find(item => item.id === question.id)
     const values = [...(answer?.selected ?? []), ...(answer?.custom ? [answer.custom] : [])]
@@ -92,9 +147,9 @@ export function historyEntry(event, group) {
     return text === '' ? undefined : { answer: true, text }
   }
   // Cards only show in an own chat. A PTC program's sub-call asks too.
-  const asks = (event.type === 'tool/call' || event.type === 'tool/ptc-dispatch-start') && event.data?.name === 'ask_user'
-  if (asks && !group) {
-    const text = cardText(event.data.arguments)
+  const named = (event.type === 'tool/call' || event.type === 'tool/ptc-dispatch-start') ? event.data?.name : undefined
+  if ((named === 'ask_user' || named === 'show_view') && !group) {
+    const text = named === 'ask_user' ? cardText(event.data.arguments) : viewCardText(event.data.arguments)
     return text === '' ? undefined : { answer: true, text }
   }
   const source = event.data?.source
@@ -894,11 +949,16 @@ export function install(rt) {
       ;(bot.segments ??= []).push(segment)
       bot.sessionId = freshId
       // The card's call stays in the old part, so the fresh part shows it in the
-      // composer dock, which takes questions without a call.
+      // composer dock, which takes a card without a call.
       if (state.questions[agent.id] !== undefined) {
         const { callId: _call, ...question } = state.questions[agent.id]
         state.questions[freshId] = question
         delete state.questions[agent.id]
+      }
+      if (state.views?.[agent.id] !== undefined) {
+        const { callId: _call, ...pending } = state.views[agent.id]
+        state.views[freshId] = pending
+        delete state.views[agent.id]
       }
     }
     await rt.save()
@@ -1172,8 +1232,10 @@ export function install(rt) {
         const images = content.filter(block => block?.type === 'image').length
         items.push({ kind: 'user', text: textOf(content), ...(images > 0 ? { images } : {}), time: event.time })
       } else if (source?.kind === REPLY_KIND) {
-        const reply = readReply(textOf(event.data.content))
-        if (reply !== undefined) items.push({ kind: 'answer', questions: reply.questions, answers: reply.answers, time: event.time })
+        const text = textOf(event.data.content)
+        const reply = readReply(text)
+        if (reply?.questions !== undefined) items.push({ kind: 'answer', questions: reply.questions, answers: reply.answers, time: event.time })
+        else if (reply?.views !== undefined) items.push({ kind: 'answer', text: replyText(text), views: reply.views, answers: reply.answers, time: event.time })
       } else if (source?.kind === SOURCE_KIND && source.handoff !== true && source.deferred !== true && ['request', 'reply', 'report', 'stopped'].includes(source.role)) {
         items.push({ kind: 'event', role: source.role, botId: source.senderSessionId ?? null, name: source.senderName ?? null, roomId: source.roomId ?? null, time: event.time })
       }

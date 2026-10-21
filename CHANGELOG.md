@@ -14,6 +14,10 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## Unreleased
 
+### Upstream synchronization (unreleased)
+
+- Port the approved upstream desktop, runtime, session-navigation, thinking, views, avatar, and message-display changes while retaining DS Bot App version `0.1.3`, fork release metadata, and mobile authorization/TLS isolation.
+
 ## DS Bot App [v0.1.3] - 2026-10-20
 
 ### Security

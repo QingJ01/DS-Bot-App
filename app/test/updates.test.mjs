@@ -39,7 +39,7 @@ const release = (version, options = {}) => {
     html_url: options.page ?? `https://github.com/QingJ01/DS-Bot-App/releases/tag/v${version}`,
     draft: options.draft ?? false,
     prerelease: options.prerelease ?? false,
-    assets: options.assets ?? [{ name: `DS-Bot-App-${version}-mac-${arch}.dmg` }],
+    assets: options.assets ?? [{ name: `DS-Bot-App-${version}-mac-${arch}.zip` }],
   }
 }
 
@@ -186,7 +186,7 @@ describe('watchReleases', () => {
     assert.deepEqual(log.lines, ['DS Bot App: update check failed: releases response is not an array'])
   })
 
-  test('waits for the matching-architecture DMG before asking', async (t) => {
+  test('waits for the matching-architecture zip before asking', async (t) => {
     t.mock.timers.enable({ apis: ['setInterval'] })
     let attached = false
     const asked = []
@@ -244,7 +244,7 @@ describe('watchReleases', () => {
     assert.equal(await updates.latest(), null)
   })
 
-  test('chooses the highest newer release with a matching DMG', async (t) => {
+  test('chooses the highest newer release with a matching zip', async (t) => {
     const updates = watchReleases({
       current: '0.1.7', arch: 'arm64',
       fetch: async () => releaseResponse([release('0.1.9'), release('0.1.10'), release('0.1.8')]),

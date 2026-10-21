@@ -33,7 +33,7 @@ const server = createServer((request, response) => {
       html_url: `https://github.com/QingJ01/DS-Bot-App/releases/tag/v${version}`,
       draft: false,
       prerelease: false,
-      assets: [{ name: `DS-Bot-App-${version}-mac-${process.arch}.dmg` }],
+      assets: [{ name: `DS-Bot-App-${version}-mac-${process.arch}.zip` }],
     }]))
     return
   }
@@ -50,8 +50,14 @@ const feed = `http://127.0.0.1:${String(server.address().port)}/`
 // Closes the window from inside the page, as check-packed does; the app then quits as it does
 // when a user closes it. The page goes away with the window, so the call gets no answer.
 async function closeWindow(port, waitForReady = false) {
-  const targets = await (await fetch(`http://127.0.0.1:${String(port)}/json/list`)).json()
-  const page = targets.find(target => target.type === 'page' && target.url.startsWith('dsh-app://app'))
+  // Until the Host is ready the window shows a note of its own.
+  const find = async () => {
+    const targets = await (await fetch(`http://127.0.0.1:${String(port)}/json/list`)).json()
+    const pages = targets.filter(target => target.type === 'page' && (/^http:\/\/127\.0\.0\.1:\d+\//u.test(target.url) || target.url.startsWith('data:text/html')))
+    return pages.find(target => target.url.startsWith('http:')) ?? (waitForReady ? undefined : pages[0])
+  }
+  let page = await find()
+  for (const end = Date.now() + 120_000; page === undefined && waitForReady && Date.now() < end; page = await find()) await sleep(500)
   if (!page) throw new Error('the app window is not there')
   const socket = new WebSocket(page.webSocketDebuggerUrl)
   await new Promise((done, reject) => {

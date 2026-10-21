@@ -39,7 +39,7 @@ Installing another version of DS Bot does not help.
 3. Check that `package.json` in the same folder lists `ds-bot` under `dependencies`. If it does not, add this fork again using the [installation guide](getting-started.md). The upstream npm package does not include this fork's mobile bridge.
 4. Start DSH again.
 
-To see where the row comes from, run `npx @deepseek-ai/dsh@0.2.0-rc.2 --profile web --dump-config`. It prints every plugin row with the file that supplied it. If you report the problem, copy only the rows with `id: bot` and the file names; leave out keys and paths you do not want to share.
+To see where the row comes from, run `npx @deepseek-ai/dsh@0.2.1-rc.2 --profile web --dump-config`. It prints every plugin row with the file that supplied it. If you report the problem, copy only the rows with `id: bot` and the file names; leave out keys and paths you do not want to share.
 
 Deleting the whole profile folder also fixes it, but it removes the profile's other plugins and its settings, such as models. The Bot team is in `~/.dsh/bot/` and is not affected either way.
 
@@ -73,6 +73,6 @@ The error code is `WEB_PROVIDER_CONFIGURED_MISSING`.
 
 3. Start DSH again.
 
-To check the result, run `npx @deepseek-ai/dsh@0.2.0-rc.2 --profile web --dump-config` and look at the `web` row. Another plugin can also set the search provider while DSH runs, after the profile patch. If you turn such a plugin off later, check this setting again.
+To check the result, run `npx @deepseek-ai/dsh@0.2.1-rc.2 --profile web --dump-config` and look at the `web` row. Another plugin can also set the search provider while DSH runs, after the profile patch. If you turn such a plugin off later, check this setting again.
 
 See also [Web search](../ds-bot/README.md#web-search) in the plugin README and issue [#128](https://github.com/Fei2411/DeepSeek-Bot/issues/128).

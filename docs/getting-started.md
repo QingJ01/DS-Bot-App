@@ -6,7 +6,7 @@ English | [中文](getting-started.zh.md)
 
 Use a running DSH Desktop computer or DSH Web server, a working model/provider credential configured on that host, and an ARM64 Android phone. The x86_64 build is for matching emulators; ARM32 is not included. See the [iOS guide](ios.md) for builds and platform support. The host runs the models, tools and Bots and must remain on. Start with both devices on the same Wi-Fi.
 
-The official npm integration baseline is DSH `0.2.0-rc.2`; CI also checks `0.2.1-alpha.1` compatibility. Keep API keys in DSH's credential UI, never in Git or chats.
+The official npm integration baseline is DSH `0.2.1-rc.2`. Keep API keys in DSH's credential UI, never in Git or chats.
 
 ## Download matching packages
 
@@ -43,8 +43,8 @@ For DSH Web, install Node.js 24 LTS and pnpm on the server, then run:
 
 ```sh
 npm install -g pnpm
-npx @deepseek-ai/dsh@0.2.0-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#2495b96a52836090a5bb458d4fcd40b22d8a9ac8&path:ds-bot"
-npx @deepseek-ai/dsh@0.2.0-rc.2 web
+npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#2495b96a52836090a5bb458d4fcd40b22d8a9ac8&path:ds-bot"
+npx @deepseek-ai/dsh@0.2.1-rc.2 web
 ```
 
 Open the local authenticated link printed by DSH on your computer and configure the model. Do not share this management link. Reuse your existing data directory and avoid two processes writing to it. [VPS, tunnel and private-network deployment](mobile-install.zh.md).

@@ -27,7 +27,7 @@ async function appPage(deadline) {
   while (Date.now() < deadline) {
     try {
       const targets = await (await fetch(`http://127.0.0.1:${String(port)}/json/list`)).json()
-      const page = targets.find((target) => target.type === 'page' && target.url.startsWith('dsh-app://app'))
+      const page = targets.find((target) => target.type === 'page' && /^http:\/\/127\.0\.0\.1:\d+\//u.test(target.url))
       if (page) return page
     } catch {
       // The debugging port is not listening yet.

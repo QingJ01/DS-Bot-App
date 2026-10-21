@@ -17,6 +17,7 @@ import { SchedulesPage } from './schedules.js'
 import { FeedbackIcon, FeedbackPage } from './feedback.js'
 import { AboutPage } from './about.js'
 import { ProvidersPage } from './providers-page.js'
+import { FolderMenu } from './folder-menu.js'
 import { t } from './i18n.js'
 import { MobileDevicesPage } from './mobile-settings.js'
 
@@ -28,8 +29,8 @@ const capitalize = word => word[0].toUpperCase() + word.slice(1)
 const SETTINGS_PAGES = [['general', 'General'], ['models', 'Models'], ['bots', 'Bots'], ['groups', 'Group chats'], ['mobile', 'Mobile devices'], ['connectors', 'Connectors'], ['capabilities', 'Capabilities'], ['schedules', 'Scheduled tasks'], ['usage', 'Usage'], ['secrets', 'Secrets'], ['feedback', 'Feedback'], ['updates', 'Plugin updates'], ['about', 'About DS Bot']]
 const PAGE_ICONS = { ...SETTINGS_ICONS, models: SlidersIcon, mobile: PhoneIcon, connectors: ConnectorIcon, capabilities: PlugIcon, schedules: ClockIcon, secrets: KeyIcon, feedback: FeedbackIcon, updates: ArrowDownIcon, about: InfoIcon }
 
-function SetSection({ title, children }) {
-  return h('section', { className: 'bt-set-section' }, h('h3', null, title), h('div', { className: 'bt-set-card' }, children))
+function SetSection({ title, className = '', children }) {
+  return h('section', { className: `bt-set-section ${className}`.trim() }, h('h3', null, title), h('div', { className: 'bt-set-card' }, children))
 }
 function SetRow({ label, hint, children }) {
   return h('div', { className: 'bt-set-row' },
@@ -66,7 +67,41 @@ function GeneralPage({ roster, actions, run }) {
     actions.setSurface ? h(SetSection, { key: 'mode', title: t('Mode') },
       h(SetRow, { label: t('Classic Agent mode') },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => actions.setSurface('agent') }, t('Switch')))) : null,
+    h(LocationsSection, { key: 'places', actions, run }),
   ]
+}
+
+// The desktop app's preload hands its window `dsBotApp`; only there does the data location
+// show, since DSH keeps the plugin's data where it runs.
+function LocationsSection({ actions, run }) {
+  const app = globalThis.dsBotApp
+  const [team, setTeam] = useState(null)
+  const [data, setData] = useState(null)
+  // One change at a time: the data move checks the new folder against the team workspace, and
+  // a later team workspace must not finish before an earlier one.
+  const [moving, setMoving] = useState(false)
+  const busy = useRef(false)
+  useEffect(() => {
+    void Promise.resolve(actions.folders()).then(info => setTeam(info?.team ?? null)).catch(() => {})
+    if (app !== undefined) void Promise.resolve(app.dataLocation()).then(setData).catch(() => {})
+  }, [])
+  const pickTeam = (path) => {
+    if (busy.current) return undefined
+    busy.current = true
+    setMoving(true)
+    return run(Promise.resolve(actions.setTeamWorkspace(path)).then((answer) => {
+      setTeam(answer.team)
+      app?.teamWorkspaceChanged(answer.team)
+    }).finally(() => {
+      busy.current = false
+      setMoving(false)
+    }))
+  }
+  return h(SetSection, { title: t('Locations'), className: 'bt-set-places' },
+    h(SetRow, { label: t('Team workspace'), hint: t('Where Bots without a folder of their own work.') },
+      team === null ? null : h(FolderMenu, { value: team, team: true, actions, run, onPick: pickTeam, disabled: moving })),
+    data === null ? null : h(SetRow, { label: t('Data location'), hint: data.path },
+      data.fixed ? null : h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: moving, onClick: () => { if (!busy.current) void run(app.moveData(team ?? undefined)) } }, t('Change…'))))
 }
 
 // The first Main Bot is the sidebar tile. Picking another Bot there hands it the role

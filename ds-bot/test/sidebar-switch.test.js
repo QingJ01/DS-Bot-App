@@ -11,7 +11,8 @@ const PLUGIN = dirname(dirname(fileURLToPath(import.meta.url)))
 const { JSDOM } = createRequire(join(process.env.DSH_HARNESS ?? join(PLUGIN, '..', 'deepseek-harness'), 'package.json'))('jsdom')
 
 // The sidebar and its style sheets import the browser's React; bundle them with a minimal
-// stand-in, as the tool-cell tests do: components run as plain functions, effects never run.
+// stand-in, as the tool-cell tests do: components run as plain functions. Navigation
+// fixtures retain refs across commits and run their layout effects after each render.
 const { outputFiles } = await build({
   stdin: {
     contents: "export { SHELL_CSS } from './src/client/styles.js'\nexport { SIDEBAR_CSS, TeamSidebar } from './src/client/sidebar.js'",
@@ -20,17 +21,156 @@ const { outputFiles } = await build({
   bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
   external: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
 })
+let renderRefs
+let refIndex = 0
+let layoutEffects
 const react = {
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), Fragment: Symbol('Fragment'),
-  useEffect() {}, useLayoutEffect() {}, useState: initial => [initial, () => {}],
-  useMemo: make => make(), useRef: current => ({ current }), useId: () => 'id',
+  useEffect() {}, useLayoutEffect: effect => layoutEffects?.push(effect), useState: initial => [initial, () => {}],
+  useMemo: make => make(), useRef: current => renderRefs ? renderRefs[refIndex++] ??= { current } : { current }, useId: () => 'id',
 }
 const module = { exports: {} }
+const viewport = { innerWidth: 1280 }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
   require: name => (name === 'react' ? react : {}),
+  window: viewport,
 })
 const { SHELL_CSS, SIDEBAR_CSS, TeamSidebar } = module.exports
+
+function navigationSidebar(wide, { shell = true } = {}) {
+  const calls = []
+  const refs = []
+  let collapsed = !wide
+  const bot = { id: 'writer', name: 'Writer', createdAt: 1 }
+  const room = { id: 'room', name: 'Team', members: [], createdAt: 2 }
+  const agent = { id: 'agent', sessions: ['session'], createdAt: 3 }
+  const roster = { bots: [bot], rooms: [room], agents: [agent], byId: { writer: bot }, ready: true }
+  const actions = Object.fromEntries(['openSession', 'openAgent', 'openAgentSession', 'newAgentSession'].map(name => [name, id => { calls.push([name, id]); return id }]))
+  actions.toggleSidebar = () => { collapsed = !collapsed; calls.push(['toggleSidebar']) }
+  const rows = []
+  const walk = (node) => {
+    if (Array.isArray(node)) { node.forEach(walk); return }
+    if (!node || typeof node !== 'object') return
+    if (['BotRow', 'RoomRow', 'AgentRow'].includes(node.type?.name)) rows.push(node)
+    walk(node.props?.children)
+  }
+  const render = (nextWide = shell ? wide : !collapsed) => {
+    wide = nextWide
+    // The public owner action closes over the shell's committed collapsed state;
+    // wide may still be true during the shell's 150ms content fade-out.
+    const committedCollapsed = collapsed
+    renderRefs = refs
+    refIndex = 0
+    layoutEffects = []
+    const tree = TeamSidebar({
+      wide, actions,
+      ...(shell ? { expandSidebar: () => { if (committedCollapsed) actions.toggleSidebar() } } : {}),
+      useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+      useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+    })
+    renderRefs = undefined
+    const effects = layoutEffects
+    layoutEffects = undefined
+    effects.forEach(effect => effect())
+    rows.length = 0
+    walk(tree)
+  }
+  render()
+  return { calls, rows, actions, render, get collapsed() { return collapsed } }
+}
+
+for (const width of [390, 1023, 1024, 1280]) {
+  for (const wide of [false, true]) {
+    test(`sidebar navigation at ${width}px with ${wide ? 'expanded content' : 'a collapsed rail'} only closes an open mobile sidebar`, () => {
+      viewport.innerWidth = width
+      const initial = navigationSidebar(wide)
+      assert.equal(initial.rows.length, 3)
+      for (const [index, row] of initial.rows.entries()) {
+        const names = row.type.name === 'AgentRow' ? ['openAgent', 'openAgentSession', 'newAgentSession'] : ['openSession']
+        for (const name of names) {
+          const { rows, calls } = navigationSidebar(wide)
+          assert.equal(rows[index].props.actions[name]('selected'), 'selected')
+          assert.deepEqual(calls, wide && width < 1024 ? [[name, 'selected'], ['toggleSidebar']] : [[name, 'selected']])
+        }
+      }
+    })
+  }
+}
+
+test('repeated sidebar navigation before another commit closes only once', () => {
+  viewport.innerWidth = 390
+  const side = navigationSidebar(true)
+  side.rows[0].props.actions.openAgent('first')
+  side.rows[1].props.actions.openSession('second')
+  assert.equal(side.collapsed, true)
+  assert.deepEqual(side.calls, [['openAgent', 'first'], ['toggleSidebar'], ['openSession', 'second']])
+})
+
+test('the standalone UI can navigate without a shell expansion action', () => {
+  viewport.innerWidth = 390
+  // app/ui passes its actual wide state directly, without the DSH owner action.
+  const side = navigationSidebar(true, { shell: false })
+  side.rows[1].props.actions.openSession('first')
+  side.rows[2].props.actions.openSession('second')
+  assert.equal(side.collapsed, true)
+  assert.deepEqual(side.calls, [['openSession', 'first'], ['toggleSidebar'], ['openSession', 'second']])
+  side.render()
+  side.calls.length = 0
+  side.rows[1].props.actions.openSession('from-rail')
+  assert.deepEqual(side.calls, [['openSession', 'from-rail']])
+  side.actions.toggleSidebar()
+  side.render()
+  side.rows[2].props.actions.openSession('after-expansion')
+  assert.equal(side.collapsed, true)
+})
+
+test('navigation during the shell fade-out keeps the already collapsed sidebar closed', () => {
+  viewport.innerWidth = 390
+  const side = navigationSidebar(true)
+  side.rows[0].props.actions.openAgentSession('first')
+  assert.equal(side.collapsed, true)
+  side.render(true)
+  side.calls.length = 0
+  side.rows[1].props.actions.openSession('during-fade')
+  assert.equal(side.collapsed, true, 'wide remains true until the content fade settles')
+  assert.equal(side.calls.filter(([name]) => name === 'openSession').length, 1)
+})
+
+test('a sidebar reopened before wide becomes false still closes on the next navigation', () => {
+  viewport.innerWidth = 390
+  const side = navigationSidebar(true)
+  side.rows[0].props.actions.openAgent('first')
+  side.render(true)
+  side.actions.toggleSidebar()
+  side.render(true)
+  assert.equal(side.collapsed, false)
+  side.rows[1].props.actions.openSession('after-reopen')
+  assert.equal(side.collapsed, true)
+})
+
+test('the navigation guard resets across a full collapse and expansion cycle', () => {
+  viewport.innerWidth = 390
+  const side = navigationSidebar(true)
+  side.rows[0].props.actions.newAgentSession('first')
+  side.render(false)
+  side.calls.length = 0
+  side.rows[1].props.actions.openSession('from-rail')
+  assert.equal(side.collapsed, true)
+  assert.deepEqual(side.calls, [['openSession', 'from-rail']])
+  side.actions.toggleSidebar()
+  side.render(true)
+  side.rows[1].props.actions.openSession('after-expansion')
+  assert.equal(side.collapsed, true)
+})
+
+test('preparing sidebar navigation leaves actions elsewhere unchanged', () => {
+  viewport.innerWidth = 390
+  const { actions, calls } = navigationSidebar(true)
+  assert.deepEqual(calls, [])
+  actions.openSession('from-another-surface')
+  assert.deepEqual(calls, [['openSession', 'from-another-surface']])
+})
 
 function rulesOf(css) {
   const text = css.replace(/\/\*[\s\S]*?\*\//g, '')

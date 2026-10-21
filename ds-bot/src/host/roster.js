@@ -1,13 +1,12 @@
 // Roster: creating, changing, and deleting Bots and group chats, the Main Bot role, and
 // the first Main Bot of a new team.
 import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
 import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
 
 export function install(rt) {
-  const { ctx, config, home, defaults, state } = rt
+  const { ctx, defaults, state } = rt
 
   let bootstrapping = null
 
@@ -23,8 +22,7 @@ export function install(rt) {
       await keepTeamFolder()
       return state.workspaceId
     }
-    // The desktop app names the folder the user chose for the Bots' files.
-    const path = config.workspace ?? (process.env.DS_BOT_WORKSPACE?.trim() || join(home, 'workspace'))
+    const path = rt.defaultTeamFolder()
     await mkdir(path, { recursive: true })
     const workspace = await ctx.workspaceRegistry.resolveByPath(path) ?? await ctx.workspaceRegistry.create(path, 'DS Bot')
     state.workspaceId = workspace.id
@@ -482,10 +480,13 @@ export function install(rt) {
   async function deleteRoom(id) {
     const room = rt.roomOf(id)
     if (room === undefined) throw new Error('Unknown group chat')
+    // Before the group's Sessions leave the state, which the archive reads.
+    const archived = rt.archiveGroupMemory(room)
     for (const botId of Object.keys(room.sessions ?? {})) rt.dropGroupSession(room, botId)
     delete state.rooms[id]
     rt.roomInbox.delete(id)
     rt.dropGroupLines(id)
+    await archived
     const failed = await saveForDelete()
     // Armed scheduled tasks refuse a plain archive and would keep delivering into
     // the deleted group; the session-stop that stopActivity runs removes them.
@@ -538,6 +539,7 @@ export function install(rt) {
     delete state.bots[id]
     for (const part of parts) {
       delete state.questions[part]
+      if (state.views !== undefined) delete state.views[part]
       delete state.exchangeTurns[part]
       delete state.switching[part]
     }

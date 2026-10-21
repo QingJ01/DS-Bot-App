@@ -28,11 +28,29 @@ export function mentionTarget(event) {
 function clock(ms) {
   return new Date(ms).toLocaleTimeString(dateLocale(), { hour: 'numeric', minute: '2-digit' })
 }
+const midnight = value => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime()
+const daysBefore = (date, now) => Math.round((midnight(new Date(now)) - midnight(date)) / 86400000)
 export function dayLabel(ms) {
   const date = new Date(ms)
   const today = new Date()
   const sameDay = date.toDateString() === today.toDateString()
   return sameDay ? t('Today {time}', { time: clock(ms) }) : `${date.toLocaleDateString(dateLocale(), { weekday: 'short', month: 'short', day: 'numeric' })} ${clock(ms)}`
+}
+
+// The time separator's stamp: "Today 1:12 AM", "Yesterday 9:03 PM", "Thu, Sep 3 4:20 PM".
+export function clockLabel(time, now = Date.now()) {
+  const date = new Date(time)
+  const days = daysBefore(date, now)
+  const stamp = clock(time)
+  if (days === 0) return t('Today {time}', { time: stamp })
+  if (days === 1) return t('Yesterday {time}', { time: stamp })
+  const sameYear = date.getFullYear() === new Date(now).getFullYear()
+  return `${date.toLocaleDateString(dateLocale(), { weekday: 'short', month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) })} ${stamp}`
+}
+
+// A message's own stamp: today only the clock, an earlier day named as a separator does.
+export function messageClock(time, now = Date.now()) {
+  return daysBefore(new Date(time), now) === 0 ? clock(time) : clockLabel(time, now)
 }
 
 // A short relative stamp for list rows: "just now", "5 min", "3 h", "2 d", then a date.
@@ -53,7 +71,9 @@ export function elapsedLabel(ms) {
 }
 
 export const contentText = content => (content ?? []).filter(block => block?.type === 'text').map(block => block.text).join('\n')
-export const HEADER = /^\[(Message from|Reply from|Group chat|Group post from|Bot team setup|Handoff · part|Secret card)[^\]]*\]\n?/
+// A name can contain brackets. Generated headers end at the newline; without a
+// newline, a legacy inline header still stops at its first closing bracket.
+export const HEADER = /^\[(Message from|Reply from|Group chat|Group post from|Bot team setup|Handoff · part|Secret card)(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/
 export const currentPart = bot => bot.sessionId ?? bot.id
 // The prompts in a due scheduled task's message. DSH frames it for the model: one
 // task as `reminder_prompt_json: "…"`, several as `reminders_json: [{reminder_prompt}]`.
@@ -108,10 +128,6 @@ export function isHiddenTurn(roster, sessionId, turn) {
 }
 
 export const toolName = root => root.name || root.call?.name
-
-// While a Session's history loads, a card asked in it may yet be drawn at its call,
-// so the docks hold it back until then.
-export const historyLoading = snapshot => snapshot?.openState === 'cold' || snapshot?.openState === 'loading'
 
 export function toolArgs(root) {
   if (typeof root.args?.text === 'function') {

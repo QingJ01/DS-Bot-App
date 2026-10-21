@@ -27,7 +27,10 @@ export class HostProcess {
    */
   constructor(options) { this.#options = options }
 
-  /** @returns {Promise<{ url: string, injections: unknown[] }>} the Host's launch URL and index injections */
+  /**
+   * @returns {Promise<{ url: string, injections: unknown[] } | { unreadable: string[] }>} the Host's launch URL
+   *   and index injections; for the first-run check, the Sessions it cannot read
+   */
   start() {
     this.#ready ??= new Promise((resolve, reject) => {
       const { entry, cwd, env, pnpm } = this.#options
@@ -44,6 +47,7 @@ export class HostProcess {
       })
       child.on('message', (message) => {
         if (message?.type === 'ready') resolve({ url: message.url, injections: message.injections })
+        else if (message?.type === 'checked') resolve({ unreadable: message.unreadable })
         else if (message?.type === 'fatal') this.#fail(new Error(message.message), reject)
       })
       child.once('error', (error) => { this.#fail(error, reject) })
