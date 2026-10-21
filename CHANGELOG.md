@@ -14,6 +14,8 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 
 ## Unreleased
 
+## DS Bot App [v0.1.3] - 2026-10-20
+
 ### Security
 
 - Desktop team import no longer copies mobile device authorization, server identity, HTTPS enablement or TLS files. Mobile access starts disabled and requires fresh pairing; user-authored mobile skills and the source host are preserved.
@@ -21,7 +23,7 @@ All notable changes to DS Bot are listed here. The format follows [Keep a Change
 ### Added
 
 - Sync upstream source `939a6635830cb5b246e7dd19c67b0e1352ad1c07`: `list_bots` and `message_bot` report teammate status; hand-offs return results and waiting Bots show their character state; add a Docker image.
-- Port frozen upstream `dev` at `a5bba4d4ce0c08d1a1965ca89df652c9220275ef`, including the desktop app, tests, documentation and compatible CI; brand the app for this fork and keep its package and bundled plugin at `0.1.2`.
+- Port frozen upstream `dev` at `a5bba4d4ce0c08d1a1965ca89df652c9220275ef`, including the desktop app, tests, documentation and compatible CI; brand the app for this fork and release the desktop app, mobile app and plugin together at `0.1.3`.
 - Keep the fork's offline Docker plugin-archive reinstall, cached policy metadata and transactional restore; upstream removed this fork-specific integrity-preserving behavior.
 
 ### Changed

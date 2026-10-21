@@ -47,7 +47,7 @@ const TEAM = {
   },
   agents: { x: { id: 'x' } },
 }
-const TEAM_SESSIONS = [['--team--', 'session-a'], ['--team--', 'session-a2'], ['--team--', 'session-g'], ['--team--', 'session-g0'], ['--site--', 'session-b']]
+const TEAM_SESSIONS = [['--team--', 'session-a'], ['--team--', 'session-a2'], ['--team--', 'r1'], ['--team--', 'session-g'], ['--team--', 'session-g0'], ['--site--', 'session-b']]
 
 function oldHome(root) {
   const from = join(root, 'dsh')
@@ -106,7 +106,7 @@ describe('importTeam', () => {
     for (const [group, id] of TEAM_SESSIONS) assert.equal(readFileSync(join(to, 'sessions', group, id, 'session.v4.jsonl.zstd'), 'utf8'), id)
     assert.equal(existsSync(join(to, 'sessions', '--team--', 'session-other')), false)
     assert.deepEqual(summary.missingSessions, ['session-gone'])
-    assert.equal(summary.sessions, 5)
+    assert.equal(summary.sessions, 6)
   })
 
   test('copies the attachments, the keys, and the model rows of the chosen profile', () => {
@@ -126,7 +126,7 @@ describe('importTeam', () => {
   test('records the import, leaves nothing staged and changes nothing in the old home', () => {
     const record = readJson(join(to, 'bot', 'imported.json'))
     assert.deepEqual({ ...record, at: undefined }, {
-      from, at: undefined, dsh: '0.2.0-rc.2', bots: 2, rooms: 1, sessions: 5, missingSessions: ['session-gone'],
+      from, at: undefined, dsh: '0.2.0-rc.2', bots: 2, rooms: 1, sessions: 6, missingSessions: ['session-gone'],
       keys: ['.credentials.yaml', '.env'], modelSettings: 'desktop',
     })
     assert.deepEqual(readdirSync(to).filter(name => name.startsWith('.import-')), [])
@@ -207,7 +207,7 @@ describe('finding the team', () => {
   })
 
   test('names each Session of the team once', () => {
-    assert.deepEqual(sessionIdsOf(TEAM), ['session-a', 'session-a2', 'session-b', 'session-g', 'session-gone', 'session-g0'])
+    assert.deepEqual(sessionIdsOf(TEAM), ['session-a', 'session-a2', 'session-b', 'r1', 'session-g', 'session-gone', 'session-g0'])
   })
 
   test('finds Sessions written in a newer format than the pinned DSH reads', () => {
