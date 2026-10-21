@@ -42,7 +42,7 @@ export function sessionIdsOf(team) {
   return [...new Set([
     ...Object.values(team.bots ?? {}).flatMap(bot => [bot.id, bot.sessionId, ...ids(bot.segments ?? [])]),
     // A group keeps the earlier parts per member: { [botId]: segments }.
-    ...Object.values(team.rooms ?? {}).flatMap(room => [...Object.values(room.sessions ?? {}), ...ids(Object.values(room.segments ?? {}).flat())]),
+    ...Object.values(team.rooms ?? {}).flatMap(room => [room.id, ...Object.values(room.sessions ?? {}), ...ids(Object.values(room.segments ?? {}).flat())]),
   ].filter(id => typeof id === 'string' && id !== ''))]
 }
 

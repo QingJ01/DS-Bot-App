@@ -268,6 +268,13 @@ export function ChatScreen({
       setModelBusy(false);
     }
   }
+  const connectionNotice = chat.status === "unauthorized"
+    ? <Notice error text={tr("This device no longer has access. Open Settings, disconnect, then pair again.")} />
+    : !online
+      ? <Notice text={tr("Host offline. Cached messages and drafts are available. Keep your computer awake, then reconnect to send.")} />
+      : chat.status !== "connected"
+        ? <Text style={{ color: t.muted, fontSize: 11, textAlign: "center" }}>{tr("Reconnecting…")}</Text>
+        : null;
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
@@ -287,6 +294,7 @@ export function ChatScreen({
           <IconButton name="more" floating label={tr("Conversation options")} onPress={() => setOptions(true)} />
         </View>
       </View>
+      {connectionNotice && <View style={{ paddingTop: 82, paddingHorizontal: 16, paddingBottom: 8 }}>{connectionNotice}</View>}
       <FlatList
         ref={list}
         style={{ flex: 1 }}
@@ -294,12 +302,12 @@ export function ChatScreen({
         keyExtractor={(item) => item.id}
         contentContainerStyle={{
           paddingHorizontal: 16,
-          paddingTop: 82,
+          paddingTop: connectionNotice ? 8 : 82,
           flexGrow: 1,
         }}
         keyboardShouldPersistTaps="handled"
         onLayout={() => { if (bottom.current) requestAnimationFrame(() => list.current?.scrollToEnd({animated:false})); }}
-        scrollIndicatorInsets={{ top: 76, bottom: dockHeight }}
+        scrollIndicatorInsets={{ top: connectionNotice ? 0 : 76, bottom: dockHeight }}
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         onScrollBeginDrag={() => {
           positioned.current = true;
@@ -330,7 +338,6 @@ export function ChatScreen({
         }}
         ListHeaderComponent={
           <View style={{ gap: 8 }}>
-          {chat.status === "unauthorized" ? <Notice error text={tr("This device no longer has access. Open Settings, disconnect, then pair again.")} /> : !online ? <Notice text={tr("Host offline. Cached messages and drafts are available. Keep your computer awake, then reconnect to send.")} /> : chat.status !== "connected" ? <Text style={{ color: t.muted, fontSize: 11, textAlign: "center" }}>{tr("Reconnecting…")}</Text> : null}
           {team.readOnly ? <Notice text={team.readOnly} /> : null}
           {chat.cursor ? (
             <Button
