@@ -29,7 +29,8 @@ It never edits DSH files, deletes chats, or disables integrity verification.
 macOS / Linux:
 Download ds-bot-0.1.3.tgz from
 https://github.com/QingJ01/DS-Bot-App/releases/download/v0.1.3/ds-bot-0.1.3.tgz
-and save it in a permanent folder. Check its SHA-256 against SHA256SUMS.txt.
+and save it in a permanent folder. Check its SHA-256 against the release's
+SHA256SUMS (or SHA256SUMS.txt included in this helper ZIP).
 In DSH > Plugins > Add plugin, enter ds-bot@file: followed by its absolute path,
 for example ds-bot@file:/opt/DSBot/packages/ds-bot-0.1.3.tgz.
 Install, enable and restart DSH. Do not move or delete the saved archive.
