@@ -8,6 +8,7 @@ on:
       - 'scripts/build-plugin-installer.py'
       - 'scripts/test-plugin-install.py'
       - 'scripts/test-github-install.py'
+      - 'scripts/release-target.cjs'
       - 'releases/plugin-install.json'
       - '.github/workflows/plugin-installer.yml'
   pull_request:
@@ -16,6 +17,7 @@ on:
       - 'scripts/build-plugin-installer.py'
       - 'scripts/test-plugin-install.py'
       - 'scripts/test-github-install.py'
+      - 'scripts/release-target.cjs'
       - 'releases/plugin-install.json'
       - '.github/workflows/plugin-installer.yml'
   workflow_dispatch:
@@ -23,7 +25,7 @@ on:
       publish:
         type: boolean
         default: false
-        description: Add the tested installer ZIP to v0.1.2 (never replace existing assets)
+        description: Add the tested installer ZIP to its recorded release (never replace existing assets)
 
 permissions:
   contents: read
@@ -49,21 +51,34 @@ jobs:
           python-version: '3.12'
       - name: Install the pnpm version used by DSH
         run: npm install --global pnpm@11.7.0 --ignore-scripts --no-audit --no-fund
+      - name: Read the immutable release metadata
+        id: metadata
+        run: |
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const release = require('./scripts/plugin-installer/release.json');
+          const { releaseTarget } = require('./scripts/release-target.cjs');
+          const target = releaseTarget(release.revision);
+          if (release.version !== target.version || release.archive !== target.pluginFile) throw new Error('Inconsistent installer release metadata');
+          console.log(`tag=${target.releaseTag}`);
+          console.log(`archive=${release.archive}`);
+          NODE
       - name: Download immutable plugin and build installer
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.metadata.outputs.tag }}
+          ARCHIVE: ${{ steps.metadata.outputs.archive }}
         run: |
           mkdir -p input
-          gh release download v0.1.2 --repo "$GITHUB_REPOSITORY" --pattern ds-bot-0.1.2-r1.tgz --dir input
-          python scripts/build-plugin-installer.py --archive input/ds-bot-0.1.2-r1.tgz --output out/plugin-installer
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$ARCHIVE" --dir input
+          python scripts/build-plugin-installer.py --archive "input/$ARCHIVE" --output out/plugin-installer
       - name: Test cold, cached, failed and frozen installs
         env:
-          DSBOT_PLUGIN_ARCHIVE: input/ds-bot-0.1.2-r1.tgz
+          DSBOT_PLUGIN_ARCHIVE: input/${{ steps.metadata.outputs.archive }}
           NO_UPDATE_NOTIFIER: '1'
         run: python scripts/test-plugin-install.py
       - name: Verify the public one-line GitHub installation
         env:
-          DSBOT_PLUGIN_ARCHIVE: input/ds-bot-0.1.2-r1.tgz
+          DSBOT_PLUGIN_ARCHIVE: input/${{ steps.metadata.outputs.archive }}
           NO_UPDATE_NOTIFIER: '1'
         run: python scripts/test-github-install.py
       - uses: actions/upload-artifact@v4
@@ -80,9 +95,13 @@ jobs:
     permissions:
       contents: write
     concurrency:
-      group: publish-plugin-installer-v012-r1
+      group: publish-plugin-installer
       cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - uses: actions/download-artifact@v4
         with:
           name: dsbot-plugin-installer
@@ -92,12 +111,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          sha256sum --check SHA256SUMS-installer-v0.1.2-r1
-          gh release view v0.1.2 --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > existing.txt
-          for name in dsbot-plugin-installer-v0.1.2-r1.zip SHA256SUMS-installer-v0.1.2-r1; do
+          revision=$(node -p "require('../scripts/plugin-installer/release.json').revision")
+          tag=$(node -p "'v' + require('../scripts/plugin-installer/release.json').version")
+          sha256sum --check "SHA256SUMS-installer-$revision"
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > existing.txt
+          for name in "dsbot-plugin-installer-$revision.zip" "SHA256SUMS-installer-$revision"; do
             if grep -Fxq "$name" existing.txt; then
               echo "::error::Asset already exists: $name. Use a new installer revision."
               exit 1
             fi
           done
-          gh release upload v0.1.2 --repo "$GITHUB_REPOSITORY" dsbot-plugin-installer-v0.1.2-r1.zip SHA256SUMS-installer-v0.1.2-r1
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" "dsbot-plugin-installer-$revision.zip" "SHA256SUMS-installer-$revision"
