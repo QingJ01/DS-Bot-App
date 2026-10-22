@@ -13,21 +13,13 @@
 
 ## 下载配套插件和 App
 
-在 [v0.1.2 Release](https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.2) 下载配套文件，请选带 **r1** 的插件与 APK；此修订修复了缺少更新图标导致 DS Bot 设置窗口崩溃的问题，并使用 `SHA256SUMS-r1` 校验。原始 `0.1.2` 附件仅为兼容已有锁文件保留，不再推荐。以下 Actions 下载方式供开发构建使用。
+从公开的 [v0.1.3 Release](https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.3) 下载配套文件：
 
-打开本仓库 [Actions → Build plugin and Android](https://github.com/QingJ01/DS-Bot-App/actions/workflows/build.yml)，选择同一提交的成功运行，在 Artifacts 下载：
+- 插件归档：`ds-bot-0.1.3.tgz`，SHA-256：`ab65ce3033a88890c3410c371aa7a2fc8c88f96437f4620889128b6a7b1c5b1f`。
+- Android 手机：已签名的 `dsbot-android-arm64-v0.1.3.apk`；对应模拟器：`dsbot-android-x86_64-v0.1.3.apk`。
+- 桌面端：`DS-Bot-App-0.1.3-win-x64.exe` 或 macOS arm64/x64 DMG。
 
-| 产物 | 用途 |
-| --- | --- |
-| `dsbot-plugin` | 解压后包含 `ds-bot-0.1.2.tgz`；Release 修订包为 `ds-bot-0.1.2-r1.tgz` |
-| `dsbot-android-arm64` | 手机使用的 ARM64 APK |
-| `dsbot-android-x86_64` | Android x86_64 模拟器 APK |
-
-Artifacts 是 ZIP，先解压。已签名 APK 的文件名为 `dsbot-android-arm64.apk`；含 `-unsigned` 的文件没有签名，不能安装，需要维护者配置签名 Secret 并重新构建。每个产物附带 `SHA256SUMS`。已有发布版本时也可从 [Releases](https://github.com/QingJ01/DS-Bot-App/releases) 下载同一版本的插件和 App。
-
-Release 中的 r1 签名 APK 名称为 `dsbot-android-arm64-v0.1.2-r1.apk`（手机）和 `dsbot-android-x86_64-v0.1.2-r1.apk`（对应模拟器）。
-
-**不要直接安装 npm 的 `ds-bot` 来替代这个包。** npm 名称属于上游项目；本分支的手机桥接、HTTPS 和管理功能由本仓库源码打包。
+使用 `SHA256SUMS` 校验下载的 Release 文件。Actions Artifacts 是开发构建；安装请使用已发布的 Release。历史 v0.1.2 下载保持原样，以兼容已有锁文件。**不要直接安装 npm 的 `ds-bot` 来替代这个包。** npm 名称属于上游项目；本仓库的手机桥接、HTTPS 和管理功能由本仓库源码打包。
 
 ## 电脑安装
 
@@ -35,14 +27,14 @@ Release 中的 r1 签名 APK 名称为 `dsbot-android-arm64-v0.1.2-r1.apk`（手
 2. 打开 DSH **插件 → 添加插件**，粘贴下面一整行，然后点击安装：
 
 ```text
-github:QingJ01/DS-Bot-App#2495b96a52836090a5bb458d4fcd40b22d8a9ac8&path:ds-bot
+github:QingJ01/DS-Bot-App#a115f2b722387b3a401bd34e26fe48ad7d34f78d&path:ds-bot
 ```
 
 3. 启用 DS Bot，完全退出并重启 DSH。
 4. 在 Harness 设置中配置模型与凭据；为 Chief 选择模型，发送消息确认能正常回复。
 5. 可以让 Chief 创建 Bot 与群聊，也可以用客户端的新建入口配置名称、角色、指令和模型。
 
-Windows、macOS、Linux 使用同一条安装文本，不需要额外安装 Git、Node.js 或 pnpm，也不需要下载插件压缩包或运行修复脚本。需要能访问 GitHub 与依赖源。源码固定到 `0.1.2 r1` 的已发布提交，包含手机连接功能。已安装 `0.1.2` 的用户也必须手动安装这个新固定版本；同版本修复不保证自动提示更新。
+Windows、macOS、Linux 使用同一条安装文本，不需要额外安装 Git、Node.js 或 pnpm，也不需要下载插件压缩包或运行修复脚本。需要能访问 GitHub 与依赖源。源码固定到 v0.1.3 合并提交，并包含手机连接功能；请配套安装 v0.1.3 App。
 
 ### 从旧版升级或安装失败后重试
 
@@ -56,7 +48,7 @@ Windows、macOS、Linux 使用同一条安装文本，不需要额外安装 Git�
 
 ```sh
 npm install -g pnpm
-npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#2495b96a52836090a5bb458d4fcd40b22d8a9ac8&path:ds-bot"
+npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#a115f2b722387b3a401bd34e26fe48ad7d34f78d&path:ds-bot"
 npx @deepseek-ai/dsh@0.2.1-rc.2 web
 ```
 

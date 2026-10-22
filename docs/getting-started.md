@@ -10,13 +10,13 @@ The official npm integration baseline is DSH `0.2.1-rc.2`. Keep API keys in DSH'
 
 ## Download matching packages
 
-Download matching files from the [v0.1.2 Release](https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.2). Choose the **r1** plugin and APK: this revision repairs a crash that prevented the DS Bot settings window from opening. Verify the files with `SHA256SUMS-r1`. The original v0.1.2 assets remain only for existing lockfiles and are no longer recommended. Actions downloads below are development builds.
+Download matching files from the public [v0.1.3 Release](https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.3):
 
-Open [Actions → Build plugin and Android](https://github.com/QingJ01/DS-Bot-App/actions/workflows/build.yml). From a successful run for the same commit, download `dsbot-plugin` and `dsbot-android-arm64`; extract the ZIP artifacts first. The Actions plugin is `ds-bot-0.1.2.tgz` (the published Release revision is `ds-bot-0.1.2-r1.tgz`); an installable Actions APK is `dsbot-android-arm64.apk`, while the signed release phone APK is `dsbot-android-arm64-v0.1.2-r1.apk`. Names ending in `-unsigned.apk` are not installable: the maintainer must configure the signing Secret and rebuild. `dsbot-android-x86_64` is for emulators. Each artifact includes `SHA256SUMS`.
+- Plugin archive: `ds-bot-0.1.3.tgz` — SHA-256 `ab65ce3033a88890c3410c371aa7a2fc8c88f96437f4620889128b6a7b1c5b1f`.
+- Android phone: signed `dsbot-android-arm64-v0.1.3.apk`; matching emulator: `dsbot-android-x86_64-v0.1.3.apk`.
+- Desktop: `DS-Bot-App-0.1.3-win-x64.exe` or the macOS arm64/x64 DMG.
 
-The other signed r1 Release APK is `dsbot-android-x86_64-v0.1.2-r1.apk`, for matching emulators.
-
-You can also use matching r1 files from [Releases](https://github.com/QingJ01/DS-Bot-App/releases). **The npm package `ds-bot` is upstream and does not contain this fork's complete mobile implementation.** Install this repository's tarball.
+Verify downloaded release assets with `SHA256SUMS`. The Actions artifacts are development builds; use the published release assets for installation. Historical v0.1.2 downloads remain unchanged for existing lockfiles. **The npm package `ds-bot` is upstream and does not contain this fork's complete mobile implementation.**
 
 ## Host installation
 
@@ -24,14 +24,14 @@ You can also use matching r1 files from [Releases](https://github.com/QingJ01/DS
 2. Open **Plugins → Add plugin**, paste this complete line and install:
 
 ```text
-github:QingJ01/DS-Bot-App#2495b96a52836090a5bb458d4fcd40b22d8a9ac8&path:ds-bot
+github:QingJ01/DS-Bot-App#a115f2b722387b3a401bd34e26fe48ad7d34f78d&path:ds-bot
 ```
 
 3. Enable DS Bot, fully quit and restart DSH.
 4. Configure your provider and credential in Harness settings. Choose Chief's model and test a message.
 5. Ask Chief to create Bots/groups, or use the creation pages to set names, roles, instructions and models.
 
-Windows, macOS and Linux use the same installation text. No separate Git, Node.js or pnpm install, archive download or repair script is needed for Desktop. GitHub and dependency registries must be reachable. The source is pinned to the released `0.1.2 r1` commit and includes the mobile bridge. If you already use version 0.1.2, install this pin manually; a same-version repair is not guaranteed to trigger an automatic update offer.
+Windows, macOS and Linux use the same installation text. No separate Git, Node.js or pnpm install, archive download or repair script is needed for Desktop. GitHub and dependency registries must be reachable. The source is pinned to the v0.1.3 merge commit and includes the mobile bridge; install the matching v0.1.3 App.
 
 ### Updating or recovering a failed install
 
@@ -43,7 +43,7 @@ For DSH Web, install Node.js 24 LTS and pnpm on the server, then run:
 
 ```sh
 npm install -g pnpm
-npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#2495b96a52836090a5bb458d4fcd40b22d8a9ac8&path:ds-bot"
+npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#a115f2b722387b3a401bd34e26fe48ad7d34f78d&path:ds-bot"
 npx @deepseek-ai/dsh@0.2.1-rc.2 web
 ```
 
