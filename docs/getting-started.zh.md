@@ -9,7 +9,7 @@
 - Android ARM64 手机。x86_64 APK 用于对应模拟器；当前构建不包含 ARM32。iOS 的构建与支持范围见 [iOS 文档](ios.zh.md)。
 - 初次连接建议两端使用同一个 Wi-Fi，电脑保持开机。手机不是独立的模型服务器。
 
-主机集成基线为官方 npm DSH `0.2.0-rc.2`，CI 另检查 `0.2.1-alpha.1` 兼容性；建议先使用上述已验证版本。
+主机集成基线为官方 npm DSH `0.2.1-rc.2`。API 密钥请保存在 DSH 凭据界面，不要写入 Git 或聊天。
 
 ## 下载配套插件和 App
 
@@ -48,8 +48,8 @@ Windows、macOS、Linux 使用同一条安装文本，不需要额外安装 Git�
 
 ```sh
 npm install -g pnpm
-npx @deepseek-ai/dsh@0.2.0-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#a115f2b722387b3a401bd34e26fe48ad7d34f78d&path:ds-bot"
-npx @deepseek-ai/dsh@0.2.0-rc.2 web
+npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#a115f2b722387b3a401bd34e26fe48ad7d34f78d&path:ds-bot"
+npx @deepseek-ai/dsh@0.2.1-rc.2 web
 ```
 
 使用 DSH 启动输出中的本机登录链接，在电脑配置模型。不要公开该登录链接或管理入口。已有 DSH 用户继续使用原数据目录，不要让两个进程同时读写同一份数据。需要远程部署时见[域名、VPS、隧道与 Tailscale 教程](mobile-install.zh.md)。

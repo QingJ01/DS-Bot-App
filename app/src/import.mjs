@@ -2,10 +2,13 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { chmod, cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
-import { join, relative, resolve, sep } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import { parseSessionFormatLogFilename } from '@deepseek-ai/dsh-session-format'
 import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
 import { parse, stringify } from 'yaml'
+import { copyTree, within } from './copy-tree.mjs'
+
+export { within }
 
 // The rows of a profile patch that hold model settings: DeepSeek's API and account, other
 // providers, the default model and the agent presets. Rows of other plugins may name plugins
@@ -27,11 +30,6 @@ export function userDshHome(env = process.env) {
   const value = env.DSH_HOME?.trim()
   if (!value) return join(homedir(), '.dsh')
   return resolve(value === '~' ? homedir() : /^~[\\/]/u.test(value) ? join(homedir(), value.slice(2)) : value)
-}
-
-export const within = (inner, outer) => {
-  const path = relative(resolve(outer), resolve(inner))
-  return path === '' || (!path.startsWith('..') && !path.startsWith(sep) && !/^[a-z]:/iu.test(path))
 }
 
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'))
@@ -112,6 +110,24 @@ function sessionDirs(from, ids) {
   return { found, missing }
 }
 
+async function copySessionDirs(from, to, sessions, signal) {
+  for (const { id, group } of sessions) {
+    signal?.throwIfAborted()
+    await cp(join(from, 'sessions', group, id), join(to, 'sessions', group, id), { recursive: true })
+  }
+}
+
+/**
+ * Copy the team's Sessions into the DSH home `to`, as they lie in `from`; an abort stops it between Sessions.
+ * @param {string} from @param {any} team @param {string} to @param {AbortSignal} [signal]
+ * @returns {Promise<string[]>} their ids
+ */
+export async function copySessions(from, team, to, signal) {
+  const { found } = sessionDirs(from, sessionIdsOf(team))
+  await copySessionDirs(from, to, found, signal)
+  return found.map(({ id }) => id)
+}
+
 const logVersion = name => parseSessionFormatLogFilename(name.replace(/\.(zstd|zst|gz|br)$/u, ''))
 
 /** The Sessions whose log is in a newer format than the pinned DSH reads. */
@@ -143,16 +159,21 @@ async function writeModelRows(to, rows) {
  * so that DSH does not take the copied Sessions' folders for its own projects. The old team's
  * workspace files go into `workspace`, without replacing a file that is there.
  * Everything but the keys, the model settings and the workspace files is put together in a
- * folder beside the data and moved in at the end; a failure leaves that folder behind.
- * @param {{ from: string, to: string, workspace: string, profile?: string, dsh?: string }} options
+ * folder beside the data and moved in at the end; a copy that stopped or failed leaves that
+ * folder behind, and the next copy removes it.
+ * @param {{ from: string, to: string, workspace: string, profile?: string, dsh?: string, signal?: AbortSignal }} options
  */
-export async function importTeam({ from, to, workspace, profile, dsh }) {
+export async function importTeam({ from, to, workspace, profile, dsh, signal }) {
   const found = findTeam(from)
   if (found === undefined) throw new Error(`There is no Bot team in ${from}`)
   const present = existsSync(join(to, 'bot', 'state.json')) ? readJson(join(to, 'bot', 'state.json')) : undefined
   if (Object.keys(present?.bots ?? {}).length > 0) throw new Error(`${to} already has a Bot team`)
+  for (const name of (existsSync(to) ? readdirSync(to) : []).filter(entry => /^\.import-\d+$/u.test(entry))) {
+    await rm(join(to, name), { recursive: true, force: true })
+  }
   const stage = join(to, `.import-${String(Date.now())}`)
   const oldBot = join(from, 'bot')
+  signal?.throwIfAborted()
   await cp(oldBot, join(stage, 'bot'), { recursive: true, filter: path => copyBotFile(oldBot, path) })
   const team = readJson(join(stage, 'bot', 'state.json'))
   // The new data location registers its own team workspace. A DSH Agent's Sessions do not move
@@ -161,29 +182,43 @@ export async function importTeam({ from, to, workspace, profile, dsh }) {
   team.agents = {}
   await writeFile(join(stage, 'bot', 'state.json'), JSON.stringify(team, null, 2))
   const { found: sessions, missing } = sessionDirs(from, sessionIdsOf(found.team))
-  for (const { id, group } of sessions) await cp(join(from, 'sessions', group, id), join(stage, 'sessions', group, id), { recursive: true })
+  signal?.throwIfAborted()
+  await copySessionDirs(from, stage, sessions, signal)
+  signal?.throwIfAborted()
   if (existsSync(join(from, 'attachments'))) await cp(join(from, 'attachments'), join(stage, 'attachments'), { recursive: true })
 
+  signal?.throwIfAborted()
   await mkdir(workspace, { recursive: true })
-  if (existsSync(join(oldBot, 'workspace'))) await cp(join(oldBot, 'workspace'), workspace, { recursive: true, force: false })
+  if (existsSync(join(oldBot, 'workspace'))) {
+    // Bots that ran npm or pnpm there leave links, some of them to nothing.
+    const skipped = await copyTree(join(oldBot, 'workspace'), workspace, { force: false, skip: true, signal })
+    if (skipped.length > 0) console.warn('DS Bot App: the import skipped what it could not read in the old team workspace:', skipped)
+  }
+  signal?.throwIfAborted()
   const keys = []
   for (const name of ['.credentials.yaml', '.env']) if (await copyKey(from, to, name)) keys.push(name)
   const rows = found.profiles.find(entry => entry.name === profile)?.rows ?? []
   if (rows.length > 0) await writeModelRows(to, rows)
 
-  await rm(join(to, 'bot'), { recursive: true, force: true })
-  await rename(join(stage, 'bot'), join(to, 'bot'))
   for (const { id, group } of sessions) {
+    signal?.throwIfAborted()
     await mkdir(join(to, 'sessions', group), { recursive: true })
+    // A copy that stopped can have moved the Session in already.
+    await rm(join(to, 'sessions', group, id), { recursive: true, force: true })
     await rename(join(stage, 'sessions', group, id), join(to, 'sessions', group, id))
   }
+  signal?.throwIfAborted()
   if (existsSync(join(stage, 'attachments'))) await cp(join(stage, 'attachments'), join(to, 'attachments'), { recursive: true, force: false })
   const summary = {
     from, at: new Date().toISOString(), ...(dsh ? { dsh } : {}),
     bots: found.bots, rooms: found.rooms, sessions: sessions.length, missingSessions: missing,
     keys, modelSettings: rows.length > 0 ? profile : null,
   }
-  await writeFile(join(to, 'bot', 'imported.json'), `${JSON.stringify(summary, null, 2)}\n`)
+  signal?.throwIfAborted()
+  await writeFile(join(stage, 'bot', 'imported.json'), `${JSON.stringify(summary, null, 2)}\n`)
+  // Until this rename the data has no Bot team, so a copy that stopped can run again.
+  await rm(join(to, 'bot'), { recursive: true, force: true })
+  await rename(join(stage, 'bot'), join(to, 'bot'))
   await rm(stage, { recursive: true, force: true })
   return summary
 }

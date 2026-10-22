@@ -173,6 +173,7 @@ export function install(rt) {
     }
     if (lines.length === 0) lines.push('idle')
     if (state.questions?.[chat] !== undefined) lines.push('a question card in its own chat waits for the user\'s answer')
+    if (state.views?.[chat] !== undefined) lines.push('a view card in its own chat waits for the user\'s answer')
     const unread = new Map()
     for (const args of rt.unreadOf?.(chat) ?? []) {
       const name = nameOf(args.fromId)

@@ -1,4 +1,4 @@
-import { createElement as h, Fragment, useEffect, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { inkText } from './inks.js'
 import { dayLabel } from './text.js'
 import { colorOf, BotMark } from './mark.js'
@@ -12,6 +12,11 @@ const SHEET_EXIT_MS = 220
 export function ExchangeDialog({ pair, roster, actions }) {
   const [entries, setEntries] = useState(null)
   const [leaving, setLeaving] = useState(false)
+  const log = useRef(null)
+  const atEnd = useRef(true)
+  useLayoutEffect(() => {
+    if (entries !== null && atEnd.current && log.current) log.current.scrollTop = log.current.scrollHeight
+  }, [entries])
   // The sheet slides back down before it unmounts.
   const close = () => {
     if (leaving) return
@@ -23,6 +28,8 @@ export function ExchangeDialog({ pair, roster, actions }) {
     let stop = false
     let timer
     let seen = null
+    atEnd.current = true
+    setEntries(null)
     const load = async () => {
       const result = await actions.exchange(pair[0], pair[1])
       if (stop) return
@@ -43,7 +50,10 @@ export function ExchangeDialog({ pair, roster, actions }) {
         left ? h(BotMark, { bot: left, size: 22 }) : null, left?.name ?? '?',
         h('span', { className: 'bt-swap' }, '⇄'),
         right ? h(BotMark, { bot: right, size: 22 }) : null, right?.name ?? '?')),
-      h('div', { className: 'bt-dialog-log', role: 'log', 'aria-label': t('Bot exchange transcript') },
+      h('div', { ref: log, className: 'bt-dialog-log', role: 'log', 'aria-label': t('Bot exchange transcript'), onScroll: (event) => {
+        const node = event.currentTarget
+        atEnd.current = node.scrollHeight - node.scrollTop - node.clientHeight < 2
+      } },
         entries === null ? h('div', { className: 'bt-hint' }, t('Loading…'))
           : entries.length === 0 ? h('div', { className: 'bt-hint' }, t('No messages yet'))
             : entries.map((entry) => {

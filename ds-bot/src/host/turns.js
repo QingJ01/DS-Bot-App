@@ -130,7 +130,7 @@ export function install(rt) {
   const showCall = (id, entry) => {
     const name = [...(entry.calls?.values() ?? [])].at(-1)?.name
     entry.tool = name
-    if (name !== undefined) setActivity(id, name === 'ask_user' ? undefined : activityOf(name))
+    if (name !== undefined) setActivity(id, name === 'ask_user' || name === 'show_view' ? undefined : activityOf(name))
     else if (entry.turn !== undefined) setActivity(id, 'thinking')
   }
   const startCall = (id, entry, callId, name, args) => {
@@ -430,7 +430,7 @@ export function install(rt) {
           // A long post comes as a file (attachLong), which stays with its line.
           const files = (Array.isArray(event.data.content) ? event.data.content : []).filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
           queueRoomMessage(id, {
-            text: textOf(event.data.content).replace(/^\[Group post from [^\]]*\]\n?/, ''),
+            text: textOf(event.data.content).replace(/^\[Group post from (?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, ''),
             ...(files.length > 0 ? { files } : {}),
             botId: source.senderSessionId,
             name: source.senderName,
@@ -458,7 +458,7 @@ export function install(rt) {
           else if (source.work !== undefined && source.work !== rt.workOf?.(entry.info) && !expectsReply(source)) {
             // A result for other work than this turn's informs it, and comes back in a
             // turn of its own once this one ends, which goes on with that work.
-            entry.later = [...(entry.later ?? []), { info: source, text: textOf(event.data.content).replace(/^\[[^\]\n]*\]\n?/, '') }]
+            entry.later = [...(entry.later ?? []), { info: source, text: textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '') }]
           } else if (expectsReply(source) && !answersUser(source)
             && source.exchangeId !== entry.info?.exchangeId
             && !(entry.joined ?? []).some(joined => joined.info.exchangeId === source.exchangeId)) {
@@ -466,7 +466,7 @@ export function install(rt) {
             // answered in a hidden turn of its own once the work is done, so the
             // sender never gets the turn's text. A failed-switch resume message
             // re-sends the trigger's own source; the same exchangeId must not join twice.
-            const text = textOf(event.data.content).replace(/^\[[^\]\n]*\]\n?/, '')
+            const text = textOf(event.data.content).replace(/^\[(?:[^\r\n]*\]\r?\n|[^\]\r\n]*\])/, '')
             entry.joined = [...(entry.joined ?? []), { info: source, text }]
           }
           // A mid-turn relay that owes no reply only informs the turn: it neither
@@ -485,11 +485,17 @@ export function install(rt) {
           }
           const own = rt.chatOwners.get(id)
           if (own !== undefined) rt.dropKickoff(own)
-          // Any user message answers or supersedes the open question card.
+          // Any user message answers or supersedes the open question card and view card.
+          let dropped = false
           if (state.questions[id] !== undefined) {
             delete state.questions[id]
-            void rt.save().catch(() => {})
+            dropped = true
           }
+          if (state.views?.[id] !== undefined) {
+            delete state.views[id]
+            dropped = true
+          }
+          if (dropped) void rt.save().catch(() => {})
         }
         break
       }

@@ -188,7 +188,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: dsbot-desktop-macos-${{ matrix.arch }}
-          path: app/dist-pack/*.dmg
+          path: app/dist-pack/*.zip
           if-no-files-found: error
 
   release:
@@ -239,7 +239,7 @@ jobs:
           mkdir release
           if [[ -z "$revision" ]]; then
             cp out/dsbot-desktop-windows/*.exe out/dsbot-desktop-windows/*.blockmap out/dsbot-desktop-windows/latest.yml release/
-            cp out/dsbot-desktop-macos-arm64/*.dmg out/dsbot-desktop-macos-x64/*.dmg release/
+            cp out/dsbot-desktop-macos-arm64/*.zip out/dsbot-desktop-macos-x64/*.zip release/
           fi
           if [[ -n "$revision" ]]; then
             mkdir legacy
@@ -262,7 +262,7 @@ jobs:
           notes="$GITHUB_WORKSPACE/$notes_file"
           cd release
           if [[ -z "$revision" ]]; then
-            desktop_assets=( ./*.exe ./*.blockmap ./*.dmg latest.yml )
+            desktop_assets=( ./*.exe ./*.blockmap ./*.zip latest.yml )
             sha256sum *.tgz *.apk *.cer "${desktop_assets[@]}" > "$sums_file"
           else
             desktop_assets=()

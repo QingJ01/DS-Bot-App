@@ -4,7 +4,7 @@
 // Usage: node scripts/check-packed.mjs [app executable] [screenshot.png]
 // The executable defaults to the one that `npm run pack` or `npm run dist` writes into dist-pack/.
 import { spawn, spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -79,7 +79,7 @@ async function appPage(port, deadline) {
   while (Date.now() < deadline) {
     try {
       const targets = await (await fetch(`http://127.0.0.1:${String(port)}/json/list`)).json()
-      const page = targets.find(target => target.type === 'page' && target.url.startsWith('dsh-app://app'))
+      const page = targets.find(target => target.type === 'page' && /^http:\/\/127\.0\.0\.1:\d+\//u.test(target.url))
       if (page) return page
     } catch {
       // The debugging port is not listening yet.
@@ -121,6 +121,16 @@ function devtools(url, problems) {
   return { opened, call }
 }
 
+// mica.css styles DSH's own page, which can change with a DSH upgrade; every rule must still
+// find an element, on every platform, so the change shows here and not as a broken window.
+function micaRules() {
+  const css = readFileSync(join(root, 'src', 'mica.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
+  return [...css.matchAll(/([^{}]+)\{/gu)].map(([, selectors]) => selectors.split(',')
+    .map(selector => selector.trim().replace(/::(?:before|after)$/u, ''))
+    .filter(selector => selector !== '' && selector !== 'body'))
+    .filter(rule => rule.length > 0)
+}
+
 async function chat(cdp) {
   const evaluate = async expression => (await cdp.call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result.value
   const until = async (expression, label, ms = 120_000) => {
@@ -137,6 +147,8 @@ async function chat(cdp) {
   await cdp.call('Runtime.enable')
   await cdp.call('Log.enable')
   await until("document.querySelector('.bt-tile, .bt-row')", 'the team')
+  const stale = await evaluate(`${JSON.stringify(micaRules())}.filter(rule => !rule.some(selector => document.querySelector(selector) !== null)).map(rule => rule.join(', '))`)
+  if (stale.length > 0) throw new Error(`src/mica.css no longer matches DSH's page: ${stale.join(' | ')}`)
   await dismissNotice()
   const main = await evaluate("fetch('api/bot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'state', payload: {} }) }).then(r => r.json()).then(r => r.value.mainBotId)")
   await evaluate(`document.querySelector(${JSON.stringify(`[data-bot-id="${main}"]`)}).click()`)

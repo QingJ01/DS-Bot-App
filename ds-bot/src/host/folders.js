@@ -2,9 +2,9 @@
 // there, else a Bot works in its own folder, else in the team workspace. A Session's
 // folder is fixed when it is made, so a change moves the conversation on to a fresh
 // part (parts.js).
-import { realpath, stat } from 'node:fs/promises'
+import { mkdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, join, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { unquote } from './text.js'
 
 const PICK_TIMEOUT_MS = 10 * 60_000
@@ -21,9 +21,29 @@ export function install(rt) {
   const { ctx, state } = rt
 
   const teamFolder = () => ctx.workspaceRegistry.get?.(state.workspaceId)?.path
+  // The desktop app names the folder the user chose for the Bots' files.
+  const defaultTeamFolder = () => rt.config.workspace ?? (process.env.DS_BOT_WORKSPACE?.trim() || join(rt.home, 'workspace'))
   const workDirOf = ({ botId, roomId } = {}) => rt.roomOf(roomId)?.workDir ?? rt.botOf(botId)?.workDir
   const isFolder = path => stat(path).then(info => info.isDirectory(), () => false)
   const real = path => realpath(path).catch(() => resolve(path))
+  // The real path of the deepest part that exists, with the rest after it.
+  const realBeyond = async (path) => {
+    const rest = []
+    for (let at = path; ; at = dirname(at)) {
+      const found = await realpath(at).catch(() => undefined)
+      if (found !== undefined) return join(found, ...rest)
+      if (dirname(at) === at) return path
+      rest.unshift(basename(at))
+    }
+  }
+  // The registry keeps the team workspace as it was given; folders compare as real paths.
+  const realTeam = async () => {
+    const team = teamFolder()
+    return team === undefined ? undefined : real(team)
+  }
+  // Where `input` leads from `base`, as a real path, the way DSH's working_directory resolves
+  // a change; undefined when nothing is there.
+  const folderAt = (base, input) => realpath(resolve(base, input)).catch(() => undefined)
   // Where a Session works: the folder DSH has for it, else the one DS Bot made it for.
   const sessionFolder = (session) => {
     const reported = session?.header === undefined ? undefined : ctx.get?.('workingDirectory')?.get?.(session) ?? session.header.cwd
@@ -32,15 +52,27 @@ export function install(rt) {
     return workDirOf({ botId: rt.selfOf?.(id), roomId: rt.groupOwners?.get(id)?.roomId }) ?? teamFolder()
   }
 
+  // The desktop app runs its own DSH and names the user's, which Bots must not write either.
+  const dataRoots = () => [rt.dshHome, rt.home, process.env.DS_BOT_USER_DSH_HOME?.trim()].filter(Boolean)
+
   // A Bot that could write where DSH or the team keeps its data could change its own
   // permissions or the team, so neither those folders nor one that holds them is allowed.
   async function guarded(path) {
-    const team = teamFolder()
-    for (const root of [rt.dshHome, rt.home]) {
+    const team = await realTeam()
+    for (const root of dataRoots()) {
       const data = await real(root)
       if (within(data, path)) return true
       if (within(path, data) && !(team !== undefined && within(path, team))) return true
     }
+    return false
+  }
+
+  // A file a Bot names to read into the team, such as a photo, may not come from DSH's or
+  // the team's data; the team workspace, which can lie in it, is the exception.
+  async function inData(path) {
+    const team = await realTeam()
+    if (team !== undefined && within(path, team)) return false
+    for (const root of dataRoots()) if (within(path, await real(root))) return true
     return false
   }
 
@@ -58,8 +90,43 @@ export function install(rt) {
       throw new Error(`There is no folder at ${text}`)
     }
     if (!(await isFolder(path))) throw new Error(`${text} is a file, not a folder`)
+    return workFolder(path)
+  }
+
+  // A folder, as a real path, as a working folder: undefined for the team workspace.
+  async function workFolder(path) {
     if (await guarded(path)) throw new Error(`${path} holds DeepSeek Harness data, so Bots cannot work there`)
-    return path === teamFolder() ? undefined : path
+    return path === await realTeam() ? undefined : path
+  }
+
+  // The user moves the team workspace. Bots and groups without a folder of their own move on
+  // to a fresh part there at their next turn, as for any other change of folder; the old
+  // folder and its files stay as they are.
+  async function setTeamWorkspace(input) {
+    const text = unquote(input)
+    const expanded = expandHome(text)
+    if (text === '' || !isAbsolute(expanded)) throw new Error(`Give the full path of the folder, not ${text}`)
+    // The plugin's own default lies in DSH's data, and going back to it stays possible: that
+    // folder itself, not where a link put in its place leads.
+    const fallback = resolve(defaultTeamFolder())
+    const own = join(await realBeyond(dirname(fallback)), basename(fallback))
+    const holdsData = async (path) => {
+      const roots = await Promise.all(dataRoots().map(real))
+      if (roots.some(data => within(data, path))) return true
+      if (path === own && await realBeyond(fallback) === own) return false
+      return roots.some(data => within(path, data))
+    }
+    // A folder to be made counts where it would be made: a link above it can lead into the data.
+    if (await holdsData(await realBeyond(resolve(expanded)))) throw new Error(`${text} holds DeepSeek Harness data, so it cannot be the team workspace`)
+    await mkdir(expanded, { recursive: true })
+    const path = await realpath(expanded)
+    if (!(await isFolder(path))) throw new Error(`${text} is a file, not a folder`)
+    if (await holdsData(path)) throw new Error(`${text} holds DeepSeek Harness data, so it cannot be the team workspace`)
+    if (path === await realTeam()) return path
+    const workspace = await ctx.workspaceRegistry.resolveByPath(path) ?? await ctx.workspaceRegistry.create(path, 'DS Bot')
+    state.workspaceId = workspace.id
+    await rt.save()
+    return path
   }
 
   // Every Session of a Bot: its own chat and its conversation in each of its groups.
@@ -71,7 +138,7 @@ export function install(rt) {
   // `sessions` are the Sessions that would work there; the default policy counts too,
   // since the Sessions made there later start under it. Throws when it is not allowed.
   async function approveFolder(exec, { path, sessions = [], who }) {
-    const team = teamFolder()
+    const team = await realTeam()
     const policy = ctx.get?.('sandboxPolicy')
     if (path === undefined || (team !== undefined && within(path, team)) || policy === undefined) return
     const agents = await Promise.all(sessions.map(id => rt.resolveAgent(id)))
@@ -106,7 +173,8 @@ export function install(rt) {
   async function folderEndpoint(endpoint, body, signal) {
     switch (endpoint) {
       case 'folders': {
-        const team = teamFolder() ?? null
+        // A copied team has its workspace registered at its first turn; until then it is the default.
+        const team = teamFolder() ?? resolve(defaultTeamFolder())
         const known = new Map()
         for (const workspace of ctx.workspaceRegistry.list?.() ?? []) {
           if (workspace.path !== team) known.set(workspace.path, workspace.title)
@@ -138,5 +206,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { teamFolder, workDirOf, sessionFolder, isFolder, cleanWorkDir, sessionsOfBot, approveFolder, folderEndpoint })
+  Object.assign(rt, { teamFolder, defaultTeamFolder, workDirOf, sessionFolder, isFolder, real, folderAt, cleanWorkDir, workFolder, inData, setTeamWorkspace, sessionsOfBot, approveFolder, folderEndpoint })
 }

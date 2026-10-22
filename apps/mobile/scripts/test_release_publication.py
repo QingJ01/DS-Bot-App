@@ -37,8 +37,8 @@ class ReleasePublicationTests(unittest.TestCase):
                     "DS-Bot-App-0.1.1-win-x64.exe.blockmap",
                     "latest.yml",
                 ],
-                "dsbot-desktop-macos-arm64": ["DS-Bot-App-0.1.1-mac-arm64.dmg"],
-                "dsbot-desktop-macos-x64": ["DS-Bot-App-0.1.1-mac-x64.dmg"],
+                "dsbot-desktop-macos-arm64": ["DS-Bot-App-0.1.1-mac-arm64.zip"],
+                "dsbot-desktop-macos-x64": ["DS-Bot-App-0.1.1-mac-x64.zip"],
             }
             for directory, assets in desktop_assets.items():
                 destination = task / "out" / directory
@@ -84,7 +84,7 @@ elif args[:2] not in [['release','upload'],['release','edit'],['release','create
         self.assertIn("./dsbot-android-arm64-v0.1.1-r2.apk", upload)
         self.assertIn("SHA256SUMS-r2", upload)
         self.assertNotIn("--clobber", upload)
-        self.assertFalse(any(asset.endswith((".exe", ".blockmap", ".dmg", "latest.yml")) for asset in upload))
+        self.assertFalse(any(asset.endswith((".exe", ".blockmap", ".zip", "latest.yml")) for asset in upload))
         for original in ["ds-bot-0.1.1.tgz", "SHA256SUMS", "DeepSeekBot.cer"]:
             self.assertNotIn(original, upload)
         self.assertTrue(any(call[:3] == ["release", "edit", "v0.1.1"] for call in calls))
@@ -97,7 +97,7 @@ elif args[:2] not in [['release','upload'],['release','edit'],['release','create
         create = next(call for call in calls if call[:2] == ["release", "create"])
         self.assertIn("ds-bot-0.1.1.tgz", create)
         self.assertIn("--verify-tag", create)
-        for extension in [".exe", ".blockmap", ".dmg", "latest.yml"]:
+        for extension in [".exe", ".blockmap", ".zip", "latest.yml"]:
             self.assertTrue(any(asset.endswith(extension) for asset in create), extension)
         self.assertFalse(any(call[:2] == ["release", "upload"] for call in calls))
 

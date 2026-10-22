@@ -99,7 +99,7 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
             || (release.prerelease === true && !allowPrerelease)) continue
           const version = typeof release.tag_name === 'string' ? release.tag_name.replace(/^v/u, '') : ''
           if (!isNewer(version, current)) continue
-          if (!Array.isArray(release.assets) || !release.assets.some(asset => asset?.name === `DS-Bot-App-${version}-mac-${arch}.dmg`)) continue
+          if (!Array.isArray(release.assets) || !release.assets.some(asset => asset?.name === `DS-Bot-App-${version}-mac-${arch}.zip`)) continue
           if (!isHttpsPage(release.html_url)) {
             log.error('DS Bot App: update check failed: release page URL is not HTTPS')
             continue

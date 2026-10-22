@@ -186,7 +186,7 @@ export function Chat({ sessionId, team }) {
           stream?.text ? h(Bubbles, { texts: [stream.text], roster, selfId: bot?.id, actions, streaming: true, sessionId }) : null,
           // The Bot views' activity row (from the header pill) draws itself in here.
           h('div', { 'data-chat-running': '' }),
-          question ? h(PendingQuestion, { sessionId, question, actions, inline: true }) : null))),
+          question ? h(PendingQuestion, { key: JSON.stringify([sessionId, question.id]), sessionId, question, actions, inline: true }) : null))),
     h('div', { className: 'dsb-composer-root' },
       h(ModelChoiceDock, { sessionId, useRoster: hooks.useRoster, actions }),
       h(Composer, {

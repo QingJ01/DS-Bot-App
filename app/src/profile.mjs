@@ -5,6 +5,10 @@ import { initProfile, loadProfileDirectory, readProfileManifest, resolveProfileD
 export const PROFILE = 'ds-bot'
 // DSH's shared core, DSH's web front end (the window), then the Bot team. Bundles the user installs follow.
 export const BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'ds-bot']
+// The first-run check reads a copy of the team's chats without the Bot team running on them.
+// DSH reads a log the same way whatever the profile mounts.
+export const CHECK_PROFILE = 'import-check'
+export const CHECK_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
 // Bundles that earlier builds of the app put in its profile: the engine layer of its own window (../engine).
 const RETIRED_BUNDLES = ['deepseek-bot-engine']
 // The app's own manifest is the installation: DSH imports plugins only from the installation's dependency
@@ -32,8 +36,19 @@ export function loadAppProfile() {
   const dir = resolveProfileDir(PROFILE)
   initProfile(dir, BUNDLES)
   claimBundles(dir)
+  return loadOwnBundles(dir, BUNDLES)
+}
+
+/** The profile of the first-run check, under the current DSH_HOME. */
+export function loadCheckProfile() {
+  const dir = resolveProfileDir(CHECK_PROFILE)
+  initProfile(dir, CHECK_BUNDLES)
+  return loadOwnBundles(dir, CHECK_BUNDLES)
+}
+
+function loadOwnBundles(dir, bundles) {
   const profile = loadProfileDirectory('dsh', dir, INSTALL_ANCHOR)
-  const lost = profile.skippedBundles.filter(({ packageName }) => BUNDLES.includes(packageName))
+  const lost = profile.skippedBundles.filter(({ packageName }) => bundles.includes(packageName))
   if (lost.length > 0) throw new Error(`The app could not load its own bundles:\n${lost.map(({ packageName, reason }) => `${packageName}: ${reason}`).join('\n')}`)
   return profile
 }

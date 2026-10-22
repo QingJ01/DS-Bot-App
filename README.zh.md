@@ -103,9 +103,9 @@ App 使用 React Native 与 Expo，共用 SDK 连接 DSH 插件。
 
 开发使用 Node.js 24。环境安装、测试与贡献流程见 [贡献指南](CONTRIBUTING.md)。[GitHub Actions](.github/workflows/build.yml) 检查插件、桌面安装包和手机 App，并构建 Android APK；签名与发布步骤见 [发布文档](docs/releasing.zh.md)。
 
-主机兼容基线为 DSH `0.2.0-rc.2`，CI 同时检查 `0.2.1-alpha.1`。语音和桌面浏览器控制需要对应的主机服务，详见 [功能说明](docs/mobile-features.zh.md)。
+主机兼容基线为 DSH `0.2.1-rc.2`。语音和桌面浏览器控制需要对应的主机服务，详见 [功能说明](docs/mobile-features.zh.md)。
 
-本 fork 移植了冻结的 upstream `dev`：`a5bba4d4ce0c08d1a1965ca89df652c9220275ef`，基于 v0.1.7（`939a6635830cb5b246e7dd19c67b0e1352ad1c07`）。Docker 刻意保留本 fork 的离线插件归档重装、供应链策略元数据预置和事务回滚；上游已移除这些能力。
+本 fork 同步自冻结的 upstream `dev`：`02cbb63a29f3591839d2b37ffa91d202a12ede6c`（upstream `v0.2.0`）。该同步在本 fork 中尚未发布；fork 版本仍为 `0.1.3`。Docker 刻意保留本 fork 的离线插件归档重装、供应链策略元数据预置和事务回滚；上游已移除这些能力。
 
 [本地调试](docs/mobile-local-debug.zh.md) · [上游同步](docs/mobile-upstream.zh.md) · [更新记录](CHANGELOG.md)
 

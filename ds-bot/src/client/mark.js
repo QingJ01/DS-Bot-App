@@ -54,11 +54,14 @@ export function BotMark({ bot, look: given, size = 36, state = 'idle', live = fa
   const maskId = useRef('')
   if (maskId.current === '') maskId.current = `bt-mark-${nextMarkSerial()}`
   const [poked, setPoked] = useState(false)
+  // A photo that does not load shows the character instead; a new photo is tried again.
+  const [broken, setBroken] = useState('')
+  const image = look.image && look.image !== broken ? look.image : undefined
   useGaze(ref, gaze)
   const common = {
     ref,
     className: poked ? 'bt-mark bt-mark-poke' : 'bt-mark',
-    'data-shape': look.image ? 'image' : shapeId(look.shape),
+    'data-shape': image ? 'image' : shapeId(look.shape),
     'data-state': STATES.includes(state) ? state : 'idle',
     'data-live': live ? '' : undefined,
     'data-fidget': live ? FIDGETS[fnv1a(`${bot?.id ?? ''}:fidget`) % FIDGETS.length] : undefined,
@@ -71,7 +74,7 @@ export function BotMark({ bot, look: given, size = 36, state = 'idle', live = fa
     onClick: pokeable ? () => setPoked(true) : undefined,
     onAnimationEnd: poked ? (event) => { if (/^bt-poke/.test(event.animationName)) setPoked(false) } : undefined,
   }
-  if (look.image) return h('span', common, h('img', { className: 'bt-mark-img', src: look.image, alt: '', draggable: false }))
+  if (image) return h('span', common, h('img', { className: 'bt-mark-img', src: image, alt: '', draggable: false, onError: () => setBroken(image) }))
   const box = shapeOf(look.shape).size
   return h('span', common, h('svg', { viewBox: `0 0 ${box} ${box}`, dangerouslySetInnerHTML: { __html: characterMarkup(look.shape, look.color).replaceAll(MASK_ID, maskId.current) } }))
 }

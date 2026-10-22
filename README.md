@@ -103,9 +103,9 @@ The App uses React Native and Expo, with a shared SDK connecting it to the DSH p
 
 Use Node.js 24 for development. See [Contributing](CONTRIBUTING.md) for setup, tests and contribution guidelines. [GitHub Actions](.github/workflows/build.yml) checks the plugin, desktop packages and mobile app, and builds Android APKs; signing and release steps are in the [release guide](docs/releasing.md).
 
-The host integration baseline is DSH `0.2.0-rc.2`; CI also checks `0.2.1-alpha.1`. Voice and desktop browser control require the corresponding host services; see [feature configuration](docs/mobile-features.zh.md).
+The host integration baseline is DSH `0.2.1-rc.2`. Voice and desktop browser control require the corresponding host services; see [feature configuration](docs/mobile-features.zh.md).
 
-This fork ports the frozen upstream `dev` tree at `a5bba4d4ce0c08d1a1965ca89df652c9220275ef`, based on v0.1.7 (`939a6635830cb5b246e7dd19c67b0e1352ad1c07`). Docker intentionally retains this fork's offline plugin-archive reinstall, policy metadata seeding and transactional rollback; upstream removed that behavior.
+This fork synchronizes the frozen upstream `dev` tree at `02cbb63a29f3591839d2b37ffa91d202a12ede6c` (upstream `v0.2.0`). This sync is unreleased here; the fork remains at `0.1.3`. Docker intentionally retains this fork's offline plugin-archive reinstall, policy metadata seeding and transactional rollback; upstream removed that behavior.
 
 [Local debugging](docs/mobile-local-debug.zh.md) · [Upstream sync](docs/mobile-upstream.zh.md) · [Changelog](CHANGELOG.md)
 

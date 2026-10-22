@@ -258,9 +258,9 @@ export function install(rt) {
 
   // A member's message in the round: in the log, for the members after it, and in the
   // round's replies, for the user.
-  const postInRound = (room, round, member, text) => {
+  const postInRound = (room, round, member, text, duration) => {
     appendRoom(room, { who: member.name, botId: member.id, text })
-    round.replies.push({ botId: member.id, name: member.name, color: member.color, text, time: Date.now() })
+    round.replies.push({ botId: member.id, name: member.name, color: member.color, text, time: Date.now(), ...(duration === undefined ? {} : { duration }) })
     void rt.save().catch(() => {})
   }
 
@@ -273,6 +273,7 @@ export function install(rt) {
   // member writes before its last step is posted at once and collected in `said`.
   async function roomTurn(room, member, sessionId, { text, files }, note, signal, round, by, said = []) {
     if (signal.aborted) return null
+    const startedAt = Date.now()
     const exchangeId = randomUUID()
     const turn = { botId: member.id, sessionId, exchangeId }
     const { started } = round
@@ -298,7 +299,7 @@ export function install(rt) {
         const step = stripOwnName(member.name, raw)
         if (isPass(step)) return
         said.push(step)
-        postInRound(room, round, member, step)
+        postInRound(room, round, member, step, Date.now() - startedAt)
       }
       touch()
       rt.roomWaiters.set(exchangeId, { sessionId, botId: member.id, roomId: room.id, resolve: finish, fail: failure => finish({ failure }), touch, work, say, approval: () => finish({ approval: true }) })
@@ -448,6 +449,7 @@ export function install(rt) {
       round.shown?.push(member.id)
       const text = session.brief === undefined ? prompt.text : `${session.brief}\n\n${prompt.text}`
       const said = []
+      const startedAt = Date.now()
       const reply = await roomTurn(room, member, session.id, { text, files: prompt.files }, slot.note ?? 'your turn', signal, round, slot.by, said)
       round.speaking = null
       const final = typeof reply === 'string' && !isPass(reply) ? reply : undefined
@@ -466,7 +468,7 @@ export function install(rt) {
         round.replies.push({ kind: 'working', botId: member.id, name: member.name, color: member.color, time: Date.now() })
       } else if (final !== undefined || (typeof reply === 'string' && said.length > 0)) {
         slot.status = 'posted'
-        if (final !== undefined) postInRound(room, round, member, final)
+        if (final !== undefined) postInRound(room, round, member, final, Date.now() - startedAt)
       } else {
         slot.status = typeof reply === 'string' ? 'passed' : 'missed'
         round.passed.push(member.name)

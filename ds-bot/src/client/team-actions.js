@@ -1,11 +1,13 @@
-import { countCards } from './sources.js'
+import { countCards, heldCardKey } from './sources.js'
 import { noteClientError } from './diagnostics.js'
 
 // The actions every window that draws the Bot views shares: dialogs and panels (the `ui`
 // source), requests to the host, and the notes the transcript keeps. The shell around the
 // views adds navigation and its own panels. `after` reads the team again once a request
 // is done; `partFor` maps a Bot id, or any part of its chat, to its current part.
-export function teamActions({ call, after, partFor, roster, ui, live, cards, turnClock }) {
+export function teamActions({ call, after, partFor, roster, ui, live, cards, heldCards, turnClock }) {
+  // A memory is a Bot's or a group chat's; both are opened by id.
+  const memoryOf = id => (roster.getSnapshot().roomsById[id] ? { roomId: id } : { botId: id })
   return {
     openNewChat: (mode) => { ui.set(state => ({ ...state, newChat: mode, menu: null, palette: null })) },
     openPalette: (query = '') => { ui.set(state => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null })) },
@@ -35,7 +37,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, tur
     // `id` opens one Bot (page 'bots') or one group chat (page 'groups').
     openSettings: (page = 'general', id = null) => { ui.set(state => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null })) },
     closeSettings: () => { ui.set(state => (state.settings ? { ...state, settings: null } : state)) },
-    openMemory: (botId) => { ui.set(state => ({ ...state, memory: botId, menu: null, palette: null })) },
+    openMemory: (id) => { ui.set(state => ({ ...state, memory: id, menu: null, palette: null })) },
     closeMemory: () => { ui.set(state => (state.memory ? { ...state, memory: null } : state)) },
     openConnectors: () => { ui.set(state => ({ ...state, settings: { page: 'connectors', id: null }, menu: null, palette: null, newChat: null })) },
     setPanelView: (view) => {
@@ -58,6 +60,7 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, tur
     folders: () => call('folders'),
     folderPick: () => call('folder-pick'),
     folderList: path => call('folder-list', { path: path ?? '' }),
+    setTeamWorkspace: path => after(call('team-workspace', { path })),
     deleteBot: id => after(call('delete-bot', { id })),
     duplicateBot: id => after(call('duplicate-bot', { id })),
     setPrefs: prefs => after(call('set-prefs', prefs)),
@@ -66,6 +69,8 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, tur
     send: (sessionId, text) => after(call('send', { sessionId: partFor(sessionId), text })),
     answerQuestion: (sessionId, questionId, answer) => after(call('answer-question', { sessionId: partFor(sessionId), questionId, answer })),
     dismissQuestion: sessionId => after(call('dismiss-question', { sessionId })),
+    answerView: (sessionId, viewId, action, values) => after(call('view-reply', { sessionId: partFor(sessionId), viewId, action, values })),
+    dismissView: sessionId => after(call('dismiss-view', { sessionId: partFor(sessionId) })),
     answerApproval: (id, choice) => after(call('approval-answer', { id, choice })),
     stopMemberWork: (roomId, botId) => after(call('stop-member-work', { roomId, botId })),
     // Values go out in these requests and never come back in a response.
@@ -92,9 +97,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, tur
     // Hours come back in this browser's time zone, so days start at local midnight.
     usage: () => call('usage', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
     // `summarize` starts a summary when the entries changed; `regenerate` always does.
-    memoryView: (botId, flags = {}) => call('memory-view', { botId, ...flags }),
-    memoryAsk: (botId, text) => call('memory-ask', { botId, text }),
-    memoryForget: (botId, entry) => call('memory-forget', { botId, scope: entry.scope, topic: entry.topic, text: entry.text }),
+    memoryView: (id, flags = {}) => call('memory-view', { ...memoryOf(id), ...flags }),
+    memoryAsk: (id, text) => call('memory-ask', { ...memoryOf(id), text }),
+    memoryForget: (id, entry) => call('memory-forget', { ...memoryOf(id), scope: entry.scope, topic: entry.topic, text: entry.text }),
     diagnostics: payload => call('diagnostics', payload),
     diagnosticsLog: () => call('diagnostics-log'),
     diagnosticsClear: () => call('diagnostics-clear'),
@@ -138,6 +143,9 @@ export function teamActions({ call, after, partFor, roster, ui, live, cards, tur
     },
     noteCards: (sessionId, callIds, delta) => {
       if (sessionId !== undefined) cards.set(state => countCards(state, sessionId, callIds, delta))
+    },
+    noteHeldCard: (sessionId, kind, requestId, delta) => {
+      if (sessionId !== undefined) heldCards.set(state => countCards(state, sessionId, [heldCardKey(kind, requestId)], delta))
     },
     clearLive: sessionId => live.set((state) => {
       if (!state[sessionId]) return state

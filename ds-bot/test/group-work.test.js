@@ -301,6 +301,8 @@ test('a member called while still at earlier work lets the round go on at once',
   const result = host.round('c1', host.say('@Writer 再看看这个'))
   await settle(() => result() !== undefined)
   assert.deepEqual(kinds(result()), [['working', 'Writer']])
+  // A member at work has not run its turn here, and an event is not a message.
+  assert.equal(result().replies[0].duration, undefined)
   // The call waits for the work before it.
   assert.equal(host.agentOf('gb').inbox.nextTurn.length, 1)
 })
@@ -573,6 +575,24 @@ test('a member post calls only the members it names', async (t) => {
   assert.deepEqual(host.agentOf('gb').calls.filter(call => call.source?.role !== 'post'), [])
 })
 
+test('a post from a Bot with brackets in its name reaches the group and its member unchanged', async (t) => {
+  const host = await start(t)
+  assert.equal((await host.call('update-bot', { id: 'b', name: 'A[B]C' })).ok, true)
+  const body = '@Tester Check [notes](https://example.test)\n[Keep this line]'
+  await host.tool('post_to_group', { group: 'Ops', message: body }, 'b')
+  const post = host.takePost()
+  assert.equal(post.source.senderName, 'A[B]C')
+  assert.equal(text(post), `[Group post from A[B]C]\n${body}`)
+  const round = host.round('c1', post)
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  assert.ok(text(host.begin('gc')).includes(`A[B]C: ${body}`))
+  host.finish('gc', 'Checked.')
+  await settle(() => round() !== undefined)
+  const [line] = logLines(host).filter(entry => entry.botId === 'b')
+  assert.equal(line.who, 'A[B]C')
+  assert.equal(line.text, body)
+})
+
 test('a member post that names only itself calls nobody', async (t) => {
   const host = await start(t)
   const rejected = await host.tool('post_to_group', { group: 'Ops', message: '@Writer 记一下', report_back: true }, 'b')
@@ -734,6 +754,28 @@ test('a member whose every message went out while it worked counts as posted, no
   host.emit('gb', 'turn/end', { turn: 1, reason: { kind: 'completed' } })
   await settle(() => result() !== undefined)
   assert.deepEqual([result().passed, result().replies.map(reply => reply.text)], [[], ['我看一下。']])
+})
+
+test('a member\'s messages carry how long its turn ran', async (t) => {
+  const host = await start(t)
+  const result = host.round('c1', host.say('@Writer 整理文档'))
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  host.begin('gb')
+  step(host, 'gb', '收到，先看看。', 'k1', 'list_bots')
+  await settle(() => true)
+  const live = await progress(host)
+  assert.equal(typeof live.replies[0].duration, 'number')
+  assert.ok(live.replies[0].duration >= 0)
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  host.finish('gb', '整理好了。')
+  await settle(() => result() !== undefined)
+  const messages = result().replies.filter(reply => reply.kind === undefined)
+  assert.deepEqual(messages.map(reply => reply.text), ['收到，先看看。', '整理好了。'])
+  for (const reply of messages) {
+    assert.equal(typeof reply.duration, 'number')
+    assert.ok(reply.duration >= 0)
+  }
+  assert.ok(result().replies.every(reply => reply.kind === undefined || reply.duration === undefined))
 })
 
 test('after the round went on, lines a member writes close together reach the group as one message; only the result is answered', async (t) => {

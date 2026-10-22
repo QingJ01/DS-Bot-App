@@ -14,6 +14,8 @@ asarUnpack:
 # node-pty, sharp and koffi ship prebuilt binaries for each platform. A rebuild would compile
 # node-pty from source and needs a C++ toolchain.
 npmRebuild: false
+# So the binaries come from npm as it installed them; a build for another architecture stops.
+beforePack: ./scripts/before-pack.mjs
 win:
   target:
     - target: nsis
@@ -28,7 +30,8 @@ nsis:
   installerLanguages: [zh_CN, en_US]
   multiLanguageInstaller: true
 mac:
-  target: dmg
+  # A zip, not a dmg: macOS 26 calls a downloaded unsigned dmg damaged and will not open it (#351).
+  target: zip
   # Ad-hoc signing seals the bundle; no Developer ID or notarization.
   identity: '-'
   hardenedRuntime: false
