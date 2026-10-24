@@ -149,14 +149,7 @@ jobs:
           node-version: 24
       - run: npm ci --no-fund --no-audit
       - run: npm run dist
-      # An AppImage mounts through FUSE 2, and Ubuntu 24.04's AppArmor blocks the unprivileged
-      # user namespaces that Chromium's sandbox needs; a throwaway runner may lift that.
-      - name: Prepare to run the app
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq libfuse2t64 xvfb
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - name: Check the packaged app
-        run: xvfb-run -a node scripts/check-packed.mjs
+      - run: node scripts/check-packed.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: dsbot-desktop-windows
