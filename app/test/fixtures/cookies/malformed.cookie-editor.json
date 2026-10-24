@@ -1,0 +1,136 @@
+[
+  {
+    "name": "m_ok1",
+    "value": "dummy-m_ok1",
+    "domain": "127.0.0.1",
+    "hostOnly": true,
+    "path": "/cookies",
+    "secure": false,
+    "httpOnly": false,
+    "sameSite": "unspecified",
+    "session": true,
+    "storeId": "0"
+  },
+  "not an object",
+  null,
+  {
+    "value": "dummy-m_noname",
+    "domain": "127.0.0.1",
+    "hostOnly": true,
+    "path": "/cookies"
+  },
+  {
+    "name": "m_nodomain",
+    "value": "dummy-m_nodomain",
+    "path": "/cookies"
+  },
+  {
+    "name": 42,
+    "value": "dummy-m_numname",
+    "domain": "127.0.0.1"
+  },
+  {
+    "name": "m_badexpiry",
+    "value": "dummy-m_badexpiry",
+    "domain": "127.0.0.1",
+    "hostOnly": true,
+    "path": "/cookies",
+    "secure": false,
+    "httpOnly": false,
+    "sameSite": "unspecified",
+    "session": false,
+    "storeId": "0",
+    "expirationDate": "soon"
+  },
+  {
+    "name": "m_weirdsamesite",
+    "value": "dummy-m_weirdsamesite",
+    "domain": "127.0.0.1",
+    "hostOnly": true,
+    "path": "/cookies",
+    "secure": false,
+    "httpOnly": false,
+    "sameSite": "sometimes",
+    "session": true,
+    "storeId": "0"
+  },
+  {
+    "name": "m_minimal",
+    "value": "dummy-m_minimal",
+    "domain": "127.0.0.1"
+  },
+  {
+    "name": "m_none_insecure",
+    "value": "dummy-m_none_insecure",
+    "domain": "127.0.0.1",
+    "hostOnly": true,
+    "path": "/cookies",
+    "secure": false,
+    "httpOnly": false,
+    "sameSite": "no_restriction",
+    "session": true,
+    "storeId": "0"
+  },
+  {
+    "name": "m_expired",
+    "value": "dummy-m_expired",
+    "domain": "127.0.0.1",
+    "hostOnly": true,
+    "path": "/cookies",
+    "secure": false,
+    "httpOnly": false,
+    "sameSite": "unspecified",
+    "session": false,
+    "storeId": "0",
+    "expirationDate": 1792586894
+  },
+  {
+    "name": "m_ms",
+    "value": "dummy-m_ms",
+    "domain": "127.0.0.1",
+    "hostOnly": true,
+    "path": "/cookies",
+    "secure": false,
+    "httpOnly": false,
+    "sameSite": "unspecified",
+    "session": false,
+    "storeId": "0",
+    "expirationDate": 1824209292000
+  },
+  {
+    "name": "m_dup",
+    "value": "dummy-m_dup",
+    "domain": "127.0.0.1",
+    "hostOnly": true,
+    "path": "/cookies",
+    "secure": false,
+    "httpOnly": false,
+    "sameSite": "unspecified",
+    "session": true,
+    "storeId": "0"
+  },
+  {
+    "name": "m_dup",
+    "value": "dummy-m_dup",
+    "domain": "127.0.0.1",
+    "hostOnly": true,
+    "path": "/cookies",
+    "secure": false,
+    "httpOnly": true,
+    "sameSite": "unspecified",
+    "session": true,
+    "storeId": "0"
+  },
+  {
+    "name": "m_ok2",
+    "value": "dummy-m_ok2",
+    "domain": "127.0.0.1",
+    "hostOnly": true,
+    "path": "/cookies",
+    "secure": false,
+    "httpOnly": false,
+    "sameSite": "unspecified",
+    "session": true,
+    "storeId": "0"
+  }
+]

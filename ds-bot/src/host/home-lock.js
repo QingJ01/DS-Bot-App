@@ -3,9 +3,10 @@
 // other's changes. The first host to load takes `state.lock`; a second one only reads.
 //
 // The lock is a small JSON file (pid, host, a random token) whose mtime the holder bumps
-// on a timer. On the same host, its process decides whether it is live; `staleMs` only
-// covers other hosts and unreadable files. A reused pid after a crash keeps the second
-// host read-only until that process ends. The token, not the pid, decides ownership: a
+// on a timer. A live holder on the same host needs both: a process that still runs under
+// that pid and a heartbeat fresher than `staleMs` — a crashed holder's pid may be reused
+// by an unrelated process, and without the heartbeat check that process would hold the
+// team read-only for as long as it runs. The token, not the pid, decides ownership: a
 // holder that finds another token has lost the lock.
 import { randomUUID } from 'node:crypto'
 import { readFileSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
@@ -39,7 +40,7 @@ export function homeLock(path, { staleMs = 60_000, beatMs = 15_000, host = hostn
   const live = (holder) => {
     if (holder === undefined) return false
     if (holder === null) return age() < staleMs
-    if (holder.host === host) return holder.pid !== pid && isAlive(holder.pid)
+    if (holder.host === host) return holder.pid !== pid && isAlive(holder.pid) && age() < staleMs
     return age() < staleMs
   }
   const owns = () => read()?.token === token

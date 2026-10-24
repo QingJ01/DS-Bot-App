@@ -131,7 +131,7 @@ function ownerFace(owner, roster) {
 }
 
 function kindLabel(kind, botFocus) {
-  const labels = { chat: botFocus ? t('Own chat') : t('Conversations'), group: t('Group chats'), compaction: t('Compaction and handoff'), image: t('Image reading'), memory: t('Memory'), 'session-title': t('Titles'), other: t('Other') }
+  const labels = { chat: botFocus ? t('Own chat') : t('Conversations'), group: t('Group chats'), compaction: t('Compaction and handoff'), image: t('Image reading'), memory: t('Memory'), 'session-title': t('Titles'), btw: t('Side question'), other: t('Other') }
   return labels[kind] ?? kind
 }
 
@@ -741,4 +741,18 @@ button.bt-us-row:hover{background:var(--bt-hover)}
 @keyframes bt-us-pulse{50%{opacity:.25}}
 @keyframes bt-us-shine{from{background-position:200% 0}to{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){.bt-us *,.bt-us *::before{animation:none!important;transition:none!important}}
+/* Phone-width viewports: the page is full width but its fixed parts are not —
+   stats take two columns, the calendar and heat map shrink or scroll. */
+@media (max-width:640px){
+  .bt-us-stats{grid-template-columns:repeat(2,1fr)}
+  .bt-us-stat{padding:12px}
+  .bt-us-stat-value{font-size:19px;line-height:24px;white-space:normal;flex-wrap:wrap}
+  .bt-us-stat-main .bt-us-stat-value{font-size:26px;line-height:32px}
+  .bt-us-tabs{max-width:100%;overflow-x:auto}
+  .bt-us-month{width:min(252px,100%)}
+  .bt-us-weekdays,.bt-us-days{grid-template-columns:repeat(7,minmax(0,1fr))}
+  .bt-us-pair{grid-template-columns:1fr}
+  .bt-us-heat{overflow-x:auto}
+  .bt-us-heat-months,.bt-us-heat-grid{grid-template-columns:repeat(${HEAT_WEEKS},minmax(8px,1fr))}
+}
 `

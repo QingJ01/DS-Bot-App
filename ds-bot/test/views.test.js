@@ -49,8 +49,8 @@ test('normalizeView unwraps XML-style arrays and coerces numeric strings', () =>
 })
 
 test('validateView rejects an unknown component with the path and the catalog', () => {
-  const view = stack(text(), metric(), { type: 'chart', data: [1] })
-  assert.equal(validateView(view).error, 'view.children[2].type: unknown component "chart"; allowed: stack, text, metric, table, options, confirm, form, progress')
+  const view = stack(text(), metric(), { type: 'gauge', data: [1] })
+  assert.equal(validateView(view).error, 'view.children[2].type: unknown component "gauge"; allowed: stack, row, text, metric, table, chart, progress, callout, sources, html, slider, choice, toggle, number, options, confirm, form, submit')
   assert.equal(validateView(null).error, 'view: expected a component object')
   assert.equal(validateView([]).error, 'view: expected a component object')
   assert.match(validateView({ type: 'text' }).error, /view\.text: expected a string/)
@@ -103,11 +103,33 @@ test('validateView enforces table, options, form, depth, node, and id limits', (
   assert.equal(validateView({ type: 'form', id: 'ask', fields: [{ id: '__proto__', label: 'Name' }] }).error, 'view.fields[0].id: "__proto__" cannot be an id')
 })
 
+test('normalizeView keeps an own "__proto__" key as data for the validator to reject', () => {
+  // Assigning into {} would hit the prototype setter: the key would vanish from
+  // the JSON while its inherited properties could still pass validation.
+  const ghost = normalizeView(JSON.parse('{"__proto__": {"type": "options", "id": "x", "options": [{"label": "A"}]}}'))
+  assert.equal(Object.getPrototypeOf(ghost), Object.prototype)
+  assert.ok(Object.hasOwn(ghost, '__proto__'))
+  assert.notEqual(JSON.stringify(ghost), '{}')
+  assert.equal(validateView(ghost).ok, false)
+  const typed = normalizeView(JSON.parse('{"type": "text", "text": "hi", "__proto__": {"polluted": true}}'))
+  assert.match(validateView(typed).error, /view\.__proto__: unknown property "__proto__"/)
+})
+
 test('checkShownView runs the call\'s own checks and names the card and its kind', () => {
-  assert.deepEqual(checkShownView('  Status  ', text()), { title: 'Status', interactive: false })
-  assert.deepEqual(checkShownView('Pick', options()), { title: 'Pick', interactive: true })
-  assert.equal(checkShownView(' ', text()).error, 'Give the view a title.')
-  assert.equal(checkShownView('Card', { type: 'nope' }).error, 'view.type: unknown component "nope"; allowed: stack, text, metric, table, options, confirm, form, progress')
+  assert.deepEqual(checkShownView('  Status  ', text()), { title: 'Status', view: text(), interactive: false })
+  assert.deepEqual(checkShownView('Pick', options()), { title: 'Pick', view: options(), interactive: true })
+  // The bytes are measured as sent, before the provider's encoding unwraps: a
+  // wrapped document cannot shrink under the limit...
+  let children = [text()]
+  while (viewBytes('', { type: 'stack', children }) <= VIEW_BYTE_LIMIT) children = { item: children }
+  assert.match(checkShownView('Big', { type: 'stack', children }).error, new RegExp(`^The view is \\d+ bytes; the limit is ${VIEW_BYTE_LIMIT}\\.$`))
+  // ...while the same card normalized fits and validates.
+  assert.deepEqual(checkShownView('Pick', { type: 'stack', children: { item: { item: [options()] } } }), { title: 'Pick', view: stack(options()), interactive: true })
+  // A view needs no title.
+  assert.deepEqual(checkShownView(' ', text()), { title: '', view: text(), interactive: false })
+  assert.deepEqual(checkShownView(undefined, text()), { title: '', view: text(), interactive: false })
+  assert.equal(checkShownView(3, text()).error, 'title: expected a string')
+  assert.equal(checkShownView('Card', { type: 'nope' }).error, 'view.type: unknown component "nope"; allowed: stack, row, text, metric, table, chart, progress, callout, sources, html, slider, choice, toggle, number, options, confirm, form, submit')
   assert.equal(checkShownView('Card', undefined).error, 'view: expected a component object')
   const room = VIEW_BYTE_LIMIT - viewBytes('', text())
   assert.equal(checkShownView('x'.repeat(room + 1), text()).error, `The view is ${VIEW_BYTE_LIMIT + 1} bytes; the limit is ${VIEW_BYTE_LIMIT}.`)
@@ -128,7 +150,7 @@ test('the mock near-limit view fixture passes the production byte and view check
   const view = makeLongNoteView()
   const bytes = viewBytes(LONG_NOTE_TITLE, view)
   assert.ok(bytes > 7500 && bytes < VIEW_BYTE_LIMIT, `${bytes} bytes`)
-  assert.deepEqual(checkShownView(LONG_NOTE_TITLE, view), { title: LONG_NOTE_TITLE, interactive: false })
+  assert.deepEqual(checkShownView(LONG_NOTE_TITLE, view), { title: LONG_NOTE_TITLE, view, interactive: false })
 })
 
 test('viewSummary keeps a short list of component values', () => {

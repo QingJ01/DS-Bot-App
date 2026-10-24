@@ -1,15 +1,21 @@
 // Electron main process: one window for the Bot team, served by the app's own DSH Host.
 // The window loads the Host's loopback address as DSH Web does: DSH's sign-in sends the page's
 // origin as the address the browser comes back to, and accepts only a loopback one.
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { rm } from 'node:fs/promises'
+import { readFile, rm } from 'node:fs/promises'
 import { release } from 'node:os'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { getDshRuntimeVersion } from '@deepseek-ai/dsh-app-boot'
 import electronUpdater from 'electron-updater'
+import { BotBrowserGuests, partitionOf } from './bot-browser.mjs'
+import { importFromBrowser, listSources } from './browser-sources.mjs'
+import { applyCookies, CookieImports } from './cookie-import.mjs'
+import { parseCookieFile } from './cookie-parse.mjs'
+import { downloadSaver } from './downloads.mjs'
+import { canonicalExecPath } from './canonical-path.mjs'
 import { chooseLocations, localeText, programFolder, saveLocations, text } from './first-run.mjs'
 import { hostPort } from './host-port.mjs'
 import { HostProcess } from './host-process.mjs'
@@ -22,7 +28,13 @@ import { CAPTION_HEIGHT, cssColor, micaAvailable, nativeThemeSource } from './wi
 const IPC = {
   caption: 'ds-bot:caption-colors', nativeTheme: 'ds-bot:native-theme', fullscreen: 'ds-bot:fullscreen',
   dataLocation: 'ds-bot:data-location', moveData: 'ds-bot:move-data', teamWorkspace: 'ds-bot:team-workspace',
+  browserAcquire: 'ds-bot:browser-acquire', browserRelease: 'ds-bot:browser-release', browserForget: 'ds-bot:browser-forget',
+  browserImportSources: 'ds-bot:browser-import-sources', browserImportPick: 'ds-bot:browser-import-pick',
+  browserImportLive: 'ds-bot:browser-import-live', browserImportApply: 'ds-bot:browser-import-apply',
+  browserImportCancel: 'ds-bot:browser-import-cancel',
 }
+// A cookie export larger than this is not a cookie export.
+const IMPORT_FILE_MAX = 32 * 1024 * 1024
 const MOVE_PROBLEMS = { drive: 'moveDrive', nested: 'moveNested', workspace: 'moveWorkspace', program: 'inProgram', notEmpty: 'moveNotEmpty' }
 const UPDATE_CHECK_WAIT_MS = 15_000
 const UPDATE_DOWNLOAD_WAIT_MS = 15 * 60_000
@@ -50,8 +62,17 @@ let places
 let choosing
 let copying
 const copyAbort = new AbortController()
+const browserGuests = new BotBrowserGuests({ session, origin: () => origin, devTools: !app.isPackaged })
+const cookieImports = new CookieImports()
 
-if (!app.requestSingleInstanceLock()) {
+// A packaged app started through an 8.3 short path or a junction restarts once on the
+// canonical path: the lock below and every path the Host sees then agree with the long
+// form, and the profile patch layer stops mixing the two.
+const canonical = app.isPackaged ? canonicalExecPath(process.execPath) : undefined
+if (canonical !== undefined) {
+  app.relaunch({ execPath: canonical, args: process.argv.slice(1) })
+  app.exit(0)
+} else if (!app.requestSingleInstanceLock()) {
   app.exit(0)
 } else {
   app.on('second-instance', focusWindow)
@@ -132,6 +153,62 @@ async function start() {
   ipcMain.handle(IPC.moveData, (event, workspace) => {
     assertWindow(event)
     return fixed ? false : moveData(typeof workspace === 'string' && isAbsolute(workspace) ? workspace : places.workspace)
+  })
+  // ds-bot's Bot browsers: one webview per lease, in the storage of the Bot's key.
+  ipcMain.handle(IPC.browserAcquire, (event, key) => {
+    assertWindow(event)
+    return browserGuests.acquire(event.sender, key)
+  })
+  ipcMain.handle(IPC.browserRelease, (event, lease) => {
+    assertWindow(event)
+    return browserGuests.release(event.sender, lease)
+  })
+  ipcMain.handle(IPC.browserForget, (event, key) => {
+    assertWindow(event)
+    return browserGuests.forget(event.sender, key)
+  })
+  // Cookie imports: a file or an installed browser's profile is parsed or harvested into a
+  // pending set first; only apply (the user's confirm) writes into the Bot's partition.
+  ipcMain.handle(IPC.browserImportSources, (event) => {
+    assertWindow(event)
+    return listSources()
+  })
+  ipcMain.handle(IPC.browserImportPick, async (event) => {
+    assertWindow(event)
+    const picked = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [{ name: 'Cookie files', extensions: ['txt', 'json', 'cookies'] }, { name: 'All files', extensions: ['*'] }],
+    })
+    if (picked.canceled || !picked.filePaths[0]) return { canceled: true }
+    const buffer = await readFile(picked.filePaths[0])
+    if (buffer.length > IMPORT_FILE_MAX) return { error: 'too-large' }
+    const parsed = parseCookieFile(buffer)
+    if (!parsed.ok) return { error: parsed.error ?? 'unreadable', format: parsed.format }
+    return cookieImports.store(parsed, { kind: 'file', label: basename(picked.filePaths[0]) })
+  })
+  ipcMain.handle(IPC.browserImportLive, async (event, sourceId, close) => {
+    assertWindow(event)
+    const source = (await listSources()).find((item) => item.id === sourceId)
+    if (!source) throw new Error('DeepSeek Bot: an unknown browser profile')
+    const outcome = await importFromBrowser(source, { close: close === true })
+    if (outcome.running) return { running: true, label: source.label, kind: source.kind }
+    const result = {
+      format: 'live', entries: outcome.result.cookies.length + outcome.result.skipped.length,
+      cookies: outcome.result.cookies, skipped: outcome.result.skipped, warnings: [], info: {},
+    }
+    return { ...cookieImports.store(result, { kind: source.kind, label: source.label }), restarted: outcome.restarted }
+  })
+  ipcMain.handle(IPC.browserImportApply, async (event, key, id) => {
+    assertWindow(event)
+    if (typeof key !== 'string' || !key.startsWith('bot:')) throw new Error('DeepSeek Bot: a Bot storage key is required')
+    const pending = cookieImports.take(typeof id === 'string' ? id : '')
+    if (!pending) throw new Error('DeepSeek Bot: this import is no longer pending')
+    const storage = session.fromPartition(partitionOf(key))
+    return applyCookies(storage, pending.cookies)
+  })
+  ipcMain.handle(IPC.browserImportCancel, (event, id) => {
+    assertWindow(event)
+    if (typeof id === 'string') cookieImports.drop(id)
   })
   // The plugin keeps the team workspace; the app remembers it for its own checks.
   ipcMain.on(IPC.teamWorkspace, (event, path) => {
@@ -304,8 +381,8 @@ async function moveData(workspace) {
 const notePage = message => `data:text/html;charset=utf-8,${encodeURIComponent(`<!doctype html><meta charset="utf-8"><meta name="color-scheme" content="light dark">
 <body style="margin:0;height:100vh;display:grid;place-items:center;font:14px system-ui,sans-serif;background:Canvas;color:CanvasText">${message.replace(/[&<>]/gu, char => `&#${String(char.charCodeAt(0))};`)}</body>`)}`
 
-// Windows updates itself; macOS asks to download the new version. Throwaway runs check only a
-// given feed and never ask.
+// Windows and a Linux AppImage update themselves; macOS and a Linux deb ask to download the new
+// version. Throwaway runs check only a given feed and never ask.
 function startUpdates() {
   const feed = process.env.DS_BOT_UPDATE_URL || undefined
   const throwaway = Boolean(process.env.DS_BOT_HOME)
@@ -315,7 +392,17 @@ function startUpdates() {
       current: app.getVersion(), arch: process.arch, feed, ask: throwaway ? undefined : askDownload, open: url => shell.openExternal(url),
     })
   }
-  if (process.platform === 'win32') {
+  // electron-updater's Linux updater works only from inside an AppImage (APPIMAGE is set there);
+  // a deb cannot update itself and points at the release page instead, as on macOS. The deb's
+  // file name uses the Debian architecture (x64 → amd64).
+  if (process.platform === 'linux' && process.env.APPIMAGE === undefined) {
+    const debArch = { x64: 'amd64', arm64: 'arm64' }[process.arch] ?? process.arch
+    return watchReleases({
+      current: app.getVersion(), arch: process.arch, feed, ask: throwaway ? undefined : askDownload, open: url => shell.openExternal(url),
+      asset: version => `DS-Bot-App-${version}-linux-${debArch}.deb`,
+    })
+  }
+  if (process.platform === 'win32' || process.platform === 'linux') {
     return watchUpdates({ updater: electronUpdater.autoUpdater, feed, ask: throwaway ? undefined : askRestart, beforeInstall: stopHost })
   }
   return undefined
@@ -353,14 +440,16 @@ function createWindow() {
       ...(mica ? { backgroundMaterial: 'mica' } : {}),
     } : {}),
     webPreferences: {
-      preload: join(here, 'preload.cjs'), contextIsolation: true, sandbox: true,
+      preload: join(here, 'preload.cjs'), contextIsolation: true, sandbox: true, webviewTag: true,
       additionalArguments: [`--ds-bot-origin=${origin}`, ...(win32 ? [`--ds-bot-caption=${String(CAPTION_HEIGHT)}`, ...(mica ? ['--ds-bot-mica'] : [])] : [])],
     },
   })
   mainWindow.once('ready-to-show', () => { mainWindow?.show() })
   mainWindow.on('page-title-updated', (event) => { event.preventDefault() })
   mainWindow.on('closed', () => { mainWindow = undefined })
+  browserGuests.bind(mainWindow)
   const contents = mainWindow.webContents
+  contents.session.on('will-download', downloadSaver({ window: mainWindow, dialog, downloads: app.getPath('downloads') }))
   if (win32) {
     // Fullscreen hides the caption buttons, and the page drops its band meanwhile. A reload
     // registers the page's listener again, so the state goes out after every load too.
@@ -375,7 +464,7 @@ function createWindow() {
   }
   contents.setWindowOpenHandler(({ url }) => {
     // DSH's sign-in opens a blank window during the click and sends it to the sign-in page later.
-    if (url === 'about:blank') return { action: 'allow', overrideBrowserWindowOptions: { show: false, webPreferences: { sandbox: true } } }
+    if (url === 'about:blank') return { action: 'allow', overrideBrowserWindowOptions: { show: false, webPreferences: { sandbox: true, webviewTag: false } } }
     openOutside(url)
     return { action: 'deny' }
   })

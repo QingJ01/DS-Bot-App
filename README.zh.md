@@ -15,6 +15,7 @@ DS Bot App 连接自己电脑或服务器上的 [DeepSeek Harness](https://githu
 <p align="center">会话主页 · Bot 对话 · 夜间模式</p>
 
 ## 可以做什么
+**桌面应用（Windows、macOS、Linux）**
 
 独立桌面 App 从 DeepSeek Harness 导入 Bot 团队时，不继承旧主机的手机授权或 TLS 身份。手机入口默认关闭，需要重新启用并配对；用户编写的手机技能会保留，原主机不受影响。
 
@@ -29,8 +30,12 @@ DS Bot App 连接自己电脑或服务器上的 [DeepSeek Harness](https://githu
 | 工作目录 | 为 Bot 选择主机项目或目录，也可为群聊指定统一目录；对话在新分段中继续，保留历史。需要 v0.1.1 及以上版本。 |
 | 通知 | 任务与审批提醒，支持 Android 后台接收和可选云推送。 |
 | 外观与语言 | 中英文、日间/夜间/跟随系统，离线可查看缓存和编辑草稿。 |
+| Linux 桌面安装包 | `DS-Bot-App-<版本>-linux-x86_64.AppImage` 与 `DS-Bot-App-<版本>-linux-amd64.deb`；AppImage 自动更新，deb 提示前往发布页。 |
+
+上游 v0.2.1 的功能同步尚未在本分支发布；发布前 DS Bot 仍为 0.1.3。Web 端增加 `/btw` 后续上下文及 `show_view` 图表、公式和沙箱 HTML；手机端没有对应的原生渲染器。桌面端增加消息宽度与平铺布局、可选显示思考内容、右侧面板互斥、群组中继暂停/继续、记忆和密钥读取失败保护、主目录锁恢复、浏览器 Cookie 导入、下载保存对话框，以及规范路径和搜索修复。
 
 Bot 对话换段时，定时任务保留原 Session 绑定，到期提醒转发到当前段处理；换段不会复制或重建任务。
+第一次打开时，App 会询问数据和 Bot 文件的保存位置，并可以从你的 DSH 复制 Bot 团队（只读取 DSH，不修改它）。Windows 和 Linux AppImage 会自动更新；macOS 和 Linux deb 会提示前往发布页下载。
 
 <p align="center">
   <img src="docs/images/mobile/group.zh.png?v=0.1.0-15" width="250" alt="显示 Bot 作者头像的群聊">
@@ -64,6 +69,10 @@ github:QingJ01/DS-Bot-App#a115f2b722387b3a401bd34e26fe48ad7d34f78d&path:ds-bot
 该固定地址指向已发布的 v0.1.3 源码。历史 v0.1.2 下载仍原样保留以兼容已有锁文件；新安装请使用 v0.1.3。详见 [v0.1.3 发布说明](docs/releases/v0.1.3.md)。
 
 初次配对建议使用同一 Wi-Fi。插件自动配置本地 HTTPS，无需域名或手动安装证书。Bot、工具和任务由电脑或服务器执行，模型使用主机配置的提供商；使用时需保持主机在线。
+## 功能
+### 网页搜索
+
+DS Bot 会把 `auto` 搜索 provider 选为整个 profile 的后端。禁用 `web-search-auto` 时，也要为该 profile 选择另一个已注册的搜索 provider。详见[网页搜索说明](ds-bot/README.md#web-search)和[恢复步骤](docs/known-issues.zh.md#关掉-web-search-auto-后所有会话的网页搜索都失败)。
 
 请使用本仓库提供的配套插件包，npm 上游的同名 `ds-bot` 不包含完整手机连接功能。
 
@@ -81,7 +90,7 @@ iOS 源码已提供，当前没有 IPA 安装包；构建与支持说明见 [iOS
 
 ## 桌面应用
 
-Windows 和 macOS 桌面应用位于 [`app/`](app/README.md)（英文）。开发时在目标电脑上运行：
+Windows、macOS 和 Linux 桌面应用位于 [`app/`](app/README.md)（英文）。开发时在目标电脑上运行：
 
 ```sh
 cd app
@@ -89,7 +98,7 @@ npm ci
 npm start
 ```
 
-在对应目标系统上用 `npm run dist` 构建安装包。本地 Linux 不是受支持的安装包目标；Windows/macOS 原生打包由各自的 CI runner 验证。macOS 安装包没有公证。桌面更新元数据只随普通 `vX.Y.Z` 版本发布；`-rN` 修订版仍仅用于插件和 Android 资产，因此桌面更新必须使用下一个语义版本。
+在对应目标系统上用 `npm run dist` 构建安装包。macOS 安装包没有公证。桌面更新元数据只随普通 `vX.Y.Z` 版本发布；`-rN` 修订版仍仅用于插件和 Android 资产，因此桌面更新必须使用下一个语义版本。
 
 ## 开发
 

@@ -243,6 +243,21 @@ test('retain forgets Bots that are gone, saved tabs included', async () => {
   assert.equal(desktop.released.length, 1)
 })
 
+test('a bridge that keeps logins on disk forgets a deleted Bot’s storage, tabs or none', async () => {
+  const desktop = fakeDesktop()
+  const forgotten = []
+  const bridge = { ...desktop.bridge, forget: async (key) => { forgotten.push(key) } }
+  const browsers = createBotBrowsers({ bridge, createSource, storage: desktop.storage, document: desktop.doc })
+  await browsers.navigate(browsers.openTab('a'), 'example.com')
+  await browsers.retain(['a', 'b', 'c'])
+  assert.deepEqual(forgotten, [])
+  // a had a tab, b never had one; both go, c stays.
+  await browsers.retain(['c'])
+  assert.deepEqual(forgotten.sort(), ['bot:a', 'bot:b'])
+  await browsers.retain(['c'])
+  assert.equal(forgotten.length, 2)
+})
+
 test('a settled page leaves a text excerpt, shown or hidden, and no tab is ever captured', async () => {
   const desktop = fakeDesktop()
   const browsers = createBotBrowsers({ bridge: desktop.bridge, createSource, storage: desktop.storage, document: desktop.doc })

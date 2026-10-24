@@ -40,14 +40,26 @@ test('a lock whose same-host process has exited is taken over', (t) => {
   dead.release()
 })
 
-test('an old same-host lock stays live while its process is alive', (t) => {
+test('a same-host lock without a fresh heartbeat is taken over even while its pid lives', (t) => {
   const path = join(tempHome(t), 'state.lock')
   writeFileSync(path, JSON.stringify({ pid: 101, host: hostname(), token: 'old' }))
   const old = new Date(Date.now() - 120_000)
   utimesSync(path, old, old)
+  // A crashed holder's pid may be reused by an unrelated process; the stopped heartbeat,
+  // not the pid, says the holder is gone.
   const late = homeLock(path, { pid: 202, isAlive: () => true })
   t.after(() => late.release())
-  assert.equal(late.claim().token, 'old')
+  assert.equal(late.claim(), undefined)
+  assert.equal(late.owns(), true)
+  assert.equal(JSON.parse(readFileSync(path, 'utf8')).pid, 202)
+})
+
+test('a fresh same-host lock stays live while its process is alive', (t) => {
+  const path = join(tempHome(t), 'state.lock')
+  writeFileSync(path, JSON.stringify({ pid: 101, host: hostname(), token: 'live' }))
+  const late = homeLock(path, { pid: 202, isAlive: () => true })
+  t.after(() => late.release())
+  assert.equal(late.claim().token, 'live')
   assert.equal(late.owns(), false)
 })
 

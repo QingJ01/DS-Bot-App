@@ -1,7 +1,7 @@
-// Check a packaged app's update on throwaway folders. Windows downloads and installs a feed;
-// macOS reads the latest release and opens no browser.
-// Usage: node scripts/check-update.mjs <app executable> <feed folder> [--kill] (Windows)
-//        node scripts/check-update.mjs <app executable> <version> (macOS)
+// Check a packaged app's update on throwaway folders. Windows and a Linux AppImage download and
+// install a feed; macOS and a Linux deb read the latest release and open no browser.
+// Usage: node scripts/check-update.mjs <app executable> <feed folder with latest.yml or latest-linux.yml> [--kill]
+//        node scripts/check-update.mjs <app executable> <version> (macOS, a Linux deb)
 import { spawn, spawnSync } from 'node:child_process'
 import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { createServer } from 'node:http'
@@ -11,20 +11,29 @@ import { setTimeout as sleep } from 'node:timers/promises'
 
 const [executable, source, mode] = process.argv.slice(2)
 const mac = process.platform === 'darwin'
+// An AppImage updates itself, as on Windows; any other Linux executable (a deb's) only hears
+// of the release, as on macOS.
+const releasePage = mac || (process.platform === 'linux' && !executable?.endsWith('.AppImage'))
+const manifest = process.platform === 'linux' ? 'latest-linux.yml' : 'latest.yml'
+// The asset the fake release lists: what this install's update check waits for. The deb's file
+// name uses the Debian architecture (x64 → amd64).
+const asset = mac
+  ? version => `DS-Bot-App-${version}-mac-${process.arch}.zip`
+  : version => `DS-Bot-App-${version}-linux-${{ x64: 'amd64' }[process.arch] ?? process.arch}.deb`
 if (!executable || !source || !existsSync(executable)
-  || (mac ? mode !== undefined : !existsSync(join(source, 'latest.yml')))) {
-  console.error(`check-update: usage: ${mac
+  || (releasePage ? mode !== undefined : !existsSync(join(source, manifest)))) {
+  console.error(`check-update: usage: ${releasePage
     ? 'node scripts/check-update.mjs <app executable> <version>'
-    : 'node scripts/check-update.mjs <app executable> <feed folder with latest.yml> [--kill]'}`)
+    : `node scripts/check-update.mjs <app executable> <feed folder with ${manifest}> [--kill]`}`)
   process.exit(2)
 }
-const version = mac ? source : /^version:\s*(\S+)/mu.exec(readFileSync(join(source, 'latest.yml'), 'utf8'))?.[1]
+const version = releasePage ? source : /^version:\s*(\S+)/mu.exec(readFileSync(join(source, manifest), 'utf8'))?.[1]
 const work = mkdtempSync(join(tmpdir(), 'ds-bot-update-'))
 mkdirSync(join(work, 'home'))
 
 const served = []
 const server = createServer((request, response) => {
-  if (mac) {
+  if (releasePage) {
     const pathname = new URL(request.url, 'http://feed/').pathname
     if (request.method !== 'GET' || pathname !== '/') { response.writeHead(404).end(); return }
     served.push(pathname)
@@ -33,7 +42,7 @@ const server = createServer((request, response) => {
       html_url: `https://github.com/QingJ01/DS-Bot-App/releases/tag/v${version}`,
       draft: false,
       prerelease: false,
-      assets: [{ name: `DS-Bot-App-${version}-mac-${process.arch}.zip` }],
+      assets: [{ name: asset(version) }],
     }]))
     return
   }
@@ -89,6 +98,13 @@ async function closeWindow(port, waitForReady = false) {
   socket.send(JSON.stringify({ id: 1, method: 'Runtime.evaluate', params: { expression: 'window.close()' } }))
 }
 
+// taskkill /T takes the Host and Electron's helpers along; a unix kill ends the tree's root,
+// and the app's own children go with it.
+function killApp() {
+  if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(app.pid), '/T', '/F'], { stdio: 'ignore' })
+  else app?.kill()
+}
+
 let failed = false
 let app
 try {
@@ -103,29 +119,29 @@ try {
     stream.setEncoding('utf8')
     stream.on('data', (chunk) => { output += chunk; process.stdout.write(chunk) })
   }
-  const updateLine = `DS Bot App: update ${String(version)} ${mac ? 'available' : 'downloaded'}`
-  const end = Date.now() + (mac ? 3 : 5) * 60_000
+  const updateLine = `DS Bot App: update ${String(version)} ${releasePage ? 'available' : 'downloaded'}`
+  const end = Date.now() + (releasePage ? 3 : 5) * 60_000
   while (!output.includes(updateLine)) {
-    if (mac ? /DS Bot App: update check failed/u.test(output) : /DS Bot App: update failed/u.test(output)) {
+    if (releasePage ? /DS Bot App: update check failed/u.test(output) : /DS Bot App: update failed/u.test(output)) {
       throw new Error('the app reported a failed update')
     }
     if (app.exitCode !== null) {
-      const status = mac ? 'the update was found' : 'the update was downloaded'
+      const status = releasePage ? 'the update was found' : 'the update was downloaded'
       throw new Error(`the app exited (code ${String(app.exitCode)}) before ${status}`)
     }
-    if (Date.now() > end) throw new Error(mac ? 'the update was not found within 3 minutes' : 'the update was not downloaded within 5 minutes')
+    if (Date.now() > end) throw new Error(releasePage ? 'the update was not found within 3 minutes' : 'the update was not downloaded within 5 minutes')
     await sleep(500)
   }
-  if (mac && !served.includes('/')) throw new Error('the release feed was not requested')
+  if (releasePage && !served.includes('/')) throw new Error('the release feed was not requested')
   console.log(`check-update: ${updateLine}; the feed served ${served.join(', ')}`)
-  if (mac) {
+  if (releasePage) {
     await closeWindow(port, true)
     const code = await Promise.race([exited, sleep(60_000).then(() => 'timeout')])
     if (code === 'timeout') throw new Error('the app did not exit after its window closed')
     if (code !== 0) throw new Error(`the app exited with code ${String(code)}`)
     console.log('check-update: the app closed without installing')
   } else if (mode === '--kill') {
-    spawnSync('taskkill', ['/pid', String(app.pid), '/T', '/F'], { stdio: 'ignore' })
+    killApp()
     await exited
     console.log('check-update: ended the app, so nothing was installed')
   } else {
@@ -139,10 +155,7 @@ try {
 } catch (error) {
   failed = true
   console.error(`check-update: FAILED: ${error instanceof Error ? error.message : String(error)}`)
-  if (app?.exitCode === null) {
-    if (mac) app.kill()
-    else spawnSync('taskkill', ['/pid', String(app.pid), '/T', '/F'], { stdio: 'ignore' })
-  }
+  if (app?.exitCode === null) killApp()
 }
 server.close()
 await sleep(500)

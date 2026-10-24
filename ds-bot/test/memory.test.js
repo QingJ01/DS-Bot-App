@@ -296,6 +296,23 @@ test('a Session keeps the memory it began with, across restarts, until its snaps
   assert.match(renewed.section('b2'), /- Likes tea \[.*\]\nTopics: \[\[home\]\]\n/)
 })
 
+test('a memory file that cannot be read is left alone, and the section says so', async (t) => {
+  const { home, tool, section, stop } = start()
+  t.after(() => stop())
+  // A directory reads as EISDIR on every platform; no chmod games needed.
+  mkdirSync(join(home, 'memory', 'bots', 'b2', 'MEMORY.md'), { recursive: true })
+  const answer = await tool('remember', { text: 'Likes tea' }, 'b2')
+  assert.match(answer, /Memory file .*MEMORY\.md could not be read \(EISDIR\)\. DS Bot leaves it as it is/)
+  assert.deepEqual(readdirSync(join(home, 'memory', 'bots', 'b2')), ['MEMORY.md'])
+  // The prompt shows the failure instead of looking empty, and nothing is frozen.
+  assert.match(section('b2'), /\(this memory could not be read: EISDIR\)/)
+  assert.equal(existsSync(join(home, 'memory', 'snapshots', 'b2.md')), false)
+  rmSync(join(home, 'memory', 'bots', 'b2', 'MEMORY.md'), { recursive: true })
+  const after = section('b2')
+  assert.doesNotMatch(after, /could not be read/)
+  assert.match(after, /\(nothing saved yet\)/)
+})
+
 test('a change of role freezes the section again, so its team rule matches the tools', async (t) => {
   const { call, tool, section, stop } = start()
   t.after(() => stop())

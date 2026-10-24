@@ -1,4 +1,5 @@
-// Windows downloads and installs updates; macOS asks before opening the release page.
+// Windows and a Linux AppImage download and install updates; macOS and a Linux deb ask before
+// opening the release page.
 
 export const UPDATE_TEXT = {
   en: {
@@ -73,7 +74,10 @@ function isHttpsPage(page) {
   }
 }
 
-export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, open, feed = RELEASES_URL, log = console }) {
+// `asset` names the release asset of this install (default: the macOS zip); a release without
+// it does not count.
+export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, open, feed = RELEASES_URL, log = console, asset }) {
+  const assetName = asset ?? (version => `DS-Bot-App-${version}-mac-${arch}.zip`)
   let asked
   let latest = Promise.resolve(null)
   const check = () => {
@@ -99,7 +103,7 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
             || (release.prerelease === true && !allowPrerelease)) continue
           const version = typeof release.tag_name === 'string' ? release.tag_name.replace(/^v/u, '') : ''
           if (!isNewer(version, current)) continue
-          if (!Array.isArray(release.assets) || !release.assets.some(asset => asset?.name === `DS-Bot-App-${version}-mac-${arch}.zip`)) continue
+          if (!Array.isArray(release.assets) || !release.assets.some(entry => entry?.name === assetName(version))) continue
           if (!isHttpsPage(release.html_url)) {
             log.error('DS Bot App: update check failed: release page URL is not HTTPS')
             continue

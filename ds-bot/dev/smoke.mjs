@@ -12,6 +12,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSyn
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { makeLongNoteView } from './view-fixtures.mjs'
 
 const [name, port, ...rest] = process.argv.slice(2)
 if (!name || !port) {
@@ -228,6 +229,11 @@ await step('Writer shows a view just under the byte limit', () => send(botNamed(
 await step('the view card appears in chat-history search', () => send(botNamed('Writer').id, '查记录 A long note'), (_value, calls) => {
   return expect(saidText(calls, /\[View card\] A long note/), 'read_own_chat did not return the view-card summary')
 })
+await step('the big view survives a re-read of the part', () => api('chat', { botId: botNamed('Writer').id }), (page) => {
+  const found = (page?.items ?? []).find(item => item.kind === 'view' && item.title === 'A long note')
+  return expect(found !== undefined, `no view card in the part (${JSON.stringify(page?.items?.length)})`)
+    ?? expect(JSON.stringify(found.view) === JSON.stringify(makeLongNoteView()), 'the view came back without its complete blueprint')
+})
 
 await step('user creates Coder, who keeps the default model', () => api('create-bot', { name: 'Coder', role: 'Engineer', instructions: 'Write code.' }), (bot) => {
   const coder = botNamed('Coder')
@@ -303,6 +309,15 @@ await step('Writer searches its own chat across parts', () => send(botNamed('Wri
 
 // `earlier` pages backwards from the part the chat shows now.
 await step('earlier part pages load', () => api('earlier', { sessionId: botNamed('Writer').sessionId }), page => expect(Array.isArray(page?.items) && page.items.some(item => item.kind === 'user'), `no user lines in the part before (${JSON.stringify(page).slice(0, 80)})`))
+await step('the big view survives the switch to an earlier part', async () => {
+  let cursor
+  do {
+    const page = await api('earlier', { sessionId: botNamed('Writer').sessionId, cursor })
+    const found = page.items.find(item => item.kind === 'view' && item.title === 'A long note')
+    if (found) return found
+    cursor = page.cursor
+  } while (cursor)
+}, found => expect(JSON.stringify(found?.view) === JSON.stringify(makeLongNoteView()), 'the earlier part lost the view blueprint'))
 
 // Work still under way (the mock steward reads 阶段未完 in the latest user message): the
 // part is condensed in place with DS Bot's checkpoint, not switched, and the condensed

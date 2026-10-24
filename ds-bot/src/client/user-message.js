@@ -1,9 +1,10 @@
-import { createElement as h, Fragment, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
 import * as ui from '@deepseek-ai/dsh-client-ui-primitives'
 import { mentionSpans } from '../shared/mentions.js'
 import { BotMark } from './mark.js'
 import { CheckIcon, CopyIcon } from './icons.js'
 import { dateLocale, t } from './i18n.js'
+import { noHover } from './motion.js'
 import { clockLabel, messageClock } from './text.js'
 import { useFold } from './fold.js'
 
@@ -92,21 +93,35 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
   const groupTime = roster.roomsById?.[sessionId] && Number.isFinite(data.time) ? messageClock(data.time) : undefined
   const { shown, folded, control } = useFold(text, { markdown: false })
   const body = h(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions })
-  return h('div', { className: 'bt-umsg', 'data-steering': steering || undefined },
+  const row = useRef(null)
+  // Touch has no hover: a tap on the bubble opens its copy tool, a tap elsewhere closes it.
+  const [toolsOpen, setToolsOpen] = useState(false)
+  useEffect(() => {
+    if (!toolsOpen) return undefined
+    const onDown = (event) => { if (!row.current?.contains(event.target)) setToolsOpen(false) }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('touchstart', onDown)
+    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('touchstart', onDown) }
+  }, [toolsOpen])
+  const tapTools = (event) => {
+    if (!noHover() || event.target instanceof Element && event.target.closest('a,button,input,textarea,select,pre,code,[role=button],[role=link]')) return
+    setToolsOpen(value => !value)
+  }
+  return h('div', { ref: row, className: 'bt-umsg', 'data-steering': steering || undefined },
     h('div', { className: 'bt-ustack' },
       attachments.length > 0 ? h(Attachments, { attachments, renderMessageImages }) : null,
-      text !== '' || rest.length > 0 ? h('div', { className: 'bt-ubody', title: clock(data.time), 'data-folded': folded || undefined },
+      text !== '' || rest.length > 0 ? h('div', { className: 'bt-ubody', title: clock(data.time), 'data-folded': folded || undefined, onClick: tapTools },
         control ? h('div', { className: 'bt-fold-body' }, body) : body,
         control,
         rest.map((block, index) => (ui.JsonBlock ? h(ui.JsonBlock, { key: index, label: t('Content'), payload: block }) : null))) : null,
       referenceLabels.length > 0 ? h('div', { className: 'bt-urefs' }, t('Referenced {labels}', { labels: referenceLabels.join(t(', ')) })) : null,
       groupTime ? h('div', { className: 'bt-utime', title: clockLabel(data.time) }, groupTime) : null),
-    text === '' ? null : h('div', { className: 'bt-utools' }, h(CopyButton, { text })))
+    text === '' ? null : h('div', { className: 'bt-utools', 'data-open': toolsOpen || undefined }, h(CopyButton, { text })))
 }
 
 export const USER_MESSAGE_CSS = `
 .bt-umsg{display:flex;flex-direction:row-reverse;align-items:center;justify-content:flex-start;gap:4px}
-.bt-ustack{min-width:0;max-width:min(calc(var(--dsh-chat-content-width,748px) * .702),82%);display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.bt-ustack{min-width:0;max-width:calc(var(--bt-msg-w) * 100%);display:flex;flex-direction:column;align-items:flex-end;gap:8px}
 .bt-ubody{max-width:100%;box-sizing:border-box;background:var(--bt-user);color:var(--bt-user-ink);border-radius:18px;padding:7px 12px;font-size:var(--dsh-content-font-size,14px);line-height:calc(var(--dsh-content-font-size,14px) + 8px);white-space:pre-wrap;word-break:break-word}
 .bt-ubody a{color:inherit}
 .bt-umention{display:inline-flex;align-items:center;gap:3px;vertical-align:-3px;max-width:100%;padding:0 1px;border:0;background:none;color:inherit;font:inherit;font-weight:600;line-height:inherit;cursor:pointer;border-radius:6px;white-space:nowrap}

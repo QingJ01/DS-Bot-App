@@ -191,6 +191,39 @@ jobs:
           path: app/dist-pack/*.zip
           if-no-files-found: error
 
+  desktop-linux:
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-r')
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --no-fund --no-audit
+      - run: npm run dist
+      # An AppImage mounts through FUSE 2, and Ubuntu 24.04's AppArmor blocks the unprivileged
+      # user namespaces that Chromium's sandbox needs; a throwaway runner may lift that.
+      - name: Prepare to run the app
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq libfuse2t64 xvfb
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Check the packaged app
+        run: xvfb-run -a node scripts/check-packed.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsbot-desktop-linux
+          path: |
+            app/dist-pack/DS-Bot-App-*-linux-x86_64.AppImage
+            app/dist-pack/DS-Bot-App-*-linux-amd64.deb
+            app/dist-pack/latest-linux.yml
+          if-no-files-found: error
+
   release:
     if: >-
       always() &&
@@ -200,12 +233,14 @@ jobs:
       (
         (contains(github.ref_name, '-r') &&
           needs.desktop-windows.result == 'skipped' &&
-          needs.desktop-macos.result == 'skipped') ||
+          needs.desktop-macos.result == 'skipped' &&
+          needs.desktop-linux.result == 'skipped') ||
         (!contains(github.ref_name, '-r') &&
           needs.desktop-windows.result == 'success' &&
-          needs.desktop-macos.result == 'success')
+          needs.desktop-macos.result == 'success' &&
+          needs.desktop-linux.result == 'success')
       )
-    needs: [validate, android, desktop-windows, desktop-macos]
+    needs: [validate, android, desktop-windows, desktop-macos, desktop-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -240,6 +275,7 @@ jobs:
           if [[ -z "$revision" ]]; then
             cp out/dsbot-desktop-windows/*.exe out/dsbot-desktop-windows/*.blockmap out/dsbot-desktop-windows/latest.yml release/
             cp out/dsbot-desktop-macos-arm64/*.zip out/dsbot-desktop-macos-x64/*.zip release/
+            cp out/dsbot-desktop-linux/* release/
           fi
           if [[ -n "$revision" ]]; then
             mkdir legacy
@@ -262,7 +298,7 @@ jobs:
           notes="$GITHUB_WORKSPACE/$notes_file"
           cd release
           if [[ -z "$revision" ]]; then
-            desktop_assets=( ./*.exe ./*.blockmap ./*.zip latest.yml )
+            desktop_assets=( ./*.exe ./*.blockmap ./*.zip latest.yml ./*.AppImage ./*.deb latest-linux.yml )
             sha256sum *.tgz *.apk *.cer "${desktop_assets[@]}" > "$sums_file"
           else
             desktop_assets=()

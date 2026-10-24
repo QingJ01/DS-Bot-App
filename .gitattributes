@@ -1,2 +1,5 @@
 # Shell scripts are copied into the Docker image as they are; CRLF breaks them.
 *.sh text eol=lf
+
+# Cookie fixtures test BOM and line-ending variants; normalizing them removes what they test.
+app/test/fixtures/** -text

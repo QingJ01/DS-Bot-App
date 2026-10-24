@@ -569,9 +569,11 @@ test('a Bot may take part in the same work again, but not message one that waits
   const { take, end } = await handedOn(team)
   end('b')
   take('c')
-  const refused = { message: /^Not sent: (Chief|Writer) is waiting for the result of the work you are doing, and your answer reaches it by itself\./ }
-  await assert.rejects(tool('message_bot', { to: 'Chief', message: 'please accept it' }, 'c'), refused)
-  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'it passes' }, 'c'), refused)
+  // The guard answers with a result, not a failed call: the turn goes on with the
+  // work, and the result says where its answer goes.
+  const refused = /^Not sent: (Chief|Writer) is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back\./
+  assert.match(await tool('message_bot', { to: 'Chief', message: 'please accept it' }, 'c'), refused)
+  assert.match(await tool('message_bot', { to: 'Writer', message: 'it passes' }, 'c'), refused)
   assert.deepEqual(callsOf(agents, 'a'), [])
   assert.equal(callsOf(agents, 'b').length, 1)
   end('c', 'it passes')
@@ -585,7 +587,7 @@ test('a Bot may take part in the same work again, but not message one that waits
   end('a')
   take('c')
   assert.match(await tool('message_bot', { to: 'Writer', message: 'what did you change last?' }, 'c'), /^Delivered to Writer/)
-  await assert.rejects(tool('message_bot', { to: 'Chief', message: 'done' }, 'c'), refused)
+  assert.match(await tool('message_bot', { to: 'Chief', message: 'done' }, 'c'), refused)
 })
 
 test('a stopped turn answers at once, and what it handed on comes back to it alone', async (t) => {
@@ -711,6 +713,109 @@ test('each text block of a Bot message is an entry of its own, as each is a bubb
   ])
   const { items } = await rt.earlierPage('b2')
   assert.deepEqual(items.map(item => [item.kind, item.text, item.time]), [['bot', 'First.', 11], ['bot', 'Second.', 11]])
+})
+
+test('earlier-part rows carry seq and the turn that turn/start opened', () => {
+  const rt = earlierParts([])
+  const items = rt.displayItems('b1', [
+    { type: 'user/message', seq: 1, time: 1, data: { content: [{ type: 'text', text: 'before' }], source: { kind: 'user' } } },
+    { type: 'assistant/message', seq: 2, time: 2, data: { turn: 9, message: { content: [{ type: 'text', text: 'also before' }, { type: 'text', text: 'second bubble' }] } } },
+    { type: 'turn/start', seq: 3, time: 3, data: { turn: 4 } },
+    { type: 'user/message', seq: 4, time: 4, data: { content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } } },
+    { type: 'assistant/message', seq: 5, time: 5, data: { turn: 99, message: { content: [{ type: 'text', text: 'working' }] } } },
+    { type: 'user/message', seq: 6, time: 6, data: { content: [{ type: 'text', text: '[Message from Chief]\nsteer' }], source: replySource('request') } },
+    { type: 'user/message', seq: 7, time: 7, data: { content: [{ type: 'text', text: 'queued' }], source: { kind: 'user' } } },
+    { type: 'turn/start', seq: 8, time: 8, data: { turn: 5 } },
+    { type: 'user/message', seq: 9, time: 9, data: { content: [{ type: 'text', text: 'next' }], source: { kind: 'user' } } },
+    { type: 'assistant/message', time: 10, data: { message: { content: [{ type: 'text', text: 'no seq' }] } } },
+  ])
+  assert.deepEqual(items.map(item => [item.kind, item.text ?? item.role, item.seq, item.turn]), [
+    ['user', 'before', 1, undefined],
+    ['bot', 'also before', 2, undefined],
+    ['bot', 'second bubble', 2, undefined],
+    ['user', 'start', 4, 4],
+    ['bot', 'working', 5, 4],
+    ['event', 'request', 6, 4],
+    ['user', 'queued', 7, 4],
+    ['user', 'next', 9, 5],
+    ['bot', 'no seq', undefined, 5],
+  ])
+  assert.equal(items[0].time, 1)
+  assert.equal('turn' in items[0], false)
+  assert.equal('turn' in items[1], false)
+  assert.equal('seq' in items.at(-1), false)
+  assert.equal(items[4].turn, 4)
+  assert.equal(items[5].botId, 'a')
+  assert.equal(items[5].name, 'Chief')
+})
+
+// One turn opened on the older page and still running on the newer one.
+// The page holds 60 events, so the newer page starts after that turn/start.
+test('one turn keeps its identity across two earlier pages', async (t) => {
+  const log = [{ seq: 1, type: 'turn/start', time: 1, data: { turn: 6 } }]
+  for (let seq = 2; seq <= 70; seq += 1) {
+    log.push({ seq, type: 'user/message', time: seq, data: { content: [{ type: 'text', text: `m${seq}` }], source: { kind: 'user' } } })
+  }
+  const session = { id: 'cur', seq: 71, header: {}, inheritedEventCount: 0, snapshotEvents: () => log }
+  const units = new Map()
+  const services = {}
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-turn-page-'))
+  writeFileSync(join(home, 'state.json'), JSON.stringify({
+    version: 1,
+    mainBotIds: ['b'],
+    revision: 1,
+    bots: { b: { id: 'b', name: 'Writer', sessionId: 'cur', createdAt: 1, segments: [{ sessionId: 'old', endedAt: 50 }] } },
+    rooms: {},
+    exchanges: [],
+    exchangeTurns: {},
+    questions: {},
+  }))
+  const ctx = fakeContext({ services })
+  services.sessionProjections = {
+    register(definition) {
+      ctx.effect(() => {
+        units.set(definition.key, definition)
+        return () => { units.delete(definition.key) }
+      }, 'sessionProjections.register()')
+    },
+    stateOf(target, key) {
+      const definition = units.get(key)
+      if (definition === undefined) return undefined
+      let state = definition.init(target.header, target.inheritedEventCount)
+      for (const event of target.snapshotEvents()) state = definition.apply(state, event)
+      return state
+    },
+  }
+  ctx.sessionController = {
+    resolveAgent: async (sessionId) => ({ agent: { id: sessionId, session: sessionId === 'cur' ? session : { id: sessionId, seq: 1, snapshotEvents: () => [] } } }),
+    page: async ({ address, throughSeq, beforeSeq, maxMessages }) => {
+      if (address.sessionId !== 'cur') return { records: [], hasMore: false }
+      let list = log.filter(event => event.seq <= throughSeq && (!Number.isInteger(beforeSeq) || event.seq < beforeSeq))
+      const hasMore = list.length > maxMessages
+      if (hasMore) list = list.slice(-maxMessages)
+      return { records: list.map(event => ({ event })), hasMore }
+    },
+  }
+  let route
+  const register = ctx.connection.fetch.register
+  ctx.connection.fetch.register = (options) => { route = options; return register(options) }
+  apply(ctx, { home })
+  t.after(async () => {
+    await ctx.dispose()
+    rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+  })
+  const call = async (payload) => (await route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint: 'chat', payload }) }))).json()
+  const newer = (await call({ botId: 'b' })).value
+  const older = (await call({ botId: 'b', cursor: newer.cursor })).value
+  assert.equal(newer.items.length, 60)
+  assert.ok(newer.items[0].seq > 1)
+  assert.equal(newer.items.every(item => item.kind === 'user' && item.turn === 6), true)
+  assert.equal(older.items[0].kind, 'divider')
+  assert.equal(older.items[0].time, 50)
+  assert.equal('seq' in older.items[0], false)
+  assert.equal('turn' in older.items[0], false)
+  assert.equal(older.items.slice(1).every(item => item.kind === 'user' && item.turn === 6 && item.seq < newer.items[0].seq), true)
+  assert.equal(older.items.some(item => item.seq === 2 && item.turn === 6), true)
 })
 
 test('a request the model keeps turning down moves the Bot on, without its latest messages the second time; a connection failure does not', async (t) => {

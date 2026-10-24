@@ -469,19 +469,27 @@ export function install(rt) {
   // The Bot whose model keeps a group's memory: its admin, else its first member.
   const keeperOf = room => rt.botOf(room.admin) ?? room.members.map(id => rt.botOf(id)).find(Boolean)
 
+  // An unreadable memory is not an empty one: callers that change it fail instead of
+  // writing over what could not be read, the way store.js treats a broken state.json.
+  const unreadable = (path, error) => {
+    rt.warn('ds-bot: unreadable memory file %s: %s', path, error)
+    throw Object.assign(new Error(`Memory file ${path} could not be read (${error?.code ?? error?.message}). DS Bot leaves it as it is; fix or move the file.`), { code: 'memory/unreadable' })
+  }
   const readText = (path) => {
     try {
       return readFileSync(path, 'utf8')
     } catch (error) {
-      if (error?.code !== 'ENOENT') rt.warn('ds-bot: unreadable memory file %s: %s', path, error)
-      return ''
+      if (error?.code === 'ENOENT') return ''
+      return unreadable(path, error)
     }
   }
   const topicNames = (scope) => {
+    const dir = dirOf(scope)
     try {
-      return readdirSync(dirOf(scope)).filter(name => name.endsWith('.md') && name !== MAIN).map(name => name.slice(0, -3)).sort()
-    } catch {
-      return []
+      return readdirSync(dir).filter(name => name.endsWith('.md') && name !== MAIN).map(name => name.slice(0, -3)).sort()
+    } catch (error) {
+      if (error?.code === 'ENOENT') return []
+      return unreadable(dir, error)
     }
   }
   // MEMORY.md first, then the topics by name.
@@ -726,34 +734,62 @@ export function install(rt) {
     const names = topicNames(scope)
     return names.length > 0 ? [`Topics: ${names.map(name => `[[${name}]]`).join(', ')}`] : []
   }
+  // The prompt section reads on its own: it may not throw, or one unreadable memory
+  // would fail the whole turn. The unreadable file shows as a line instead of entries.
+  const sectionRead = (path) => {
+    try {
+      return { text: readFileSync(path, 'utf8') }
+    } catch (error) {
+      if (error?.code === 'ENOENT') return { text: '' }
+      rt.warn('ds-bot: unreadable memory file %s: %s', path, error)
+      return { text: '', failed: `(this memory could not be read: ${error?.code ?? error?.name ?? 'error'})` }
+    }
+  }
+  const sectionEntries = read => (read.failed === undefined ? shownEntries(parseMemory(read.text)) : [read.failed])
+  const sectionTopics = (scope) => {
+    try {
+      return { lines: topicLine(scope) }
+    } catch {
+      return { lines: [], failed: true }
+    }
+  }
   function memorySection(bot, roomId) {
     const own = ownScope(bot.id)
-    const main = parseMemory(readText(join(dirOf(own), MAIN)))
-    const team = parseMemory(readText(join(dirOf(TEAM), MAIN)))
+    const main = sectionRead(join(dirOf(own), MAIN))
+    const team = sectionRead(join(dirOf(TEAM), MAIN))
+    const ownTopics = sectionTopics(own)
+    const teamTopics = sectionTopics(TEAM)
     const lines = [
       '# Your memory',
       memoryRules(reviewOn),
       teamRule(rt.isMain(bot.id), writesTeam(bot.id)),
       '',
       '## Your memory (MEMORY.md)',
-      ...shownEntries(main),
-      ...topicLine(own),
+      ...sectionEntries(main),
+      ...ownTopics.lines,
       '',
       '## Team memory, shared by every Bot (team/MEMORY.md)',
-      ...shownEntries(team),
-      ...topicLine(TEAM),
+      ...sectionEntries(team),
+      ...teamTopics.lines,
     ]
-    if (roomId === undefined) return lines.join('\n')
+    let failed = main.failed !== undefined || team.failed !== undefined || ownTopics.failed === true || teamTopics.failed === true
+    if (roomId === undefined) return { text: lines.join('\n'), failed }
     const group = groupScope(roomId)
-    return [
-      ...lines,
-      '',
-      GROUP_HEADING,
-      groupNote(reviewOn),
-      '',
-      ...shownEntries(parseMemory(readText(join(dirOf(group), MAIN)))),
-      ...topicLine(group),
-    ].join('\n')
+    const groupRead = sectionRead(join(dirOf(group), MAIN))
+    const groupTopics = sectionTopics(group)
+    failed = failed || groupRead.failed !== undefined || groupTopics.failed === true
+    return {
+      text: [
+        ...lines,
+        '',
+        GROUP_HEADING,
+        groupNote(reviewOn),
+        '',
+        ...sectionEntries(groupRead),
+        ...groupTopics.lines,
+      ].join('\n'),
+      failed,
+    }
   }
 
   /** @type {Map<string, string>} */
@@ -772,10 +808,17 @@ export function install(rt) {
     const kept = frozen.get(sessionId)
     if (kept !== undefined && holds(kept)) return kept
     const path = snapshotPath(sessionId)
-    let text = existsSync(path) ? readText(path) : ''
+    const snap = existsSync(path) ? sectionRead(path) : { text: '' }
+    let text = snap.text
+    // A render that could not read everything is used but not kept: it is written
+    // down neither as the snapshot nor as the frozen copy, so the next render tries
+    // the files again.
+    let failed = snap.failed !== undefined
     if (text === '' || !holds(text)) {
-      text = memorySection(bot, roomId)
-      if (rt.readOnly() === undefined) {
+      const section = memorySection(bot, roomId)
+      text = section.text
+      failed = failed || section.failed
+      if (!failed && rt.readOnly() === undefined) {
         try {
           mkdirSync(dirname(path), { recursive: true })
           writeFileSync(`${path}.tmp`, text, 'utf8')
@@ -785,7 +828,7 @@ export function install(rt) {
         }
       }
     }
-    frozen.set(sessionId, text)
+    if (!failed) frozen.set(sessionId, text)
     return text
   }
   // The Session's next render freezes the memory as it is then.
@@ -943,7 +986,12 @@ export function install(rt) {
       const self = caller.bot.id
       const { scopes, error } = readScopes(args.scope, self, caller.roomId)
       if (error) return error
-      const loaded = scopes.map(scope => ({ scope, tag: tagOf(scope, self), label: labelOf(scope, self), files: loadScope(scope) }))
+      let loaded
+      try {
+        loaded = scopes.map(scope => ({ scope, tag: tagOf(scope, self), label: labelOf(scope, self), files: loadScope(scope) }))
+      } catch (failure) {
+        return failure.message
+      }
       if (args.topic !== undefined && String(args.topic).trim() !== '') {
         const topic = cleanTopic(args.topic)
         for (const { label, files } of loaded) {

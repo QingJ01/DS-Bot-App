@@ -1,10 +1,11 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { currentPart, latestMemoryChange } from './text.js'
-import { ArrowUpIcon, CloseIcon, ArrowDownIcon, MemoryIcon, SidePanelIcon } from './icons.js'
+import { ArrowUpIcon, CloseIcon, ArrowDownIcon, MemoryIcon } from './icons.js'
 import { botState, BotAvatar, RoomAvatar } from './mark.js'
 import { ActivityIndicator } from './activity-row.js'
 import { clockLabel, openingTurn, unseenSince } from './cells.js'
+import { viewBottom } from './motion.js'
 import { t } from './i18n.js'
 
 // -------------------------------------------------------------------------
@@ -106,11 +107,7 @@ export function HeaderPill({ sessionId, useRoster, useSessions, useSessionStatus
     h('span', { className: 'bt-pill-go', 'aria-hidden': true }, h(GoArrow))),
     h('span', { className: 'bt-sr', role: 'status' }, memoryNotice ? t('Memory updated') : ''),
     h(NewMessagePills, { key: sessionId, sessionId, useSessions, useUi, useTurnClock }),
-    h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions }),
-    // DSH's way into its right sidebar sits in the session header this pill replaces.
-    actions.hasRightSidebar?.()
-      ? h('button', { type: 'button', className: 'bt-icon-btn bt-head-side', 'data-bt-right-sidebar': '', 'aria-label': t('Show or hide the right sidebar'), title: t('Right sidebar'), onClick: () => actions.toggleRightSidebar() }, h(SidePanelIcon))
-      : null)
+    h(ActivityIndicator, { key: `activity:${sessionId}`, sessionId, useRoster, useSessionStatus, useSession, useLive, useWork, actions }))
 }
 
 // New-message pills. "N new messages ↓" takes Back to bottom's place when
@@ -146,19 +143,23 @@ function useTranscriptView() {
         divider,
         center: Math.round(box.left + box.width / 2),
         top: Math.round(headerBottom + 8),
-        bottom: Math.round(window.innerHeight - box.bottom + composer + 8),
+        bottom: Math.round(viewBottom() - box.bottom + composer + 8),
       }
       setView(prev => (prev && Object.keys(next).every(key => prev[key] === next[key]) ? prev : next))
     }
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure) }
     document.addEventListener('scroll', schedule, true)
     window.addEventListener('resize', schedule)
+    window.visualViewport?.addEventListener('resize', schedule)
+    window.visualViewport?.addEventListener('scroll', schedule)
     schedule()
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
       document.removeEventListener('scroll', schedule, true)
       window.removeEventListener('resize', schedule)
+      window.visualViewport?.removeEventListener('resize', schedule)
+      window.visualViewport?.removeEventListener('scroll', schedule)
     }
   }, [])
   return view

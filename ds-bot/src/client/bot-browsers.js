@@ -1,7 +1,7 @@
 import { mobilePageScript } from './mobile-browser-page.js'
-// Bot browsers in the Desktop app: per Bot, a tab strip of pages. Each tab is one
-// Electron webview in the Bot's own storage partition (`dshDesktop.browser.acquire(
-// 'bot:<id>')` — the same key always yields the same partition, so cookies and logins
+// Bot browsers in DSH Desktop and the desktop app: per Bot, a tab strip of pages. Each tab
+// is one Electron webview in the Bot's own storage partition (`browser.acquire('bot:<id>')`
+// on either one's bridge — the same key always yields the same partition, so cookies and logins
 // never cross Bots while a Bot may hold several pages). Moving a webview to another
 // parent reloads its guest, so every webview lives in one body-level layer for its
 // whole life: the panel reports a rectangle, the shown tab's webview is placed over
@@ -73,6 +73,8 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
   // saves its own Bots' tabs into the same object.
   const store = sharedMap(STORE_KEY, storage)
   let saved = store.read()
+  // Bots this window has seen on the team: one deleted later is forgotten even if it never had a tab.
+  const seen = new Set()
   let layer
   let shown = null
   // The last panel rectangle sizes every guest, shown or not; `visible` says whether the
@@ -382,6 +384,9 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
       return rest
     })
     save(botId, undefined)
+    seen.delete(botId)
+    // The desktop app keeps a Bot's logins on disk; they go with the Bot.
+    await bridge.forget?.(`bot:${botId}`)?.catch(error => console.warn('[ds-bot] browser forget', error))
   }
 
   return {
@@ -464,8 +469,9 @@ export function createBotBrowsers({ bridge, createSource, storage = globalThis.l
     /** Forget every Bot outside `botIds`, as when Bots were deleted from another window. */
     retain(botIds) {
       const keep = new Set(botIds)
-      const known = new Set([...Object.keys(tabs.getSnapshot()), ...Object.keys(saved), ...owner.values()])
+      const known = new Set([...Object.keys(tabs.getSnapshot()), ...Object.keys(saved), ...owner.values(), ...seen])
       for (const entry of views.values()) known.add(entry.botId)
+      for (const botId of keep) seen.add(botId)
       return Promise.all([...known].filter(botId => !keep.has(botId)).map(forget))
     },
     dispose() {

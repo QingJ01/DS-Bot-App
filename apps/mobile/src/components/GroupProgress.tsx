@@ -36,6 +36,7 @@ export function GroupProgress({
   const [rounds, setRounds] = useState<GroupRound[]>([]);
   const [unavailable, setUnavailable] = useState(false);
   const [stopping, setStopping] = useState("");
+  const [resuming, setResuming] = useState(false);
   const [error, setError] = useState("");
   const membersWork = team.work?.rooms?.[room.id];
   const workOf = (id: string) => membersWork?.find(work => work.botId === id) || (team.work?.bots[id]?.roomId === room.id ? team.work.bots[id] : undefined);
@@ -53,6 +54,15 @@ export function GroupProgress({
       await onChanged?.();
     } catch (cause) { setError(tr("Could not stop member work.") + " " + errorText(cause)); }
     finally { setStopping(""); }
+  }
+  async function resume() {
+    if (resuming || !online || team.readOnly) return;
+    setResuming(true); setError("");
+    try {
+      await client.action("room-continue", { roomId: room.id });
+      await onChanged?.();
+    } catch (cause) { setError(errorText(cause)); }
+    finally { setResuming(false); }
   }
   useEffect(() => {
     let alive = true;
@@ -100,7 +110,15 @@ export function GroupProgress({
       subscription.remove();
     };
   }, [client, room.id, running, online, onProgress]);
-  if (!online || (!running && !busyMembers.length) || (!rounds.length && !unavailable && !busyMembers.length)) return null;
+  if (!online) return null;
+  if (Array.isArray(room.paused) && room.paused.length) return (
+    <View style={{gap:8,paddingHorizontal:12,paddingBottom:8}}>
+      <Notice text={tr("Group relays are paused. Continue or send a message to resume.")} />
+      <Notice error text={error} />
+      <Button title={tr("Continue group")} secondary disabled={resuming || !!team.readOnly} onPress={() => void resume()} />
+    </View>
+  );
+  if ((!running && !busyMembers.length) || (!rounds.length && !unavailable && !busyMembers.length)) return null;
   if (unavailable && !busyMembers.length)
     return (
       <Text

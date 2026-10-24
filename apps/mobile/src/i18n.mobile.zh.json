@@ -662,5 +662,7 @@
   "Low": "低",
   "Medium": "中",
   "High": "高",
-  "Max": "最高"
+  "Max": "最高",
+  "Group relays are paused. Continue or send a message to resume.": "群接力已暂停。点击继续或发送消息即可恢复。",
+  "Continue group": "继续群接力"
 }

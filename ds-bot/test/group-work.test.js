@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
-import { MESSAGE_INLINE_MAX, ROOM_LATE_ROUNDS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
+import { MESSAGE_INLINE_MAX, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS } from '../src/host/constants.js'
 
 // Chief, the admin of group 'r1', speaks there from 'ga'; Writer from 'gb'; Tester from 'gc'.
 const seed = (room = {}, extraRooms = {}) => ({
@@ -363,17 +363,17 @@ test('work inside a PTC program lets the round go on after the grace', async (t)
   assert.deepEqual(kinds(result()), [['working', 'Writer']])
 })
 
-test('work the user asked for is left for the user to read, and the user\'s message resets the late limit', async (t) => {
+test('work the user asked for is left for the user to read, and the user\'s message resets the relay count', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
-  const host = await start(t, { lateRounds: ROOM_LATE_ROUNDS - 1 })
+  const host = await start(t, { relays: 5 })
   const first = host.round('c1', host.say('@Writer 整理文档'))
   await settle(() => host.agentOf('gb').calls.length === 1)
   host.begin('gb')
   host.emit('gb', 'tool/call', { callId: 'k1', name: 'write', arguments: '{}' })
   t.mock.timers.tick(ROOM_WORK_GRACE_MS)
   await settle(() => first() !== undefined)
-  // The user's message resets the limit.
-  assert.equal(JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8')).rooms.r1.lateRounds, 0)
+  // The user's message resets the count.
+  assert.equal(JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8')).rooms.r1.relays, 0)
   host.finish('gb', '好了。')
   await settle(() => host.agentOf('r1').calls.length === 1)
   const post = host.takePost()
@@ -384,13 +384,36 @@ test('work the user asked for is left for the user to read, and the user\'s mess
   assert.deepEqual([host.agentOf('ga').calls.length, host.agentOf('gc').calls.length], [0, 0])
 })
 
-test('the late round limit makes a late post quiet', async (t) => {
-  const host = await start(t, { lateRounds: ROOM_LATE_ROUNDS })
+test('a late post that calls a member counts into the relays, and parks past the limit', async (t) => {
+  // Three members, so the default relay limit is 9: the eighth relay still runs.
+  const host = await start(t, { relays: 8 })
   host.emit('gb', 'turn/start', { turn: 1 })
-  host.emit('gb', 'user/message', { content: [{ type: 'text', text: 'go' }], source: { kind: 'bot', role: 'room', exchangeId: 'x1', roomId: 'r1', hop: 0, askedBy: 'a' } })
-  host.finish('gb', '做完了。')
+  host.emit('gb', 'user/message', { content: [{ type: 'text', text: 'go' }], source: { kind: 'bot', role: 'room', exchangeId: 'x1', roomId: 'r1', askedBy: 'a' } })
+  host.finish('gb', '@Tester 看看这个')
   await settle(() => host.agentOf('r1').calls.length === 1)
-  assert.equal(host.takePost().source.quiet, true)
+  const post = host.takePost()
+  assert.deepEqual([post.source.late, post.source.quiet], [true, undefined])
+  const first = host.round('c2', post)
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  host.finish('gc', '[PASS]')
+  await settle(() => first() !== undefined)
+  assert.equal(JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8')).rooms.r1.relays, 9)
+
+  // The next late call parks: the group pauses instead of running it, and nothing
+  // is dropped — the Tester just gets no turn until the user goes on.
+  host.emit('gb', 'turn/start', { turn: 2 })
+  host.emit('gb', 'user/message', { content: [{ type: 'text', text: 'more' }], source: { kind: 'bot', role: 'room', exchangeId: 'x2', roomId: 'r1', askedBy: 'a' } })
+  host.finish('gb', '@Tester 再看一个')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const second = host.round('c3', host.takePost())
+  await settle(() => second() !== undefined)
+  const saved = JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8')).rooms.r1
+  assert.equal(saved.relays, 9, 'the parked call did not run')
+  assert.deepEqual(saved.paused.map(entry => [entry.id, entry.name]), [['c', 'Tester']])
+  assert.equal('lateRounds' in saved, false)
+  assert.equal(host.agentOf('gc').calls.length, 1, 'the parked call never reached the Tester')
+  assert.deepEqual(second().replies.filter(reply => reply.kind === 'paused').map(reply => [reply.names, reply.count]), [[['Tester'], 9]])
 })
 
 // #198: a post during a running round waited for the round's own relay before
@@ -708,7 +731,9 @@ test('members still at work show in the team view and in the prompts of the othe
   host.emit('gb', 'tool/call', { callId: 'k1', name: 'pwsh', arguments: '{}' })
   const result = host.round('c1', host.say('@Tester 你怎么看'))
   await settle(() => host.agentOf('gc').calls.length === 1)
-  assert.match(text(host.agentOf('gc').calls[0]), /Still at work on what they were asked; each posts here when done: Writer \(1 min\)\./)
+  // Writer has not read the one line in the group (the user's message that opened this
+  // round), so the prompt names the wait and the unread count together.
+  assert.match(text(host.agentOf('gc').calls[0]), /Still at work on what they were asked; each posts here when done: Writer \(1 min, with 1 group message\(s\) it has not read yet\)\./)
   host.begin('gc')
   const { value } = await host.call('state', {})
   assert.deepEqual(value.work.rooms.r1.map(entry => [entry.botId, entry.tool, entry.speaking]), [['b', 'pwsh', undefined], ['c', undefined, true]])
