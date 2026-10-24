@@ -12,6 +12,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSyn
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { makeLongNoteView } from './view-fixtures.mjs'
 
 const [name, port, ...rest] = process.argv.slice(2)
 if (!name || !port) {
@@ -228,16 +229,10 @@ await step('Writer shows a view just under the byte limit', () => send(botNamed(
 await step('the view card appears in chat-history search', () => send(botNamed('Writer').id, '查记录 A long note'), (_value, calls) => {
   return expect(saidText(calls, /\[View card\] A long note/), 'read_own_chat did not return the view-card summary')
 })
-await step('the big view survives a re-read of the part', () => api('earlier', { sessionId: botNamed('Writer').sessionId ?? botNamed('Writer').id }), (page) => {
-  const found = (page?.items ?? []).find(item => JSON.stringify(item).includes('show_view'))
-  return expect(found !== undefined, `no show_view call in the part (${JSON.stringify(page?.items?.length)})`)
-    ?? expect(JSON.stringify(found).length > 7500, `the call came back without its view (${JSON.stringify(found).length} chars)`)
-})
-
 await step('the big view survives a re-read of the part', () => api('chat', { botId: botNamed('Writer').id }), (page) => {
   const found = (page?.items ?? []).find(item => item.kind === 'view' && item.title === 'A long note')
   return expect(found !== undefined, `no view card in the part (${JSON.stringify(page?.items?.length)})`)
-    ?? expect(found.view?.children?.length === 4 && found.view.children.every(node => node.type === 'text' && node.text === 'x'.repeat(1900)), 'the view came back without its complete blueprint')
+    ?? expect(JSON.stringify(found.view) === JSON.stringify(makeLongNoteView()), 'the view came back without its complete blueprint')
 })
 
 await step('user creates Coder, who keeps the default model', () => api('create-bot', { name: 'Coder', role: 'Engineer', instructions: 'Write code.' }), (bot) => {
@@ -322,7 +317,7 @@ await step('the big view survives the switch to an earlier part', async () => {
     if (found) return found
     cursor = page.cursor
   } while (cursor)
-}, found => expect(found?.view?.children?.length === 4 && found.view.children.every(node => node.type === 'text' && node.text === 'x'.repeat(1900)), 'the earlier part lost the view blueprint'))
+}, found => expect(JSON.stringify(found?.view) === JSON.stringify(makeLongNoteView()), 'the earlier part lost the view blueprint'))
 
 // Work still under way (the mock steward reads 阶段未完 in the latest user message): the
 // part is condensed in place with DS Bot's checkpoint, not switched, and the condensed
