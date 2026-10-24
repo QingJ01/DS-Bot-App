@@ -28,20 +28,19 @@ Anyone on the team can do any kind of work: triage, bug fixes, features, the int
 | Branch | What it is | Who merges |
 |---|---|---|
 | `main` | Integration and release branch | The maintainer |
-| `fix/<issue>-<name>`, `feat/<issue>-<name>`, `docs/<name>`, `chore/<name>` | Your work. Start it from the latest `main` | — |
+| `devin/<timestamp>-<slug>`, `fix/<issue>-<name>`, `feat/<issue>-<name>`, `docs/<name>`, `chore/<name>` | Your work. Start it from the latest `main` | — |
 
 - Bring your branch up to date with `git merge main`. Do not rebase a pushed branch and do not force-push.
 
 ### Issues
 
-1. **Triage.** Give each new issue a type, a priority and an area (see [Labels](#labels)). One priority label per issue. The steps, with a script that lists what needs triage, are in [.agents/skills/issue-triage/](.agents/skills/issue-triage/SKILL.md) (in Chinese); an AI agent can follow them as well.
+1. **Triage.** Give each new issue a type, a priority and an area (see [Labels](#labels)). One priority label per issue.
    - A question (how to install, how to use): select **Convert to discussion** and move it to the Q&A category.
    - Not enough information to find the cause: add `needs-info` and ask for exactly what is missing. Say that the issue is closed after 14 days without an answer.
    - A cause in DSH or in another plugin: add `upstream` and link the place where it belongs.
    - The same as an open issue: add `duplicate`, link the other issue and close this one.
-2. **Claim.** Assign the issue to yourself and write "I'll take this" in it before you start, so that two people do not work on the same thing. Do not take an issue that already has an assignee; ask in the issue first.
-3. **Features.** A new idea starts in Discussions (Ideas). When the maintainer agrees, it becomes an issue with the `enhancement` label. Before you build a feature, write in the issue how you plan to do it. For a large feature, add a design note in `docs/plans/<date>-<topic>.md` to the same pull request.
-4. **Close with evidence.** When you close an issue, link the pull request or commit that fixed it, the issue it duplicates, or the reason it will not be fixed. Write the comment in the language of the issue.
+2. **Features.** A new idea starts in Discussions (Ideas). When the maintainer agrees, it becomes an issue with the `enhancement` label. Before you build a feature, write in the issue how you plan to do it. For a large feature, add a design note in `docs/plans/<date>-<topic>.md` to the same pull request.
+3. **Close with evidence.** When you close an issue, link the pull request or commit that fixed it, the issue it duplicates, or the reason it will not be fixed. Write the comment in the language of the issue.
 
 ### Labels
 
@@ -80,20 +79,19 @@ Anyone on the team can do any kind of work: triage, bug fixes, features, the int
 | Branch | What it is | Who merges |
 |---|---|---|
 | `main` | Integration and release branch | The maintainer |
-| `fix/<issue>-<name>`, `feat/<issue>-<name>`, `docs/<name>`, `chore/<name>` | Your work. Start it from the latest `main` | — |
+| `devin/<timestamp>-<slug>`, `fix/<issue>-<name>`, `feat/<issue>-<name>`, `docs/<name>`, `chore/<name>` | Your work. Start it from the latest `main` | — |
 
 - Bring your branch up to date with `git merge main`. Do not rebase a pushed branch and do not force-push.
 
 ### Issues
 
-1. **Triage.** Give each new issue a type, a priority and an area (see [Labels](#labels)). One priority label per issue. The steps, with a script that lists what needs triage, are in [.agents/skills/issue-triage/](.agents/skills/issue-triage/SKILL.md) (in Chinese); an AI agent can follow them as well.
+1. **Triage.** Give each new issue a type, a priority and an area (see [Labels](#labels)). One priority label per issue.
    - A question (how to install, how to use): select **Convert to discussion** and move it to the Q&A category.
    - Not enough information to find the cause: add `needs-info` and ask for exactly what is missing. Say that the issue is closed after 14 days without an answer.
    - A cause in DSH or in another plugin: add `upstream` and link the place where it belongs.
    - The same as an open issue: add `duplicate`, link the other issue and close this one.
-2. **Claim.** Assign the issue to yourself and write "I'll take this" in it before you start, so that two people do not work on the same thing. Do not take an issue that already has an assignee; ask in the issue first.
-3. **Features.** A new idea starts in Discussions (Ideas). When the maintainer agrees, it becomes an issue with the `enhancement` label. Before you build a feature, write in the issue how you plan to do it. For a large feature, add a design note in `docs/plans/<date>-<topic>.md` to the same pull request.
-4. **Close with evidence.** When you close an issue, link the pull request or commit that fixed it, the issue it duplicates, or the reason it will not be fixed. Write the comment in the language of the issue.
+2. **Features.** A new idea starts in Discussions (Ideas). When the maintainer agrees, it becomes an issue with the `enhancement` label. Before you build a feature, write in the issue how you plan to do it. For a large feature, add a design note in `docs/plans/<date>-<topic>.md` to the same pull request.
+3. **Close with evidence.** When you close an issue, link the pull request or commit that fixed it, the issue it duplicates, or the reason it will not be fixed. Write the comment in the language of the issue.
 
 ### Labels
 

@@ -149,7 +149,14 @@ jobs:
           node-version: 24
       - run: npm ci --no-fund --no-audit
       - run: npm run dist
-      - run: node scripts/check-packed.mjs
+      # An AppImage mounts through FUSE 2, and Ubuntu 24.04's AppArmor blocks the unprivileged
+      # user namespaces that Chromium's sandbox needs; a throwaway runner may lift that.
+      - name: Prepare to run the app
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq libfuse2t64 xvfb
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Check the packaged app
+        run: xvfb-run -a node scripts/check-packed.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: dsbot-desktop-windows
@@ -207,13 +214,19 @@ jobs:
           node-version: 24
       - run: npm ci --no-fund --no-audit
       - run: npm run dist
-      - run: node scripts/check-packed.mjs
+      # An AppImage mounts through FUSE 2, and Ubuntu 24.04's AppArmor blocks the unprivileged
+      # user namespaces that Chromium's sandbox needs; a throwaway runner may lift that.
+      - name: Prepare to run the app
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq libfuse2t64 xvfb
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Check the packaged app
+        run: xvfb-run -a node scripts/check-packed.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: dsbot-desktop-linux
           path: |
             app/dist-pack/DS-Bot-App-*-linux-x86_64.AppImage
-            app/dist-pack/DS-Bot-App-*-linux-x86_64.AppImage.blockmap
             app/dist-pack/DS-Bot-App-*-linux-amd64.deb
             app/dist-pack/latest-linux.yml
           if-no-files-found: error
@@ -226,7 +239,7 @@ jobs:
       needs.android.result == 'success' &&
       (
         (contains(github.ref_name, '-r') &&
-      needs.desktop-windows.result == 'skipped' &&
+          needs.desktop-windows.result == 'skipped' &&
           needs.desktop-macos.result == 'skipped' &&
           needs.desktop-linux.result == 'skipped') ||
         (!contains(github.ref_name, '-r') &&

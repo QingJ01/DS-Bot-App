@@ -291,7 +291,7 @@ jobs:
           test "$(sha512sum "$tmp/ds-bot-app.AppImage" | cut -d' ' -f1)" = "$(sha512sum "$next" | cut -d' ' -f1)"
       - name: Uninstall
         run: |
-          sudo apt-get remove -y ds-bot-app
+          sudo apt-get remove -y ds-bot-app-desktop
           test ! -e "/opt/DS Bot App/ds-bot-app"
 
   docker:

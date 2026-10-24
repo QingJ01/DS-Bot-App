@@ -185,7 +185,7 @@ export function install(rt) {
       safeWarn('ds-bot: the update to %s did not finish: %s', marker.to ?? 'a newer version', marker.error.slice(0, 600))
       Object.assign(status, { phase: 'failed', error: marker.error.slice(0, 600), errorCode: marker.errorCode ?? 'network' })
       try { unlinkSync(markerPath) } catch { /* gone is what we want */ }
-    } else if (marker.to === PKG.version) {
+    } else if (marker.to === PKG.version && marker.completed === true) {
       Object.assign(status, { phase: 'updated', installed: PKG.version })
       try { unlinkSync(markerPath) } catch { /* gone is what we want */ }
     } else if (marker.from !== PKG.version) {
@@ -299,7 +299,7 @@ export function install(rt) {
   }
 
   async function check({ fresh = false } = {}) {
-    if (!enabled || ['installing', 'installed', 'updated'].includes(status.phase)) return view()
+    if (!enabled || ['installing', 'installed'].includes(status.phase) || (status.phase === 'updated' && !fresh)) return view()
     if (checking) { await checking; return view() }
     if (!fresh && Date.now() - status.checkedAt < CHECK_TTL_MS) return view()
     checking = runCheck().finally(() => { checking = null })
@@ -308,16 +308,16 @@ export function install(rt) {
   }
 
   function start({ targetId, repair = false } = {}) {
-    if (status.phase === 'installing' || status.phase === 'installed' || status.phase === 'updated') return view()
+    if (status.phase === 'installing' || status.phase === 'installed') return view()
     if (!enabled || !target || (!target.upgrade && !(repair && target.repair))) throw new Error('No DS Bot update is available')
     if (targetId !== undefined && targetId !== target.id) throw new Error('The available update changed. Check for updates again.')
     const chosen = target
     Object.assign(status, { phase: 'installing', stage: 'preparing', error: null, errorCode: null })
-    const mark = (error, errorCode) => {
+    const mark = (error, errorCode, completed = false) => {
       if (markerPath === null) return
       try {
         writeFileSync(markerPath, JSON.stringify({
-          from: PKG.version, to: chosen.version, spec: chosen.spec, startedAt: new Date().toISOString(),
+          from: PKG.version, to: chosen.version, spec: chosen.spec, startedAt: new Date().toISOString(), completed,
           ...(error === undefined ? {} : { error }),
           ...(errorCode === undefined ? {} : { errorCode }),
         }), { mode: 0o600 })
@@ -357,7 +357,13 @@ export function install(rt) {
         if (cause?.error?.code !== 'already-installed') throw cause
         if (typeof service.removeBundle !== 'function') throw failure('remove-unavailable')
         mark()
-        const removed = await service.removeBundle(PKG.name)
+        let removed
+        try {
+          removed = await service.removeBundle(PKG.name)
+        } catch (removeError) {
+          unmark()
+          throw removeError
+        }
         if (removed?.error || !['applied', 'restart-required'].includes(removed?.application)) {
           unmark()
           const removeError = removed?.error
@@ -381,6 +387,7 @@ export function install(rt) {
           mark(`Update install failed: ${installHint.message}. The previous installation was restored.`, installHint.code)
           throw installError
         }
+        mark(undefined, undefined, true)
       }
       Object.assign(status, { phase: 'installed', stage: 'done', installed: chosen.ref, restartRequired: result.application === 'restart-required' })
       await persistReceipt()

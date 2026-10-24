@@ -74,8 +74,6 @@ Start on the same Wi-Fi. The plugin sets up local HTTPS without a domain or manu
 
 DS Bot selects its `auto` search provider for the whole profile. If you disable `web-search-auto`, also select another registered search provider in that profile. See [Web search](ds-bot/README.md#web-search) and the [recovery steps](docs/known-issues.md#web-search-fails-everywhere-after-turning-off-web-search-auto).
 
-## Features
-
 Use this repository's matching plugin package. The upstream npm package named `ds-bot` does not include the complete phone connection implementation.
 
 Version 0.1.1 also supports [public IPv6 direct access](docs/mobile-local-https.md#ipv6-direct-access) across networks without a domain or relay.

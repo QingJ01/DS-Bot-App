@@ -188,6 +188,7 @@ test('an already-installed refusal removes the bundle, reinstalls and leaves a n
   assert.equal(note.to, '9.0.0')
   assert.equal(note.spec, spec(SHA))
   assert.equal(typeof note.startedAt, 'string')
+  assert.equal(note.completed, true)
   assert.equal(note.error, undefined)
   assert.equal((await rt.updateCheck()).phase, 'installed')
   rmSync(home, { recursive: true, force: true, maxRetries: 5 })
@@ -256,9 +257,9 @@ test('a failed target install restores the captured immutable source without a s
   rmSync(home, { recursive: true, force: true, maxRetries: 5 })
 })
 
-test('the note for the version now running shows the update once and is consumed', async () => {
+test('a completed note for the version now running shows the update once and is consumed', async () => {
   const home = newHome()
-  writeFileSync(join(home, 'update.json'), JSON.stringify({ from: '0.2.0', to: PKG.version, spec: `${PKG.name}@${PKG.version}`, startedAt: new Date().toISOString() }))
+  writeFileSync(join(home, 'update.json'), JSON.stringify({ from: '0.2.0', to: PKG.version, spec: `${PKG.name}@${PKG.version}`, startedAt: new Date().toISOString(), completed: true }))
   const { rt, warnings } = start({ home })
   const view = rt.updateView()
   assert.equal(view.phase, 'updated')
@@ -266,6 +267,47 @@ test('the note for the version now running shows the update once and is consumed
   assert.equal(view.available, false)
   assert.equal(existsSync(join(home, 'update.json')), false)
   assert.deepEqual(warnings, [])
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('a pending same-version note is not reported as an update', () => {
+  const home = newHome()
+  writeFileSync(join(home, 'update.json'), JSON.stringify({ from: PKG.version, to: PKG.version, spec: NOTE, startedAt: new Date().toISOString(), completed: false }))
+  const { rt } = start({ home })
+  assert.equal(rt.updateView().phase, 'idle')
+  assert.equal(existsSync(join(home, 'update.json')), true)
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('a completed marker permits a fresh check for another release', async () => {
+  const home = newHome()
+  writeFileSync(join(home, 'update.json'), JSON.stringify({ from: '0.2.0', to: PKG.version, spec: NOTE, startedAt: new Date().toISOString(), completed: true }))
+  const f = fixture({ home, source: spec(OLD), version: PKG.version, revision: 3 })
+  assert.equal(f.rt.updateView().phase, 'updated')
+  const view = await f.rt.updateCheck({ fresh: true })
+  assert.equal(view.phase, 'idle')
+  assert.equal(view.available, true)
+  assert.equal(view.latestRevision, 3)
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('a thrown removal clears the pending note without reinstalling', async () => {
+  const home = newHome()
+  const { rt, installs, removes } = start({
+    source: `${PKG.name}@^${PKG.version}`,
+    config: { updateRegistry: 'https://registry.example' },
+    answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
+    result: count => count === 1 ? { error: { code: 'already-installed' } } : { application: 'applied', version: '9.0.0' },
+    remove: () => { throw new Error('removal failed') },
+    home,
+  })
+  await rt.updateCheck()
+  rt.updateStart()
+  await flush()
+  assert.equal(rt.updateView().phase, 'failed')
+  assert.equal(installs.length, 1)
+  assert.deepEqual(removes, [PKG.name])
+  assert.equal(existsSync(join(home, 'update.json')), false)
   rmSync(home, { recursive: true, force: true, maxRetries: 5 })
 })
 

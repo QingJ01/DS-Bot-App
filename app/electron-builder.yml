@@ -1,6 +1,6 @@
 appId: io.github.qingj01.dsbotapp
 productName: DS Bot App
-copyright: Copyright 2026 QingJ01 and the DS Bot contributors
+copyright: Copyright 2026 Fei2411, QingJ01 and the DS Bot contributors
 artifactName: DS-Bot-App-${version}-${os}-${arch}.${ext}
 directories:
   output: dist-pack
