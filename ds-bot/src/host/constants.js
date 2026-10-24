@@ -69,9 +69,6 @@ export const TEAM_TOOLS = [
   'list_capabilities', 'save_capability', 'delete_capability',
   'attach_capability', 'detach_capability',
 ]
-// Answers a group gives to what members post after the round moved on (their finished
-// work, mostly), before the user speaks there again.
-export const ROOM_LATE_ROUNDS = 10
 // A member still at work this long after its first tool call lets the round go on; it
 // posts its reply when the work is done.
 export const ROOM_WORK_GRACE_MS = 15_000
@@ -86,3 +83,5 @@ export const OWN_CHAT_SEARCH = 20
 export const HISTORY_PAGE = 200
 export const HISTORY_PAGES_MAX = 50
 export const HISTORY_TIMEOUT_MS = 20_000
+// Shown when an aside stops at the route's own output limit. The partial answer stays.
+export const BTW_LIMIT = 'Answer cut off at the output limit.'

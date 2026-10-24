@@ -125,6 +125,10 @@ function decide(body) {
   }).filter(message => message.role !== 'user' || message.content.length > 0)
   const last = messages.at(-1)
   const blocks = Array.isArray(last?.content) ? last.content : []
+  // An aside (btw.js). The first line is the marker; the reply is fixed and calls nothing.
+  if (last?.role === 'user' && textBlocks(last.content).some(value => value.startsWith('ds-bot/btw\n') || value === 'ds-bot/btw')) {
+    return [text('Based on the conversation so far.')]
+  }
   const me = /You are (.+?), a Bot on the user's team/.exec(system)?.[1] ?? 'Bot'
   const isMain = system.includes('You are the Main Bot')
   const isRelay = system.includes('# Group chat relay')
@@ -235,6 +239,7 @@ function decide(body) {
       // The user's answer can ride in the same message as the card's tool result.
       case 'ask_user': if (textOf(last.content).trim() === '') return [text('')]
         break
+      case 'show_view': return [text(resultText.startsWith('The view is on screen') ? '这些都是示例数据，换成你的数据我再画一次。' : `没画成：${resultText}`)]
       case 'ask_user_question': {
         let picked = ''
         try { picked = JSON.parse(resultText).answers?.[0]?.selected?.[0] ?? '' } catch {}
@@ -507,6 +512,46 @@ function decide(body) {
   }
   if (/^\s*大视图/.test(userText) && tools.has('show_view')) {
     return [tool('show_view', { title: LONG_NOTE_TITLE, view: makeLongNoteView(), await_reply: false })]
+  }
+  if (/^\s*视图图表/.test(userText) && tools.has('show_view')) {
+    return [text('B 最快，D 最慢。下面是四个模型的首字延迟（示例数据）：'), tool('show_view', {
+      view: {
+        type: 'stack',
+        children: [
+          { type: 'chart', kind: 'bar', categories: ['Model A', 'Model B', 'Model C', 'Model D'], series: [{ name: 'p50', values: [420, 310, 520, 680] }, { name: 'p95', values: [690, 540, 810, 1150] }], unit: 'ms', caption: 'Time to first token, sample data' },
+          { type: 'row', children: [{ type: 'chart', kind: 'line', categories: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], series: [{ name: 'Requests', values: [120, 180, 160, 240, 210] }] }, { type: 'chart', kind: 'donut', categories: ['Cached', 'Fresh', 'Failed'], series: [{ values: [62, 33, 5] }], unit: '%' }] },
+          { type: 'sources', items: [{ label: 'Bench notes', url: 'https://example.com/bench' }] },
+        ],
+      },
+    })]
+  }
+  if (/^\s*视图计算器/.test(userText) && tools.has('show_view')) {
+    return [text('拖一下滑块看看每月要花多少：'), tool('show_view', {
+      title: 'Monthly cost',
+      view: {
+        type: 'stack',
+        let: { tokens: 'req * 30 * 2000 / 1e6', cost: 'tokens * (1 - hit) * 2 + tokens * hit * 0.5' },
+        children: [
+          { type: 'slider', id: 'req', label: 'Requests a day', min: 100, max: 5000, step: 100, value: 1200 },
+          { type: 'choice', id: 'hit', label: 'Cache hits', options: [{ label: 'Low', value: 0.2 }, { label: 'Mid', value: 0.5 }, { label: 'High', value: 0.8 }], value: 0.5 },
+          { type: 'row', children: [
+            { type: 'metric', label: 'Cost a month', value: { '=': "'¥' + format(cost, 0)" }, tone: { '=': "cost > 100 ? 'bad' : 'good'" } },
+            { type: 'metric', label: 'Tokens a month', value: { '=': "format(tokens, 1) + ' M'" } },
+          ] },
+          { type: 'progress', label: 'Basic plan (¥100)', value: { '=': 'min(cost, 100)' }, max: 100, valueLabel: { '=': "cost > 100 ? '¥' + format(cost - 100, 0) + ' over' : '¥' + format(100 - cost, 0) + ' left'" }, tone: { '=': "cost > 100 ? 'bad' : cost > 80 ? 'warn' : 'good'" } },
+          { type: 'callout', text: 'Assumes 2,000 tokens a request and list prices.', tone: 'info' },
+          { type: 'submit', id: 'send', label: 'Send to Bot' },
+        ],
+      },
+    })]
+  }
+  if (/^\s*视图网页/.test(userText) && tools.has('show_view')) {
+    return [tool('show_view', {
+      view: {
+        type: 'html', summary: 'Six seats, two taken', height: 96,
+        html: '<style>.g{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}.s{height:40px;border-radius:8px;background:var(--bt-hover);border:0;color:var(--bt-ink);font:inherit;cursor:pointer}.s[data-on]{background:var(--bt-accent);color:#fff}.s:disabled{opacity:.4}</style><div class="g"></div><p id="n" style="color:var(--bt-ink-2);margin:8px 0 0">Pick a seat</p><script>const g=document.querySelector(".g");for(let i=1;i<=6;i++){const b=document.createElement("button");b.className="s";b.textContent="A"+i;if(i===2||i===5)b.disabled=true;b.onclick=()=>{b.toggleAttribute("data-on");document.getElementById("n").textContent=[...g.querySelectorAll("[data-on]")].map(x=>x.textContent).join(", ")||"Pick a seat"};g.append(b)}</script>',
+      },
+    })]
   }
   // Streams slowly, then checks the team: exercises the activity row stepping aside
   // for a streaming reply and coming back for the tool.

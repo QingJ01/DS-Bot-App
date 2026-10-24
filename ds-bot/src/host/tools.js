@@ -8,7 +8,7 @@ import { within } from './folders.js'
 import { absoluteLinks } from './links.js'
 import { unquote } from './text.js'
 import { mentionSpans } from '../shared/mentions.js'
-import { normalizeView, checkShownView } from '../shared/views.js'
+import { checkShownView } from '../shared/views.js'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
@@ -168,10 +168,12 @@ export function install(rt) {
       const postedIn = posted !== undefined && posted.turn === turnOf(exec) ? posted.calls.get(target.id) : undefined
       if (postedIn !== undefined) refuse(`Not sent: you called ${target.name} in "${postedIn}" in this turn, and it works on that there. Send each task one way only; to add to it, post in that group.`)
       // Whoever waits for this work gets the answer by itself; a message there only
-      // sends the work round in a circle.
+      // sends the work round in a circle. Not a failed call: the turn goes on with
+      // the work, and the result says where its answer goes instead of showing a
+      // bare error the Bot cannot act on.
       const works = worksOf(exec)
       if (rt.upstreamOf(works).has(target.id)) {
-        refuse(`Not sent: ${target.name} is waiting for the result of the work you are doing, and your answer reaches it by itself. Finish the work and end your turn; to ask ${target.name} something, end your turn with the question.`)
+        return `Not sent: ${target.name} is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. Finish the work and end your turn; to ask ${target.name} something, end your turn with the question.`
       }
       const toUser = args.reply_to === 'user'
       const work = toUser ? undefined : works[0]
@@ -619,16 +621,16 @@ export function install(rt) {
 
   ctx.tools.register(defineTool({
     name: 'show_view',
-    description: 'Show the user a view card in your own chat: text, metrics, a table, progress, choices, a confirmation, or a short form. An interactive card (options, confirm, or form) ends your turn; the answer arrives as the user\'s next message. Keep the view under 8 KB. Never collect a key, token, or password in a form.',
+    description: 'Draw a view in your own chat as part of your reply: a chart, key numbers, a table, a small calculator the user can try values in, or a choice, confirmation or short form. Text you write before and after the call shows around it. Use a view when it answers better than text: a chart to compare values or show a trend, inputs with formulas to let the user try numbers (worked out in the page, no new turn), options to let the user pick. Plain rows and columns read fine as a Markdown table, and one number needs no view. Give the answer first, then the view. Never invent data; mark sample numbers and assumptions as such. Do not repeat the same data as text, chart and table. Add only the controls the user needs. A view with options, confirm, form or submit ends your turn, and the answer arrives as the user\'s next message. Never collect a key, token or password. Keep the view under 8 KB.',
     parameters: {
-      title: { type: 'string', required: true, description: 'One short title for the card' },
+      title: { type: 'string', description: 'Optional short heading shown above the view' },
       view: {
         type: 'object',
         required: true,
         additionalProperties: true,
-        description: 'One component { type, ...props, children? }. type is stack (children, 1 to 16), text ({ text }), metric ({ label, value, tone? }), table ({ columns: [{ key, label }], rows }), options ({ id, options: [{ label, description? }], multi? }), confirm ({ id, confirmLabel?, cancelLabel? }), form ({ id, fields: [{ id, label, placeholder? }], submitLabel? }), or progress ({ label?, percent }).',
+        description: 'One component { type, ...props }. Layout: stack (children, top to bottom) and row (children, side by side, wraps when narrow), 1 to 16 children; the outermost may define let: { name: "formula" }. Display: text ({ text: Markdown, tone?: "muted" }), metric ({ label, value, tone?: good|warn|bad, caption? }), table ({ columns: [{ key, label }], rows: [[cells]] }), chart ({ kind?: bar|hbar|line|area|donut, categories: [labels], series: [{ name?, values: [numbers] }], unit?, caption? }; donut takes one series), progress ({ label?, percent 0-100, or value with max, valueLabel?, tone? }), callout ({ text, tone?: info|good|warn|bad }), sources ({ items: [{ label, url }] }), html ({ html, summary, height? }: only for what nothing else can draw; it runs sandboxed with no network, cannot submit, and should use the CSS variables --bt-ink, --bt-ink-2, --bt-line, --bt-card, --bt-accent, --bt-green, --bt-star, --bt-danger). Inputs, which keep their value in the page: slider ({ id, label, min, max, step?, value, unit? }), number ({ id, label, value, min?, max?, step?, unit? }), choice ({ id, label, options: [{ label, value }], value? }), toggle ({ id, label, value? }); an input id is a plain name such as price. A metric value, caption or tone, a text, a progress field, a callout, a table cell or a chart value may be a formula { "=": "expression" } over input ids and let names: numbers, \'text\', + - * / %, < <= > >= == !=, && || !, a ? b : c, and min max abs floor ceil sqrt pow round clamp fixed(x, digits) format(x, digits) percent(x, digits). Answers, which end your turn: options ({ id, options: [{ label, description? }], multi? }), confirm ({ id, confirmLabel?, cancelLabel? }), form ({ id, fields: [{ id, label, placeholder? }], submitLabel? }), submit ({ id, label }: sends the inputs\' values to you).',
       },
-      await_reply: { type: 'boolean', description: 'Wait for the user to submit the card. A view with options, confirm, or form always waits; a display-only view cannot.' },
+      await_reply: { type: 'boolean', description: 'Wait for the user to submit the view. A view with options, confirm, form or submit always waits; a view without them cannot.' },
     },
     output,
     async execute(args, exec) {
@@ -636,10 +638,10 @@ export function install(rt) {
       const id = exec.agent?.id
       if (rt.groupOwners.has(id)) return 'View cards only work in your own chat. In a group, ask in your message instead.'
       if (!rt.chatOwners.has(id)) return `Only Bots on the team can use show_view. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
-      const view = normalizeView(args.view)
-      const checked = checkShownView(args.title, view)
+      const checked = checkShownView(args.title, args.view)
       if (checked.error !== undefined) return checked.error
       const title = checked.title
+      const view = checked.view
       if (!checked.interactive && args.await_reply === true) return 'This view has nothing to submit; call show_view with await_reply: false.'
       if (checked.interactive && args.await_reply === false) return 'This view has controls to submit, so it waits for the user\'s answer; call show_view without await_reply: false.'
       const awaitReply = args.await_reply ?? checked.interactive

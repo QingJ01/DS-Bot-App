@@ -1,8 +1,8 @@
-import { createElement as h, useEffect, useId, useRef, useState } from 'react'
+import { createElement as h, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { CloseIcon, CheckIcon } from './icons.js'
 import { t } from './i18n.js'
 import { useDockHold } from './card-hold.js'
-import { heldCardKey } from './sources.js'
+import { createSource, heldCardKey } from './sources.js'
 
 // -------------------------------------------------------------------------
 // Question cards. `ask_user` cards sit in the transcript and never block the Bot;
@@ -16,15 +16,22 @@ const isTypingTarget = node => node instanceof HTMLInputElement || node instance
 
 // A bare letter picks that option and the letter after the last one
 // jumps to the custom answer; never while typing or while a dialog is open.
+// The listener is document-wide, so two open cards with letter keys would both
+// answer the same key: each card registers here and the keys fire only while it
+// is the sole registered card. The count also drives the key hints.
+const optionKeyCards = createSource(0)
 export function useOptionKeys(count, onPick, ownRef) {
   const pick = useRef(onPick)
   pick.current = onPick
+  const listening = useSyncExternalStore(optionKeyCards.subscribe, optionKeyCards.getSnapshot)
   useEffect(() => {
     if (count === 0) return undefined
+    optionKeyCards.set(value => value + 1)
     const onKey = (event) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.key.length !== 1) return
       if (isTypingTarget(event.target) || isTypingTarget(document.activeElement)) return
       if (document.querySelector('[role="dialog"], [aria-modal="true"]') !== null) return
+      if (optionKeyCards.getSnapshot() !== 1) return
       const index = event.key.toUpperCase().charCodeAt(0) - 65
       if (index >= 0 && index < count) {
         event.preventDefault()
@@ -35,8 +42,14 @@ export function useOptionKeys(count, onPick, ownRef) {
       }
     }
     document.addEventListener('keydown', onKey, true)
-    return () => document.removeEventListener('keydown', onKey, true)
+    return () => {
+      document.removeEventListener('keydown', onKey, true)
+      optionKeyCards.set(value => value - 1)
+    }
   }, [count, ownRef])
+  // Before the effect runs the card is not counted yet; read that as alone so a
+  // lone card's hints never flicker on mount.
+  return count > 0 && listening <= 1
 }
 
 // A question shows two ways: as a bubble in the transcript, and raised when it
@@ -64,12 +77,12 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
     onInteract?.()
     onAnswer({ selected: multi ? picked : [], ...(custom ? { custom } : {}) })
   }
-  useOptionKeys(busy ? 0 : options.length, index => choose(options[index].label), ownRef)
+  const hints = useOptionKeys(busy ? 0 : options.length, index => choose(options[index].label), ownRef)
   const ownLetter = options.length > 0 ? keyLetter(options.length) : undefined
   const field = ownAnswer ? h('textarea', {
     ref: ownRef, rows: 1, value: own, readOnly: busy, autoComplete: 'off', spellCheck: false, className: 'bt-q-input',
     'aria-label': t('Your own answer'), placeholder: t('Type your own answer'),
-    'aria-keyshortcuts': ownLetter?.toLowerCase(),
+    'aria-keyshortcuts': hints ? ownLetter?.toLowerCase() : undefined,
     onChange: (event) => { if (!busy) { onInteract?.(); setOwn(event.target.value) } },
     onKeyDown: (event) => {
       if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
@@ -82,10 +95,10 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
     return h('button', {
       key: option.label, type: 'button', className: 'bt-q-opt', disabled: busy,
       'aria-pressed': multi ? selected : undefined,
-      'aria-keyshortcuts': keyLetter(optionIndex).toLowerCase(),
+      'aria-keyshortcuts': hints ? keyLetter(optionIndex).toLowerCase() : undefined,
       onClick: () => choose(option.label),
     },
-    h('span', { className: 'bt-key', 'aria-hidden': true }, keyLetter(optionIndex)),
+    hints ? h('span', { className: 'bt-key', 'aria-hidden': true }, keyLetter(optionIndex)) : null,
     h('span', { className: 'bt-q-body' },
       h('span', { className: 'bt-q-label' }, option.label),
       option.description ? h('span', { className: 'bt-q-desc' }, option.description) : null),
@@ -94,7 +107,7 @@ function QuestionView({ question, onAnswer, onDismiss, onInteract, busy = false,
   // Raised cards keep the custom answer as one more keyed row; bubbles put it below the list.
   if (raised && field) {
     rows.push(h('label', { key: 'own', className: 'bt-q-opt bt-q-ownrow', 'data-filled': custom !== '' ? '' : undefined },
-      ownLetter ? h('span', { className: 'bt-key', 'aria-hidden': true }, ownLetter) : null,
+      hints && ownLetter ? h('span', { className: 'bt-key', 'aria-hidden': true }, ownLetter) : null,
       h('span', { className: 'bt-q-body' }, field)))
   }
   let foot = null

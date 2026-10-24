@@ -1,6 +1,28 @@
 import { createElement as h, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 export const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+// Touch devices never hover: controls revealed on hover need a tap path instead.
+export const noHover = () => window.matchMedia?.('(hover: none)').matches === true
+
+// The bottom edge of what the user can see: window.innerHeight, or the visible
+// region the visual viewport reports while the on-screen keyboard is open —
+// innerHeight does not shrink for it.
+export const viewBottom = () => (window.visualViewport ? window.visualViewport.height + window.visualViewport.offsetTop : window.innerHeight)
+
+// Re-renders whenever the visual viewport moves or resizes (keyboard opens, the
+// URL bar collapses), so anchored layers can re-read their anchor's rect.
+export function useViewport() {
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const viewport = window.visualViewport
+    if (!viewport) return undefined
+    const bump = () => setTick(value => value + 1)
+    viewport.addEventListener('resize', bump)
+    viewport.addEventListener('scroll', bump)
+    return () => { viewport.removeEventListener('resize', bump); viewport.removeEventListener('scroll', bump) }
+  }, [])
+  return tick
+}
 
 // A damped spring (mass 1) sampled into a CSS linear() easing, for WAAPI glides
 // and CSS transitions alike.

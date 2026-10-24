@@ -1,7 +1,9 @@
 // Client channel: the team view the browser renders, and the POST /api/bot endpoints.
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { install as installBtw } from './btw.js'
 import { questionReply, viewReply } from './parts.js'
+import { defaultRelayLimit } from './groups.js'
 import { validateViewAnswer } from '../shared/views.js'
 import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
 
@@ -19,6 +21,7 @@ export function errorCode(error) {
 }
 
 export function install(rt) {
+  installBtw(rt)
   const { ctx, state } = rt
 
   // The DSH interface language of the last browser that asked for the team.
@@ -42,14 +45,17 @@ export function install(rt) {
       ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId), ...(kickoff ? { waiting: true } : {}),
     })),
     // `parts`: the members' hidden group Sessions and their earlier segments, for usage.
-    rooms: Object.values(state.rooms).map(({ log, seen, lateRounds, sessions, segments, ...room }) => {
+    rooms: Object.values(state.rooms).map(({ log, seen, lateRounds, relays, sessions, segments, ...room }) => {
       const parts = [...Object.values(sessions ?? {}), ...Object.values(segments ?? {}).flat().map(segment => segment.sessionId)]
       const last = (log ?? []).filter(line => line.kind === undefined).at(-1)
-      return { ...room, parts, ...(last ? { preview: last.who === 'User' ? last.text : `${last.who}：${last.text}` } : {}) }
+      return { ...room, relayLimitDefault: defaultRelayLimit(room), parts, ...(last ? { preview: last.who === 'User' ? last.text : `${last.who}：${last.text}` } : {}) }
     }),
     exchangeTurns: state.exchangeTurns,
     questions: state.questions,
     views: state.views ?? {},
+    // Aside answers of each Bot's current part, newest first. Not part of the
+    // model-visible history; earlier parts send their cards on their own pages.
+    btwCards: rt.btwView?.() ?? {},
     // The team's DSH Agent (at most one): plain dsh Sessions, not Bots.
     agents: Object.values(state.agents),
     // Key names and who may use them; values never leave the host.
@@ -100,6 +106,27 @@ export function install(rt) {
       if (body.motion === null || body.motion === 'normal') delete state.prefs.motion
       else if (body.motion === 'quiet' || body.motion === 'lively') state.prefs.motion = body.motion
       else throw invalid('Motion must be quiet, normal or lively')
+    }
+    if (body.layout !== undefined) {
+      if (body.layout === null || body.layout === 'bubble') delete state.prefs.layout
+      else if (body.layout === 'flat') state.prefs.layout = body.layout
+      else throw invalid('Layout must be bubble or flat')
+    }
+    if (body.width !== undefined) {
+      if (body.width === null || body.width === 80) delete state.prefs.width
+      else if (Number.isInteger(body.width) && body.width >= 50 && body.width <= 100) state.prefs.width = body.width
+      else throw invalid('Width must be a whole percent from 50 to 100')
+    }
+    if (body.flatWidth !== undefined) {
+      if (body.flatWidth === null || body.flatWidth === 100) delete state.prefs.flatWidth
+      else if (Number.isInteger(body.flatWidth) && body.flatWidth >= 50 && body.flatWidth <= 100) state.prefs.flatWidth = body.flatWidth
+      else throw invalid('Flat text width must be a whole percent from 50 to 100')
+    }
+    if (body.thinking !== undefined) {
+      // A value this version does not know is ignored, not refused: the toggle
+      // may grow more states later.
+      if (body.thinking === true) state.prefs.thinking = true
+      else if (body.thinking === false || body.thinking === null) delete state.prefs.thinking
     }
     return rt.save()
   }
@@ -231,8 +258,14 @@ export function install(rt) {
             remove: Array.isArray(body.remove) ? body.remove : undefined,
             workDir: body.workDir,
             permission: body.permission,
+            relayLimit: body.relayLimit,
           })
           return ok({ room: view().rooms.find(entry => entry.id === room.id), changes })
+        }
+        case 'room-continue': {
+          await rt.load()
+          await rt.continueRoom(body.roomId)
+          return ok(view())
         }
         case 'folders':
         case 'folder-pick':
@@ -381,6 +414,19 @@ export function install(rt) {
           }, AbortSignal.timeout(30_000))
           return ok(true)
         }
+        // An aside on a snapshot of this Bot's private chat. The answer is not written
+        // into the Session; the card fills in after this returns.
+        case 'btw': {
+          if (typeof body.sessionId !== 'string') return fail('Nothing to ask', 'bot/invalid')
+          if (String(body.text ?? '').trim() === '') return fail('Write a question after /btw.', 'bot/invalid')
+          await rt.load()
+          return ok(await rt.askBtw({ sessionId: body.sessionId, text: String(body.text) }))
+        }
+        case 'btw-cancel': {
+          if (typeof body.sessionId !== 'string' || typeof body.id !== 'string' || body.id === '') return fail('Nothing to cancel', 'bot/invalid')
+          await rt.load()
+          return ok(await rt.cancelBtw({ sessionId: body.sessionId, id: body.id }))
+        }
         case 'update-check': {
           const fresh = body.fresh === true
           return ok({ ...(await rt.updateCheck({ fresh })), dsh: (await rt.dshUpdateCheck?.({ fresh })) ?? null })
@@ -438,6 +484,8 @@ export function install(rt) {
 
   ctx.effect(() => {
     void rt.load()
-    return () => {}
+    // Registered last, so this disposer runs before the state lock is released.
+    // In-flight asides abort here; their cards stay answering for the next owner.
+    return () => rt.btwDispose?.()
   }, 'ds-bot: load state')
 }

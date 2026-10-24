@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'node:test'
@@ -10,18 +10,28 @@ const spec=sha=>`github:QingJ01/DS-Bot-App#${sha}&path:ds-bot`
 const original=globalThis.fetch,dirs=[]
 afterEach(()=>{globalThis.fetch=original;for(const dir of dirs.splice(0))rmSync(dir,{recursive:true,force:true,maxRetries:5})})
 const flush=async()=>{for(let i=0;i<30;i++)await Promise.resolve()}
-function fixture({source=spec(OLD),version='9.0.0',revision=2,result={application:'restart-required',version},installBundle,config={},home}={}){
+function fixture({source=spec(OLD),version='9.0.0',revision=2,result={application:'restart-required',version},installBundle,removeBundle,config={},home,answers:answerOverrides={}}={}){
  let current=source;const calls=[],fetched=[],warnings=[],ref=`v${version}${revision?`-r${revision}`:''}`
  const manifest=`https://raw.githubusercontent.com/QingJ01/DS-Bot-App/${SHA}/ds-bot/package.json`
  const answers={
   [API+'releases/latest']:{tag_name:`v${version}`,assets:[`ds-bot-${version}${revision?`-r${revision}`:''}.tgz`,revision?`SHA256SUMS-r${revision}`:'SHA256SUMS'].map(name=>({name}))},
   [API+'commits/'+ref]:{sha:SHA},[manifest]:{...PKG,version},
   [API+`git/matching-refs/tags/v${PKG.version}`]:[{ref:`refs/tags/v${PKG.version}`,object:{type:'commit',sha:OLD}}],
+  ...answerOverrides,
  }
  globalThis.fetch=async url=>{fetched.push(url);const value=answers[url];if(value instanceof Error)throw value;return{ok:value!==undefined,status:value===undefined?404:200,json:async()=>value}}
- const manager={listBundles:async()=>[{name:PKG.name,source:current}],installBundle:installBundle??(async(...args)=>{calls.push(args);return result})}
+ const removes=[]
+ const manager={
+  listBundles:async()=>[{name:PKG.name,source:current}],
+  installBundle:async(...args)=>{calls.push(args);return typeof installBundle==='function'?installBundle(...args,calls.length):result},
+  removeBundle:async name=>{removes.push(name);return typeof removeBundle==='function'?removeBundle(name):removeBundle??{application:'applied'}},
+ }
  const rt={home,ctx:{get:key=>key==='pluginManager'?manager:undefined,effect(){}},config,warn:(...args)=>warnings.push(args)}
- install(rt);return{rt,manager,answers,manifest,calls,fetched,warnings,setSource:value=>{current=value}}
+ install(rt);return{rt,manager,answers,manifest,calls,fetched,removes,warnings,setSource:value=>{current=value}}
+}
+function start({source,result={application:'restart-required',version:'9.0.0'},remove={application:'applied'},config={},home,answers={}}={}){
+ const f=fixture({source,version:'9.0.0',revision:2,result:typeof result==='function'?undefined:result,installBundle:typeof result==='function'?(_spec,_options,count)=>result(count):undefined,removeBundle:remove,config,home,answers})
+ return{...f,installs:f.calls}
 }
 test('semver helpers preserve numeric and prerelease ordering',()=>{
  assert.equal(cleanVersion('v1.2.3+build.5'),'1.2.3');assert.equal(cleanVersion('main'),null)
@@ -124,4 +134,168 @@ test('revision selection is numeric and requires matching checksums',()=>{
 })
 test('star count remains lazy and cached',async()=>{
  const f=fixture();f.answers[API.slice(0,-1)]={stargazers_count:42};assert.equal(await f.rt.repoStars(),42);assert.equal(await f.rt.repoStars(),42);assert.equal(f.fetched.length,1)
+})
+
+// Under HMR the manager refuses a spec the profile already depends on with
+// 'already-installed'; the update then removes the bundle and installs it again,
+// leaving a note at <home>/update.json for the start that reloads the new copy.
+const NOTE = `${PKG.name}@${spec(SHA)}`
+const newHome = () => mkdtempSync(join(tmpdir(), 'ds-bot-update-home-'))
+const noteIn = home => JSON.parse(readFileSync(join(home, 'update.json'), 'utf8'))
+
+test('a plain refusal or success needs no removal and writes no note', async () => {
+  const home = newHome()
+  const { rt, installs, removes } = start({
+    source: `${PKG.name}@^${PKG.version}`,
+    config: { updateRegistry: 'https://registry.example' },
+    answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
+    result: { application: 'restart-required', version: '9.0.0' },
+    home,
+  })
+  await rt.updateCheck()
+  rt.updateStart()
+  await flush()
+  assert.equal((await rt.updateCheck()).phase, 'installed')
+  assert.equal(installs.length, 1)
+  assert.deepEqual(removes, [])
+  assert.equal(existsSync(join(home, 'update.json')), false)
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('an already-installed refusal removes the bundle, reinstalls and leaves a note', async () => {
+  const home = newHome()
+  const calls = []
+  const { rt, installs, removes } = start({
+    source: `${PKG.name}@^${PKG.version}`,
+    config: { updateRegistry: 'https://registry.example' },
+    answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
+    result: (count) => {
+      calls.push(`install${count}`)
+      return count === 1 ? { error: { code: 'already-installed' } } : { application: 'applied', version: '9.0.0' }
+    },
+    remove: { application: 'applied' },
+    home,
+  })
+  await rt.updateCheck()
+  rt.updateStart()
+  await flush()
+  assert.deepEqual(calls, ['install1', 'install2'])
+  assert.deepEqual(installs, [[NOTE, { enabled: true }], [NOTE, { enabled: true }]])
+  assert.deepEqual(removes, [PKG.name])
+  // The note was written before the removal — and still carries no error on success.
+  const note = noteIn(home)
+  assert.equal(note.from, PKG.version)
+  assert.equal(note.to, '9.0.0')
+  assert.equal(note.spec, spec(SHA))
+  assert.equal(typeof note.startedAt, 'string')
+  assert.equal(note.error, undefined)
+  assert.equal((await rt.updateCheck()).phase, 'installed')
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('a failed removal fails the update without a second install', async () => {
+  const home = newHome()
+  const { rt, installs, removes } = start({
+    source: `${PKG.name}@^${PKG.version}`,
+    config: { updateRegistry: 'https://registry.example' },
+    answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
+    result: count => (count === 1 ? { error: { code: 'already-installed' } } : { application: 'applied', version: '9.0.0' }),
+    remove: { error: { code: 'bundle-in-use' } },
+    home,
+  })
+  await rt.updateCheck()
+  rt.updateStart()
+  await flush()
+  assert.equal(installs.length, 1)
+  assert.deepEqual(removes, [PKG.name])
+  const view = await rt.updateCheck()
+  assert.equal(view.phase, 'failed')
+  assert.equal(view.errorCode, 'bundle-in-use')
+  assert.equal(existsSync(join(home, 'update.json')), false)
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('a failed reinstall and failed restore are both recorded in the note', async () => {
+  const home = newHome()
+  const { rt } = start({
+    source: `${PKG.name}@^${PKG.version}`,
+    config: { updateRegistry: 'https://registry.example' },
+    answers: { [`https://registry.example/${PKG.name}/latest`]: { version: '9.0.0' } },
+    result: count => (count === 1 ? { error: { code: 'already-installed' } } : { error: { code: 'operation-error', diagnostic: 'pnpm: tarball 500' } }),
+    home,
+  })
+  await rt.updateCheck()
+  rt.updateStart()
+  await flush()
+  assert.equal((await rt.updateCheck()).phase, 'failed')
+  const note = noteIn(home)
+  assert.equal(note.to, '9.0.0')
+  assert.equal(note.errorCode, 'restore-failed')
+  assert.match(note.error, /Update install failed:.*Previous install restore failed:/u)
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('a failed target install restores the captured immutable source without a success receipt', async () => {
+  const home = newHome()
+  const { rt, installs } = start({
+    source: spec(OLD),
+    result: count => count === 1 ? { error: { code: 'already-installed' } }
+      : count === 2 ? { error: { code: 'operation-error' } }
+        : { application: 'applied', version: PKG.version },
+    home,
+  })
+  await rt.updateCheck()
+  rt.updateStart()
+  await flush()
+  assert.equal(rt.updateView().phase, 'failed')
+  assert.deepEqual(installs.map(([value]) => value), [NOTE, NOTE, `${PKG.name}@${spec(OLD)}`])
+  const note = noteIn(home)
+  assert.equal(note.errorCode, 'network')
+  assert.match(note.error, /previous installation was restored/u)
+  assert.equal(existsSync(join(home, 'update-receipt.json')), false)
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('the note for the version now running shows the update once and is consumed', async () => {
+  const home = newHome()
+  writeFileSync(join(home, 'update.json'), JSON.stringify({ from: '0.2.0', to: PKG.version, spec: `${PKG.name}@${PKG.version}`, startedAt: new Date().toISOString() }))
+  const { rt, warnings } = start({ home })
+  const view = rt.updateView()
+  assert.equal(view.phase, 'updated')
+  assert.equal(view.installed, PKG.version)
+  assert.equal(view.available, false)
+  assert.equal(existsSync(join(home, 'update.json')), false)
+  assert.deepEqual(warnings, [])
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('a note for another version warns and is consumed', async () => {
+  const home = newHome()
+  writeFileSync(join(home, 'update.json'), JSON.stringify({ from: '0.2.0', to: '9.0.0', spec: NOTE, startedAt: new Date().toISOString(), error: 'pnpm: tarball 500' }))
+  const { rt, warnings } = start({ home })
+  assert.equal(rt.updateView().phase, 'failed')
+  assert.equal(warnings.length, 1)
+  assert.match(String(warnings[0][1] ?? warnings[0][0]), /9\.0\.0|pnpm/)
+  assert.equal(existsSync(join(home, 'update.json')), false)
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('a clean note on the version that wrote it waits for a start that runs the target', async () => {
+  const home = newHome()
+  writeFileSync(join(home, 'update.json'), JSON.stringify({ from: PKG.version, to: '9.0.0', spec: NOTE, startedAt: new Date().toISOString() }))
+  const { rt, warnings } = start({ home })
+  assert.equal(rt.updateView().phase, 'idle')
+  assert.deepEqual(warnings, [])
+  assert.equal(existsSync(join(home, 'update.json')), true)
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+})
+
+test('a note that cannot be read is warned about and deleted', async () => {
+  const home = newHome()
+  writeFileSync(join(home, 'update.json'), 'not json {')
+  const { rt, warnings } = start({ home })
+  assert.equal(rt.updateView().phase, 'idle')
+  assert.equal(warnings.length, 1)
+  assert.equal(existsSync(join(home, 'update.json')), false)
+  rmSync(home, { recursive: true, force: true, maxRetries: 5 })
 })

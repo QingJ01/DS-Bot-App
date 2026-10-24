@@ -13,7 +13,7 @@ function MarkdownText() { return null }
 const effects = []
 const module = { exports: {} }
 runInNewContext(bundle.outputFiles[0].text, {
-  module, exports: module.exports,
+  module, exports: module.exports, AbortController, fetch,
   require: (name) => {
     const platform = {
       react: {
@@ -28,7 +28,7 @@ runInNewContext(bundle.outputFiles[0].text, {
     return platform[name]
   },
 })
-const { AssistantCell, TurnTailCell } = module.exports
+const { AssistantCell, TurnTailCell, ThinkingRow } = module.exports
 
 // Renders the named components of an element tree, leaving the rest as elements.
 const expand = (node, names) => {
@@ -113,4 +113,38 @@ test('a Bot reply in its own chat stays whole up to 20,000 characters', () => {
   const long = Array.from({ length: 60 }, (_, index) => `Line ${index + 1} of a long answer.`).join('\n')
   assert.equal(reply(long), long)
   assert.equal(reply('w'.repeat(25_000)), 'w'.repeat(600))
+})
+
+// #465: the thinking row stays a switchable extra, and the one activity row is
+// never given up to it.
+test('the thinking row shows only with its switch on, and the activity row is never yielded to it', () => {
+  const cell = (prefs, blocks, steps) => {
+    effects.length = 0
+    const noted = []
+    const { props } = cellProps()
+    props.node.data = { turn: 3, step: 1, seq: 10, status: 'running', finalNode: { seq: 10 }, blocks }
+    props.useTurnSteps = () => steps
+    props.actions = { noteLive: (sessionId, id) => noted.push(id) }
+    const useRoster = select => select({ ...roster, prefs })
+    const out = expand(AssistantCell({ ...props, useRoster }), [])
+    for (const run of effects) run()
+    return { out, noted }
+  }
+  const reason = [{ kind: 'reasoning', text: 'Weighing it' }]
+  const thinking = { turn: 3, step: 1, status: 'running', blocks: reason }
+  // Off: a thinking step draws nothing and notes nothing.
+  const off = cell({}, reason, [thinking])
+  assert.equal(off.out, null)
+  assert.deepEqual(off.noted, [])
+  // On: the live row shows — and still notes nothing, so the activity row stays.
+  const on = cell({ thinking: true }, reason, [thinking])
+  assert.equal(find(on.out, node => node.type === ThinkingRow).length, 1)
+  assert.equal(on.noted.filter(id => id.startsWith('think:')).length, 0)
+  assert.deepEqual(on.noted, [])
+  // A reply streaming in does give the activity row its one note, on or off.
+  const replying = { turn: 3, step: 1, status: 'running', blocks: [{ kind: 'reasoning', text: 'Weighing it' }, { kind: 'text', text: 'Done' }] }
+  for (const prefs of [{}, { thinking: true }]) {
+    const { noted } = cell(prefs, replying.blocks, [replying])
+    assert.ok(noted.every(id => id.startsWith('text:')))
+  }
 })

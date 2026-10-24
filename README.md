@@ -15,6 +15,7 @@ DS Bot App connects your phone to the Bots running on your own [DeepSeek Harness
 <p align="center">Conversation home · Bot chat · Dark mode</p>
 
 ## What you can do
+**Desktop app (Windows, macOS, Linux)**
 
 The standalone desktop app imports a team from DeepSeek Harness without inheriting the old host's mobile authorization or TLS identity. Mobile access starts disabled; enable it and pair phones again. User-authored mobile skills are preserved, and the original host is unchanged.
 
@@ -29,8 +30,12 @@ The standalone desktop app imports a team from DeepSeek Harness without inheriti
 | Working folders | Choose a host project or folder for a Bot, or one folder for a group. Chats continue in fresh parts while keeping their history. Available in v0.1.1 and later. |
 | Notifications | Task and approval reminders with Android background reception and optional cloud push. |
 | Appearance and language | Chinese/English and light/dark/system appearance. Cached conversations and drafts remain available offline. |
+| Linux desktop packages | `DS-Bot-App-<version>-linux-x86_64.AppImage` and `DS-Bot-App-<version>-linux-amd64.deb`; the AppImage self-updates, while the deb points to the release page. |
+
+The upstream v0.2.1 feature sync is unreleased in this fork; DS Bot remains version 0.1.3 until a release. Web features include `/btw` follow-up context and `show_view` charts, formulas, and sandboxed HTML; they are not native mobile renderers. The desktop adds message-width and flat layouts, optional thinking, exclusive right panels, relay pause/continue, safer memory and secret read failures, home-lock recovery, browser cookie import, save dialogs for downloads, and canonical-path/search fixes.
 
 Scheduled tasks keep their original Session binding when a Bot's chat moves to a new part. Due reminders are forwarded to the current part; switching parts does not copy or recreate tasks.
+At first start the app asks where to keep its data and the Bots' files, and offers to copy a Bot team from your DSH (it only reads your DSH). Set up a model in its settings. Windows and the Linux AppImage update themselves; macOS and the Linux deb point to the release page.
 
 <p align="center">
   <img src="docs/images/mobile/group.en.png?v=0.1.0-15" width="250" alt="Group conversation with Bot authors">
@@ -64,6 +69,12 @@ Copy the complete line. The release also includes `ds-bot-0.1.3.tgz`; verify rel
 This pin targets the released v0.1.3 source. Historical v0.1.2 downloads remain published unchanged for existing lockfiles; use v0.1.3 for new installations. See the [v0.1.3 release notes](docs/releases/v0.1.3.md).
 
 Start on the same Wi-Fi. The plugin sets up local HTTPS without a domain or manual certificate installation. The host runs your Bots, tools and tasks using the configured model provider. Keep the computer or server online while using the App.
+## Features
+### Web search
+
+DS Bot selects its `auto` search provider for the whole profile. If you disable `web-search-auto`, also select another registered search provider in that profile. See [Web search](ds-bot/README.md#web-search) and the [recovery steps](docs/known-issues.md#web-search-fails-everywhere-after-turning-off-web-search-auto).
+
+## Features
 
 Use this repository's matching plugin package. The upstream npm package named `ds-bot` does not include the complete phone connection implementation.
 
@@ -81,7 +92,7 @@ Build the image from this repository checkout; see [`docker/README.md`](docker/R
 
 ## Desktop app
 
-The Windows and macOS desktop app is in [`app/`](app/README.md). On a development machine, start it with:
+The Windows, macOS and Linux desktop app is in [`app/`](app/README.md). On a development machine, start it with:
 
 ```sh
 cd app
@@ -89,7 +100,7 @@ npm ci
 npm start
 ```
 
-Build an installer with `npm run dist` on the matching target OS. The local Linux environment is not a supported installer target; native Windows/macOS packaging is left to their CI runners. macOS packages are not notarized. Desktop updater metadata is published only with a plain `vX.Y.Z` release; `-rN` revisions remain for plugin and Android assets, so a desktop update requires the next semantic version.
+Build an installer with `npm run dist` on the matching target OS. macOS packages are not notarized. Desktop updater metadata is published only with a plain `vX.Y.Z` release; `-rN` revisions remain for plugin and Android assets, so a desktop update requires the next semantic version.
 
 ## Development
 

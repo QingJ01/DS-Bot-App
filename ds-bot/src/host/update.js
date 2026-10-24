@@ -1,6 +1,6 @@
 // This fork updates from its own immutable GitHub release source through DSH's
 // public plugin manager. Development checkouts are never replaced.
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
@@ -141,6 +141,8 @@ export function updateFailure(cause) {
   if (code === 'source-changed') return { code, message: 'The installation source changed. Check for updates again.' }
   if (code === 'release-invalid') return { code, message: 'The release is incomplete or its source could not be verified. Try checking again later.' }
   if (code === 'version-mismatch') return { code, message: 'The installed version does not match the checked release. Open Harness Plugins to inspect it.' }
+  if (code === 'bundle-in-use' || code === 'remove-unavailable') return { code, message: 'The current installation could not be removed. Close programs using the plugin and retry.' }
+  if (code === 'restore-failed') return { code, message: String(cause?.message ?? 'The update and previous installation could not be restored.') }
   if (/ERR_PNPM_(?:MISSING_TARBALL_INTEGRITY|TARBALL_INTEGRITY)|EINTEGRITY/.test(text) || code === 'integrity') return { code: 'integrity', message: 'Package verification failed. Retry the update; if it still fails, open Harness Plugins for installation details.' }
   if (cause?.status === 403 || cause?.status === 429) return { code: 'rate-limit', message: 'GitHub limited update requests. Wait a few minutes and check again.' }
   if (code === 'build-blocked' || cause?.pendingBuilds?.length) return { code: 'build-blocked', message: 'Harness requires build approval. Review it in Harness Plugins, then retry the update.' }
@@ -166,9 +168,42 @@ export function install(rt) {
   }
   let target = null
   let checking = null
-  const view = () => ({ ...status, enabled, repoUrl: repoUrl(),
-    available: status.phase !== 'installed' && target?.upgrade === true,
-    canRepair: status.phase !== 'installed' && target?.repair === true,
+  // A remove-and-install update under hot reload drops this host with its bundle;
+  // a note in the data folder carries the result to the start that follows it.
+  const markerPath = typeof rt.home === 'string' ? join(rt.home, 'update.json') : null
+  const safeWarn = (...args) => { try { rt.warn(...args) } catch { /* the host can be disposed */ } }
+  if (markerPath !== null && existsSync(markerPath)) {
+    let marker = null
+    try {
+      marker = JSON.parse(readFileSync(markerPath, 'utf8'))
+    } catch (error) {
+      safeWarn('ds-bot: could not read the update note: %s', error?.message ?? error)
+    }
+    if (marker === null) {
+      try { unlinkSync(markerPath) } catch { /* gone is what we want */ }
+    } else if (typeof marker.error === 'string') {
+      safeWarn('ds-bot: the update to %s did not finish: %s', marker.to ?? 'a newer version', marker.error.slice(0, 600))
+      Object.assign(status, { phase: 'failed', error: marker.error.slice(0, 600), errorCode: marker.errorCode ?? 'network' })
+      try { unlinkSync(markerPath) } catch { /* gone is what we want */ }
+    } else if (marker.to === PKG.version) {
+      Object.assign(status, { phase: 'updated', installed: PKG.version })
+      try { unlinkSync(markerPath) } catch { /* gone is what we want */ }
+    } else if (marker.from !== PKG.version) {
+      safeWarn('ds-bot: the update to %s did not finish: %s', marker.to ?? 'a newer version', 'the install did not complete')
+      Object.assign(status, { phase: 'failed', error: 'The update did not complete. Check for updates and retry.', errorCode: 'network' })
+      try { unlinkSync(markerPath) } catch { /* gone is what we want */ }
+    }
+    // A clean note on the version that wrote it stays: a reload can still be
+    // running the old modules (the hoisted profile layout keeps one path), and
+    // the next start that runs the new code reports the update then.
+  }
+
+  const view = () => ({
+    ...status,
+    enabled,
+    repoUrl: repoUrl(),
+    available: !['installed', 'updated'].includes(status.phase) && target?.upgrade === true,
+    canRepair: !['installed', 'updated'].includes(status.phase) && target?.repair === true,
     targetId: target?.id ?? null,
   })
 
@@ -264,7 +299,7 @@ export function install(rt) {
   }
 
   async function check({ fresh = false } = {}) {
-    if (!enabled || status.phase === 'installing' || status.phase === 'installed') return view()
+    if (!enabled || ['installing', 'installed', 'updated'].includes(status.phase)) return view()
     if (checking) { await checking; return view() }
     if (!fresh && Date.now() - status.checkedAt < CHECK_TTL_MS) return view()
     checking = runCheck().finally(() => { checking = null })
@@ -273,11 +308,40 @@ export function install(rt) {
   }
 
   function start({ targetId, repair = false } = {}) {
-    if (status.phase === 'installing' || status.phase === 'installed') return view()
+    if (status.phase === 'installing' || status.phase === 'installed' || status.phase === 'updated') return view()
     if (!enabled || !target || (!target.upgrade && !(repair && target.repair))) throw new Error('No DS Bot update is available')
     if (targetId !== undefined && targetId !== target.id) throw new Error('The available update changed. Check for updates again.')
     const chosen = target
     Object.assign(status, { phase: 'installing', stage: 'preparing', error: null, errorCode: null })
+    const mark = (error, errorCode) => {
+      if (markerPath === null) return
+      try {
+        writeFileSync(markerPath, JSON.stringify({
+          from: PKG.version, to: chosen.version, spec: chosen.spec, startedAt: new Date().toISOString(),
+          ...(error === undefined ? {} : { error }),
+          ...(errorCode === undefined ? {} : { errorCode }),
+        }), { mode: 0o600 })
+      } catch { /* a note that cannot be written just is not there */ }
+    }
+    const unmark = () => { if (markerPath !== null) try { unlinkSync(markerPath) } catch { /* already gone */ } }
+    const namedSpec = value => value.startsWith(`${PKG.name}@`) ? value : `${PKG.name}@${value}`
+    const installResult = async (service, spec, expectedVersion = chosen.version) => {
+      const result = await service.installBundle(spec, { enabled: true })
+      if (result?.error || !['applied', 'restart-required'].includes(result?.application)) throw result ?? new Error('Install failed')
+      if (result.version !== undefined && cleanVersion(result.version) !== expectedVersion) throw failure('version-mismatch')
+      return result
+    }
+    const persistReceipt = async () => {
+      if (!receiptPath) return
+      const record = { spec: chosen.spec, version: chosen.version, ref: chosen.ref, commit: chosen.commit, installedAt: Date.now() }
+      const temp = `${receiptPath}.${randomUUID()}.tmp`
+      try {
+        await mkdir(rt.home, { recursive: true })
+        await writeFile(temp, JSON.stringify(record), { mode: 0o600 })
+        await rename(temp, receiptPath)
+        receipt = record
+      } catch (error) { safeWarn('ds-bot: update receipt could not be saved: %s', error?.message ?? error) }
+    }
     void (async () => {
       if (await installSpecOf(ctx) !== chosen.sourceSpec) throw failure('source-changed')
       const service = manager()
@@ -285,24 +349,45 @@ export function install(rt) {
       status.stage = 'installing'
       // Naming the dependency replaces an old tarball BEFORE pnpm resolves it.
       // The bare GitHub spec can otherwise revisit a broken legacy lock entry.
-      const result = await service.installBundle(`${PKG.name}@${chosen.spec}`, { enabled: true })
-      if (result?.error || !['applied', 'restart-required'].includes(result?.application)) throw result ?? new Error('Install failed')
-      if (result.version !== undefined && cleanVersion(result.version) !== chosen.version) throw failure('version-mismatch')
-      Object.assign(status, { phase: 'installed', stage: 'done', installed: chosen.ref, restartRequired: result.application === 'restart-required' })
-      if (receiptPath) {
-        const record = { spec: chosen.spec, version: chosen.version, ref: chosen.ref, commit: chosen.commit, installedAt: Date.now() }
-        const temp = `${receiptPath}.${randomUUID()}.tmp`
+      const serviceSpec = namedSpec(`${PKG.name}@${chosen.spec}`)
+      let result
+      try {
+        result = await installResult(service, serviceSpec)
+      } catch (cause) {
+        if (cause?.error?.code !== 'already-installed') throw cause
+        if (typeof service.removeBundle !== 'function') throw failure('remove-unavailable')
+        mark()
+        const removed = await service.removeBundle(PKG.name)
+        if (removed?.error || !['applied', 'restart-required'].includes(removed?.application)) {
+          unmark()
+          const removeError = removed?.error
+          throw failure(removeError?.code ?? 'bundle-in-use', removeError?.message ?? 'The installed bundle could not be removed')
+        }
         try {
-          await mkdir(rt.home, { recursive: true })
-          await writeFile(temp, JSON.stringify(record), { mode: 0o600 })
-          await rename(temp, receiptPath)
-          receipt = record
-        } catch (error) { rt.warn('ds-bot: update receipt could not be saved: %s', error?.message ?? error) }
+          result = await installResult(service, serviceSpec)
+        } catch (installError) {
+          const installHint = updateFailure(installError)
+          let restoreError
+          try {
+            await installResult(service, namedSpec(chosen.sourceSpec), PKG.version)
+          } catch (cause) {
+            restoreError = updateFailure(cause)
+          }
+          if (restoreError) {
+            const combined = failure('restore-failed', `Update install failed: ${installHint.message} Previous install restore failed: ${restoreError.message}`)
+            mark(combined.message, combined.updateCode)
+            throw combined
+          }
+          mark(`Update install failed: ${installHint.message}. The previous installation was restored.`, installHint.code)
+          throw installError
+        }
       }
+      Object.assign(status, { phase: 'installed', stage: 'done', installed: chosen.ref, restartRequired: result.application === 'restart-required' })
+      await persistReceipt()
     })().catch(cause => {
       const error = updateFailure(cause)
       Object.assign(status, { phase: 'failed', stage: null, error: error.message, errorCode: error.code })
-      rt.warn('ds-bot: update to %s failed: %s', chosen.ref, cause?.error?.code ?? cause?.message ?? cause?.packageResult?.kind ?? 'installation failed')
+      safeWarn('ds-bot: update to %s failed: %s', chosen.ref, error.message)
     })
     return view()
   }

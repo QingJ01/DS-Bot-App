@@ -19,11 +19,11 @@ const ACTIONS = {
   'update-bot': ['id', 'name', 'role', 'instructions', 'brief', 'color', 'avatar', 'model', 'effort', 'permission', 'workDir'],
   'duplicate-bot': ['id'], 'delete-bot': ['id'], 'set-main': ['id', 'main', 'primary', 'replace'],
   'create-room': ['name', 'members', 'admin', 'greet'],
-  'update-room': ['id', 'name', 'notice', 'mode', 'admin', 'members', 'add', 'remove', 'workDir', 'permission'], 'delete-room': ['id'],
+  'update-room': ['id', 'name', 'notice', 'mode', 'admin', 'members', 'add', 'remove', 'workDir', 'permission', 'relayLimit'], 'delete-room': ['id'],
   folders: [], 'folder-list': ['path'],
   'memory-view': ['botId', 'summarize', 'regenerate'], 'memory-forget': ['botId', 'scope', 'topic', 'text'], 'memory-ask': ['botId', 'text'],
   'answer-question': ['sessionId', 'questionId', 'answer'], 'dismiss-question': ['sessionId'],
-  'room-progress': ['roomId'], usage: ['timeZone'], models: [], efforts: ['ref'],
+  'room-progress': ['roomId'], 'room-continue': ['roomId'], usage: ['timeZone'], models: [], efforts: ['ref'],
   queue: ['conversationId'], 'queue-remove': ['conversationId', 'sessionId', 'itemId'],
   'set-flags': ['id', 'pinned', 'hidden'], 'set-prefs': ['theme', 'accent', 'motion'],
   exchange: ['a', 'b'], earlier: ['sessionId', 'cursor'], parts: ['conversationId'], search: ['conversationId', 'query', 'cursor', 'limit'],
@@ -33,7 +33,7 @@ const ACTIONS = {
   schedules: [], 'schedule-create': ['target', 'title', 'prompt', 'when'], 'schedule-delete': ['sessionId', 'id'],
   'connector-connect': ['id', 'token'], 'connector-retry': ['id'], 'connector-disconnect': ['id'], 'browser-pages': [], 'browser-read': ['botId', 'start'], 'browser-control': ['botId', 'command', 'tabId', 'url', 'requestId', 'snapshotId', 'item', 'text', 'direction'],
   'secret-set': ['requestId', 'name', 'value', 'purpose', 'scope'], 'secret-allow': ['requestId'], 'secret-cancel': ['requestId'],
-  'secret-update': ['name', 'scope'], 'secret-delete': ['name'],
+  'secret-update': ['name', 'scope', 'purpose'], 'secret-delete': ['name'],
   'add-agent': [], 'agent-session': ['agentId', 'workspaceId'], 'agent-archive': ['agentId', 'sessionId'],
   'agent-rename': ['agentId', 'sessionId', 'title'], 'remove-agent': ['agentId'],
   diagnostics: ['client', 'clientErrors'], 'diagnostics-log': [], 'diagnostics-clear': [],
@@ -486,7 +486,8 @@ export function createAdapter(rt) {
     }
     if (endpoint.startsWith('memory-')) requireBot(body.botId)
     if (body.replace !== undefined) requireBot(body.replace)
-    if (['update-room', 'delete-room', 'room-progress'].includes(endpoint) && !rooms.has(body.id ?? body.roomId)) throw error(404, 'mobile/not-found', 'This group is not on the team')
+    if (['update-room', 'delete-room', 'room-progress', 'room-continue'].includes(endpoint) && !rooms.has(body.id ?? body.roomId)) throw error(404, 'mobile/not-found', 'This group is not on the team')
+    if (endpoint === 'room-continue' && rt.readOnly?.() !== undefined) throw error(409, 'bot/read-only', 'The team is read-only on this host')
     if (endpoint === 'update-room' && body.permission !== undefined && body.permission !== null) {
       if (typeof body.permission !== 'string' || body.permission === 'auto' || !view.permissions?.options?.some(option => option.value === body.permission)) throw error(400, 'mobile/invalid', 'Choose a permission preset offered by this host')
     }
@@ -507,7 +508,7 @@ export function createAdapter(rt) {
     }
     // Some original mutations return the entire Web state including host-only
     // secret metadata. Return the mobile view instead of forwarding that object.
-    if (['delete-bot', 'set-main', 'delete-room', 'remove-agent'].includes(endpoint)) return state()
+    if (['delete-bot', 'set-main', 'delete-room', 'remove-agent', 'room-continue'].includes(endpoint)) return state()
     if (['create-bot', 'update-bot', 'duplicate-bot', 'create-room', 'set-flags', 'add-agent'].includes(endpoint) && result?.id) {
       const visible = await state()
       return [...visible.bots, ...visible.rooms, ...visible.agents].find(item => item.id === result.id) ?? { id: result.id }

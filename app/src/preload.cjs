@@ -12,6 +12,9 @@ if (host !== undefined && location.origin === host) {
     dataLocation: () => ipcRenderer.invoke('ds-bot:data-location'),
     moveData: (workspace) => ipcRenderer.invoke('ds-bot:move-data', typeof workspace === 'string' ? workspace : undefined),
     teamWorkspaceChanged: (path) => { ipcRenderer.send('ds-bot:team-workspace', String(path)) },
+    // The Bot browsers, in the shape of DSH Desktop's browser bridge so that ds-bot drives both
+    // alike; `forget` clears a key's storage, which here outlives the app.
+    browser: browserBridge(),
   })
   const caption = process.argv.find(value => value.startsWith('--ds-bot-caption='))
   if (caption !== undefined) {
@@ -25,6 +28,37 @@ if (host !== undefined && location.origin === host) {
     // A preload runs before the document root exists.
     if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', start, { once: true })
     else start()
+  }
+}
+
+function browserBridge() {
+  const listeners = new Map()
+  ipcRenderer.on('ds-bot:browser-open-requested', (_event, request) => {
+    if (typeof request?.lease !== 'string' || typeof request.url !== 'string') return
+    for (const listener of [...(listeners.get(request.lease) ?? [])]) {
+      try { listener(request.url) } catch (error) { console.error('DeepSeek Bot: a browser link handler failed', error) }
+    }
+  })
+  return {
+    acquire: key => ipcRenderer.invoke('ds-bot:browser-acquire', String(key)),
+    release: lease => ipcRenderer.invoke('ds-bot:browser-release', String(lease)),
+    forget: key => ipcRenderer.invoke('ds-bot:browser-forget', String(key)),
+    // Cookie imports, only in the app: sources and a two-step pick/harvest → preview → apply.
+    importSources: () => ipcRenderer.invoke('ds-bot:browser-import-sources'),
+    importPick: () => ipcRenderer.invoke('ds-bot:browser-import-pick'),
+    importLive: (source, close) => ipcRenderer.invoke('ds-bot:browser-import-live', String(source), close === true),
+    importApply: (key, pending) => ipcRenderer.invoke('ds-bot:browser-import-apply', String(key), String(pending)),
+    importCancel: (pending) => ipcRenderer.invoke('ds-bot:browser-import-cancel', String(pending)),
+    onOpenRequested(lease, listener) {
+      const id = String(lease)
+      let set = listeners.get(id)
+      if (set === undefined) { set = new Set(); listeners.set(id, set) }
+      set.add(listener)
+      return () => {
+        set.delete(listener)
+        if (set.size === 0 && listeners.get(id) === set) listeners.delete(id)
+      }
+    },
   }
 }
 

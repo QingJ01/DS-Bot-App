@@ -1,0 +1,59 @@
+{
+  "cookies": [
+    {
+      "name": "m_ok1",
+      "value": "dummy-m_ok1",
+      "domain": "127.0.0.1",
+      "path": "/cookies",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "m_nodomain",
+      "value": "dummy-m_nodomain",
+      "path": "/"
+    },
+    {
+      "name": "m_badexpires",
+      "value": "dummy-m_badexpires",
+      "domain": "127.0.0.1",
+      "path": "/cookies",
+      "expires": "later",
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "m_url",
+      "value": "dummy-m_url",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax",
+      "url": "http://127.0.0.1/cookies/page"
+    },
+    {
+      "name": "m_ok2",
+      "value": "dummy-m_ok2",
+      "domain": "127.0.0.1",
+      "path": "/cookies",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "http://127.0.0.1:9",
+      "localStorage": [
+        {
+          "name": "dummy-key",
+          "value": "dummy-local-value"
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { thinkingStep, turnReasoning } from '../src/client/turn-reasoning.js'
+import { opensReply, thinkingStep, turnReasoning } from '../src/client/turn-reasoning.js'
 
 const step = (n, blocks, status = 'settled') => ({ turn: 1, step: n, status, blocks })
 const think = text => ({ kind: 'reasoning', text })
@@ -44,4 +44,23 @@ test('the live step is the one still thinking', () => {
 test('a step outside the loaded Turn list shows only its own reasoning', () => {
   const current = step(1, [think(' A ')])
   assert.equal(turnReasoning([], current), 'A')
+})
+
+test('a reply opens on its first text or on its reasoning row, whichever comes first', () => {
+  const opener = steps => steps.findIndex(current => opensReply(steps, current))
+  // A word before the tools opens the reply, ahead of the reasoning on the last step.
+  assert.equal(opener([step(1, [{ kind: 'text', text: 'Looking' }, tool]), step(2, [think('B'), tool]), step(3, [think('C'), { kind: 'text', text: 'Done' }])]), 0)
+  // Reasoning that shows before any text opens it.
+  assert.equal(opener([step(1, [think('B'), tool]), step(2, [tool]), step(3, [{ kind: 'text', text: 'Done' }])]), 0)
+  // Tools alone open nothing; the step that answers does.
+  assert.equal(opener([step(1, [tool]), step(2, [tool]), step(3, [{ kind: 'text', text: 'Done' }])]), 2)
+  assert.equal(opener([step(1, [tool])]), -1)
+})
+
+test("with the reasoning hidden, only a step's own text opens the reply", () => {
+  const opener = steps => steps.findIndex(current => opensReply(steps, current, false))
+  // A reasoning-only first step no longer opens it: the step that answers does.
+  assert.equal(opener([step(1, [think('B'), tool]), step(2, [tool]), step(3, [{ kind: 'text', text: 'Done' }])]), 2)
+  assert.equal(opener([step(1, [{ kind: 'text', text: 'Looking' }, tool]), step(2, [think('B'), tool]), step(3, [think('C'), { kind: 'text', text: 'Done' }])]), 0)
+  assert.equal(opener([step(1, [think('B'), tool])]), -1)
 })

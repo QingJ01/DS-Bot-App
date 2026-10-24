@@ -212,6 +212,27 @@ describe('watchReleases', () => {
     assert.deepEqual(asked, ['0.1.9'])
   })
 
+  test('a given asset replaces the mac zip: the deb of a Linux install', async (t) => {
+    const page = 'https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.9'
+    // The deb's file name uses the Debian architecture (x64 → amd64).
+    const deb = version => `DS-Bot-App-${version}-linux-amd64.deb`
+    // A release with only the mac zip does not count for a deb install.
+    const misses = watchReleases({
+      current: '0.1.7', arch: 'x64', asset: deb,
+      fetch: async () => releaseResponse([release('0.1.9', { page })]), log: quietLog(),
+    })
+    t.after(misses.stop)
+    assert.equal(await misses.latest(), null)
+
+    const hits = watchReleases({
+      current: '0.1.7', arch: 'x64', asset: deb,
+      fetch: async () => releaseResponse([release('0.1.9', { page, assets: [{ name: 'DS-Bot-App-0.1.9-linux-amd64.deb' }] })]),
+      log: quietLog(),
+    })
+    t.after(hits.stop)
+    assert.deepEqual(await hits.latest(), { version: '0.1.9', page })
+  })
+
   test('ignores prereleases for a stable installation', async (t) => {
     const updates = watchReleases({
       current: '0.1.7', arch: 'arm64',

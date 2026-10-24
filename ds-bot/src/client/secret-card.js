@@ -161,6 +161,11 @@ export function SecretToolCell({ sessionId, callId, name, done, content, roster,
   if (done && /already saved/.test(contentText(content))) {
     return h('div', { className: 'bt-event' }, h('span', { className: 'bt-secret-event' }, h(KeyIcon), t('{bot} is using {name}', { bot: bot.name, name: name ?? t('a saved key') })))
   }
+  // A read-only window shows no card, so the refusal is said in one line, or the Bot
+  // just trails off with nothing on screen.
+  if (done && contentText(content).startsWith('No card can be shown now')) {
+    return h('div', { className: 'bt-event' }, h('span', { className: 'bt-secret-event' }, h(KeyIcon), t('{bot} could not ask for a key: this window can only view the team', { bot: bot.name })))
+  }
   return null
 }
 
@@ -199,6 +204,16 @@ function ScopeEditor({ secret, roster, onSave }) {
       h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: same, onClick: () => onSave(mode === 'all' ? 'all' : picked) }, t('Save access'))))
 }
 
+function PurposeEditor({ secret, onSave }) {
+  const [purpose, setPurpose] = useState(secret.purpose ?? '')
+  const same = purpose.trim() === (secret.purpose ?? '')
+  return h('div', { className: 'bt-secret-edit-block' },
+    h('div', { className: 'bt-secret-edit-label' }, t('What it is for')),
+    h('div', { className: 'bt-secret-inline' },
+      h('input', { className: 'bt-input', 'aria-label': t('What it is for'), placeholder: t('What it is for'), value: purpose, spellCheck: false, autoComplete: 'off', onChange: event => setPurpose(event.target.value) }),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: same, onClick: () => onSave(purpose.trim()) }, t('Save'))))
+}
+
 function ValueEditor({ secret, onSave }) {
   const [value, setValue] = useState('')
   const [replaced, setReplaced] = useState(false)
@@ -233,7 +248,8 @@ function SecretRow({ secret, roster, actions, run, open, onToggle }) {
           : allowed.length === 0 ? h('span', { className: 'bt-tag' }, t('No Bot'))
             : h('span', { className: 'bt-secret-faces', title: allowed.map(bot => bot.name).join(', ') }, allowed.slice(0, 5).map(bot => h(BotAvatar, { key: bot.id, bot, size: 20, badge: false, live: false }))))),
     open ? h('div', { className: 'bt-secret-edit' },
-      h(ScopeEditor, { key: JSON.stringify(secret.scope), secret, roster, onSave: scope => run(actions.secretUpdate(secret.name, scope)) }),
+      h(ScopeEditor, { key: JSON.stringify(secret.scope), secret, roster, onSave: scope => run(actions.secretUpdate(secret.name, { scope })) }),
+      h(PurposeEditor, { key: secret.purpose ?? '', secret, onSave: purpose => run(actions.secretUpdate(secret.name, { purpose })) }),
       h(ValueEditor, { secret, onSave: value => run(actions.secretSet({ name: secret.name, value })) }),
       h('div', { className: 'bt-secret-row-actions' },
         confirm
@@ -336,6 +352,7 @@ export const SECRET_CSS = `
 .bt-secret-bot[aria-pressed=true]{background:var(--bt-active);color:var(--bt-ink);border-color:var(--bt-line-2)}
 .bt-secret-bot svg{width:13px;height:13px}
 .bt-secret-inline{display:flex;gap:8px;align-items:center}
+.bt-secret-inline .bt-input{flex:1;height:34px}
 .bt-secret-row-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .bt-secret-row-actions .bt-set-hint{flex:1}
 .bt-secret-danger{color:var(--bt-danger);display:inline-flex;align-items:center;gap:4px}

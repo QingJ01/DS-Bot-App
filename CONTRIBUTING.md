@@ -15,7 +15,115 @@ Thank you for your interest in improving DS Bot. Please open an issue in [this r
 3. **No real secrets anywhere.** Do not commit API keys, tokens, cookies, `DSH_HOME` folders, logs or screenshots with personal data. The tests and the test bench use a scripted mock model and need no key.
 4. **Only original material.** Do not copy code, text, icons, logos or other graphics from other products or websites. Code under a license compatible with Apache 2.0 is the only exception: say where it comes from and add its notice to a `NOTICE` file.
 5. **Every change is tested.** Run the unit tests and the client check for every change (see [Test a change](#test-a-change)).
-6. Before changing behavior, read the design in [`docs/plans/`](docs/plans/) and [`docs/vision.md`](docs/vision.md). A change to a decided design needs maintainer direction; a new large feature adds a design note with the change.
+6. Before changing behavior, read the design in [`docs/plans/`](docs/plans/), [`docs/vision.md`](docs/vision.md) and, for interface work, [`docs/design/ui-standard.md`](docs/design/ui-standard.md). A change to a decided design needs maintainer direction; a new large feature adds a design note with the change.
+
+## How we work
+
+This fork uses `main` for integration and releases; there is no `dev` branch. Pull requests target `main`.
+
+Anyone on the team can do any kind of work: triage, bug fixes, features, the interface, docs. Only some decisions belong to the maintainer: the direction of the product, changes to a design that is already decided, these rules, releases and the architecture. Issues and pull requests that need such a decision carry the `maintainer` label; wait for the maintainer's answer before you start on them. What DS Bot is meant to be is in [docs/vision.md](docs/vision.md); the decided designs are in [docs/plans/](docs/plans/) (in Chinese). When you are not sure whether something is a bug or works as designed, read them first, then ask in the issue.
+
+### Branches
+
+| Branch | What it is | Who merges |
+|---|---|---|
+| `main` | Integration and release branch | The maintainer |
+| `fix/<issue>-<name>`, `feat/<issue>-<name>`, `docs/<name>`, `chore/<name>` | Your work. Start it from the latest `main` | — |
+
+- Bring your branch up to date with `git merge main`. Do not rebase a pushed branch and do not force-push.
+
+### Issues
+
+1. **Triage.** Give each new issue a type, a priority and an area (see [Labels](#labels)). One priority label per issue. The steps, with a script that lists what needs triage, are in [.agents/skills/issue-triage/](.agents/skills/issue-triage/SKILL.md) (in Chinese); an AI agent can follow them as well.
+   - A question (how to install, how to use): select **Convert to discussion** and move it to the Q&A category.
+   - Not enough information to find the cause: add `needs-info` and ask for exactly what is missing. Say that the issue is closed after 14 days without an answer.
+   - A cause in DSH or in another plugin: add `upstream` and link the place where it belongs.
+   - The same as an open issue: add `duplicate`, link the other issue and close this one.
+2. **Claim.** Assign the issue to yourself and write "I'll take this" in it before you start, so that two people do not work on the same thing. Do not take an issue that already has an assignee; ask in the issue first.
+3. **Features.** A new idea starts in Discussions (Ideas). When the maintainer agrees, it becomes an issue with the `enhancement` label. Before you build a feature, write in the issue how you plan to do it. For a large feature, add a design note in `docs/plans/<date>-<topic>.md` to the same pull request.
+4. **Close with evidence.** When you close an issue, link the pull request or commit that fixed it, the issue it duplicates, or the reason it will not be fixed. Write the comment in the language of the issue.
+
+### Labels
+
+| Kind | Labels |
+|---|---|
+| Type | `bug` · `enhancement` · `documentation` |
+| Priority | `P0` crash, data loss or cannot use · `P1` hurts daily use · `P2` ordinary bug or feature · `P3` suggestion or narrow case |
+| Area | `area/host` server side (`index.js`, `src/host/`) · `area/client` interface (`src/client/`) · `area/group` group chats, mentions, Bot-to-Bot messages · `area/memory` memory, conversation parts, context · `area/browser` Bot browser, page reading, web search · `area/build` CI, release, scripts, test bench · `area/docs` |
+| Flow | `maintainer` waits for the maintainer · `needs-info` waits for the reporter · `upstream` the cause is in DSH or another plugin · `duplicate` · `auto-found` found by automated testing |
+
+An issue that spans several areas, or none, gets no area label.
+
+### Pull requests
+
+1. Open the pull request into `main` and fill in the template. Link the issue with `Fixes #<number>`; a bug fix always names the bug it fixes.
+2. Write one sentence about what users will notice in the **Changelog** field of the template, or "none". Do not edit `CHANGELOG.md`: the maintainer writes it from these sentences at release time.
+3. Wait for review and CI before merging. Preserve the repository's required merge method.
+
+Keep one pull request to one issue. Split a large change into several pull requests.
+
+### Merge conflicts
+
+- **`ds-bot/client.js`**: never resolve it by hand. Resolve the conflicts in `ds-bot/src/client/`, run `npm run build` in `ds-bot/` and commit the new `client.js`.
+- **`CHANGELOG.md`**: pull requests do not change it, so it should not conflict. If it does, keep both sides.
+
+### Releases (maintainer)
+
+Follow [the release guide](docs/releasing.md) and the repository's release workflow. Do not run publication commands manually.
+
+## How we work
+
+Anyone on the team can do any kind of work: triage, bug fixes, features, the interface, docs. Only some decisions belong to the maintainer: the direction of the product, changes to a design that is already decided, these rules, releases and the architecture. Issues and pull requests that need such a decision carry the `maintainer` label; wait for the maintainer's answer before you start on them. What DS Bot is meant to be is in [docs/vision.md](docs/vision.md); the decided designs are in [docs/plans/](docs/plans/) and the UI standard is in [docs/design/ui-standard.md](docs/design/ui-standard.md) (in Chinese). When you are not sure whether something is a bug or works as designed, read them first, then ask in the issue.
+
+### Branches
+
+| Branch | What it is | Who merges |
+|---|---|---|
+| `main` | Integration and release branch | The maintainer |
+| `fix/<issue>-<name>`, `feat/<issue>-<name>`, `docs/<name>`, `chore/<name>` | Your work. Start it from the latest `main` | — |
+
+- Bring your branch up to date with `git merge main`. Do not rebase a pushed branch and do not force-push.
+
+### Issues
+
+1. **Triage.** Give each new issue a type, a priority and an area (see [Labels](#labels)). One priority label per issue. The steps, with a script that lists what needs triage, are in [.agents/skills/issue-triage/](.agents/skills/issue-triage/SKILL.md) (in Chinese); an AI agent can follow them as well.
+   - A question (how to install, how to use): select **Convert to discussion** and move it to the Q&A category.
+   - Not enough information to find the cause: add `needs-info` and ask for exactly what is missing. Say that the issue is closed after 14 days without an answer.
+   - A cause in DSH or in another plugin: add `upstream` and link the place where it belongs.
+   - The same as an open issue: add `duplicate`, link the other issue and close this one.
+2. **Claim.** Assign the issue to yourself and write "I'll take this" in it before you start, so that two people do not work on the same thing. Do not take an issue that already has an assignee; ask in the issue first.
+3. **Features.** A new idea starts in Discussions (Ideas). When the maintainer agrees, it becomes an issue with the `enhancement` label. Before you build a feature, write in the issue how you plan to do it. For a large feature, add a design note in `docs/plans/<date>-<topic>.md` to the same pull request.
+4. **Close with evidence.** When you close an issue, link the pull request or commit that fixed it, the issue it duplicates, or the reason it will not be fixed. Write the comment in the language of the issue.
+
+### Labels
+
+| Kind | Labels |
+|---|---|
+| Type | `bug` · `enhancement` · `documentation` |
+| Priority | `P0` crash, data loss or cannot use · `P1` hurts daily use · `P2` ordinary bug or feature · `P3` suggestion or narrow case |
+| Area | `area/host` server side (`index.js`, `src/host/`) · `area/client` interface (`src/client/`) · `area/group` group chats, mentions, Bot-to-Bot messages · `area/memory` memory, conversation parts, context · `area/browser` Bot browser, page reading, web search · `area/build` CI, release, scripts, test bench · `area/docs` |
+| Flow | `maintainer` waits for the maintainer · `needs-info` waits for the reporter · `upstream` the cause is in DSH or another plugin · `duplicate` · `auto-found` found by automated testing |
+
+An issue that spans several areas, or none, gets no area label.
+
+### Pull requests
+
+1. Open the pull request into `main` and fill in the template. Link the issue with `Fixes #<number>`; a bug fix always names the bug it fixes.
+2. Write one sentence about what users will notice in the **Changelog** field of the template, or "none". Do not edit `CHANGELOG.md`: the maintainer writes it from these sentences at release time.
+3. Wait for review and CI before merging. Preserve the repository's required merge method.
+
+Keep one pull request to one issue. Split a large change into several pull requests.
+
+### Merge conflicts
+
+- **`ds-bot/client.js`**: never resolve it by hand. Resolve the conflicts in `ds-bot/src/client/`, run `npm run build` in `ds-bot/` and commit the new `client.js`.
+- **`CHANGELOG.md`**: pull requests do not change it, so it should not conflict. If it does, keep both sides.
+
+### Releases (maintainer)
+
+Follow [the release guide](docs/releasing.md) and the repository's release workflow. Do not run publication commands manually.
+
+To record an interface demonstration GIF, follow [.agents/skills/record-browser-gif/SKILL.md](.agents/skills/record-browser-gif/SKILL.md).
 
 ## Set up
 

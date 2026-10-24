@@ -1,0 +1,14 @@
+# Netscape HTTP Cookie File
+# Lines below are malformed on purpose (T5 edge case). Dummy data.
+127.0.0.1	FALSE	/cookies	FALSE	0	m_ok1	dummy-m_ok1
+127.0.0.1	FALSE	/cookies	FALSE	m_fivefields
+127.0.0.1	FALSE	/cookies	FALSE	soon	m_badexpiry	dummy-m_badexpiry
+	FALSE	/cookies	FALSE	0	m_nodomain	dummy-m_nodomain
+127.0.0.1	FALSE	/cookies	FALSE	0	m_bad;name	dummy-m_badname
+127.0.0.1	FALSE	/cookies	FALSE	0	__Host-m_prefix	dummy-m_prefix
+127.0.0.1	MAYBE	/cookies	FALSE	0	m_badflag	dummy-m_badflag
+127.0.0.1 FALSE /cookies FALSE 0 m_spaces dummy-m_spaces
+127.0.0.1	FALSE	/cookies	FALSE	0	m_novalue
+127.0.0.1	FALSE	/cookies	FALSE	1000000000	m_expired	dummy-m_expired
+127.0.0.1	FALSE	/cookies	FALSE	0	m_ok2	dummy-m_ok2
+this line is not a cookie

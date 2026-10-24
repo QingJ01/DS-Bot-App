@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -82,8 +82,7 @@ const TEAM = {
   questions: {},
 }
 
-function start() {
-  const home = mkdtempSync(join(tmpdir(), 'ds-bot-secrets-'))
+function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-secrets-')) } = {}) {
   writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   const contributors = []
   const shellEnv = {
@@ -244,6 +243,27 @@ test('a Bot outside the scope gets an allow card, and allowing resolves it', asy
   assert.deepEqual(JSON.parse(readFileSync(join(bench.home, 'secrets.json'), 'utf8')).secrets, [])
 })
 
+test('a key\'s purpose can be changed or cleared on its own', async (t) => {
+  const bench = start()
+  t.after(bench.stop)
+  await bench.call('secret-set', { name: 'DEMO_TOKEN', value: fresh(), purpose: 'first', scope: 'all' })
+
+  const changed = await bench.call('secret-update', { name: 'DEMO_TOKEN', purpose: 'renamed' })
+  assert.equal(changed.value.purpose, 'renamed')
+  assert.equal(changed.value.scope, 'all')
+  const cleared = await bench.call('secret-update', { name: 'DEMO_TOKEN', purpose: '' })
+  assert.equal(cleared.value.purpose, '')
+  const scoped = await bench.call('secret-update', { name: 'DEMO_TOKEN', scope: ['b2'] })
+  assert.deepEqual(scoped.value.scope, ['b2'])
+  assert.equal(scoped.value.purpose, '')
+  const both = await bench.call('secret-update', { name: 'DEMO_TOKEN', scope: 'all', purpose: 'kept' })
+  assert.equal(both.value.scope, 'all')
+  assert.equal(both.value.purpose, 'kept')
+  const saved = JSON.parse(readFileSync(join(bench.home, 'secrets.json'), 'utf8')).secrets[0]
+  assert.equal(saved.purpose, 'kept')
+  assert.equal(saved.scope, 'all')
+})
+
 test('cards stay in a Bot\'s own chat; canceling tells the Bot', async (t) => {
   const bench = start()
   t.after(bench.stop)
@@ -311,4 +331,34 @@ test('tool results and model requests lose the values', async (t) => {
   assert.equal(passed.length, 1)
   stream({ ...options, system: 'clean', messages: [] }, next)
   assert.equal(passed.length, 2)
+})
+
+test('a secrets file that cannot be read blocks every write instead of being overwritten', async (t) => {
+  // A directory reads as EISDIR on every platform; no chmod games needed. It has to
+  // exist before the plugin loads, or the first read has already found the file empty.
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-secrets-'))
+  mkdirSync(join(home, 'secrets.json'))
+  const bench = start({ home })
+  t.after(bench.stop)
+  const file = join(home, 'secrets.json')
+  const denied = await bench.call('secret-set', { name: 'TEST_TOKEN', value: '12345678' })
+  assert.equal(denied.ok, false)
+  assert.match(denied.error.message, /secrets\.json could not be read \(EISDIR\)\. DS Bot does not change it/)
+  assert.ok(statSync(file).isDirectory())
+  // While it stays unreadable, nothing is written; once it is gone, saving works.
+  rmSync(file, { recursive: true })
+  const saved = await bench.call('secret-set', { name: 'TEST_TOKEN', value: '12345678' })
+  assert.equal(saved.ok, true, JSON.stringify(saved.error))
+})
+
+test('a secrets file that is not JSON is kept aside, and the store goes on', async (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'ds-bot-secrets-'))
+  writeFileSync(join(home, 'secrets.json'), 'not a secrets file\n')
+  const bench = start({ home })
+  t.after(bench.stop)
+  const saved = await bench.call('secret-set', { name: 'TEST_TOKEN', value: '12345678' })
+  assert.equal(saved.ok, true, JSON.stringify(saved.error))
+  const broken = readdirSync(home).filter(name => name.startsWith('secrets.json.broken-'))
+  assert.deepEqual(broken.length, 1)
+  assert.equal(readFileSync(join(home, broken[0]), 'utf8'), 'not a secrets file\n')
 })

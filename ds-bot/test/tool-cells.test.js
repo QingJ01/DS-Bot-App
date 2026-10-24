@@ -13,6 +13,7 @@ const { outputFiles } = await build({
       "export { QuestionDock } from './src/client/questions.js'",
       "export { SecretDock } from './src/client/secret-card.js'",
       "export { countCards } from './src/client/sources.js'",
+      "export { ViewMenuList, WidgetView } from './src/client/widget-cell.js'",
     ].join('\n'),
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
   },
@@ -29,6 +30,7 @@ const react = {
   useLayoutEffect: (effect) => { effects.push(effect) },
   useState: initial => [typeof initial === 'function' ? initial() : initial, value => sets.push(value)],
   useMemo: make => make(), useRef: current => ({ current }), useId: () => 'card-id',
+  useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
 }
 const timers = new Set()
 const module = { exports: {} }
@@ -44,7 +46,7 @@ runInNewContext(outputFiles[0].text, {
     throw new Error(`Unexpected platform module ${name}`)
   },
 })
-const { ToolCell, TriggerCell, callTree, stackReplies, QuestionDock, SecretDock, countCards } = module.exports
+const { ToolCell, TriggerCell, callTree, stackReplies, QuestionDock, SecretDock, countCards, ViewMenuList, WidgetView } = module.exports
 
 // Runs the effects collected since the last render; returns the cleanups.
 const mount = () => {
@@ -147,6 +149,31 @@ test('a user message inside a group relay shows its time', () => {
   const times = findAll(out, node => node.props?.className === 'bt-utime')
   assert.deepEqual(times.map(text), [clockOf(today)])
   assert.deepEqual(times.map(node => node.props.title), [`Today ${clockOf(today)}`])
+})
+
+// A group paused at its relay limit shows the wait, with a Continue button while
+// the room still parks calls — which calls room-continue with the group's id.
+test('a paused group shows the wait, and Continue releases it while calls are parked', () => {
+  const replies = [{ kind: 'paused', names: ['Writer', 'Coder'], count: 6, time: at(0, 14, 5) }]
+  const relay = call('group_relay', 'direct', { content: { replies } })
+
+  // Nothing parked on the room: the line stands alone, with no button.
+  const plain = show(relay, { sessionId: 'room' })
+  const events = findAll(plain, node => node.props?.className === 'bt-event').map(text)
+  assert.deepEqual(events, ['Paused after 6 Bot relays. Waiting: Writer and Coder'])
+  assert.equal(find(plain, node => node.type === 'button' && text(node) === 'Continue'), undefined)
+
+  const parked = { ...room, paused: [{ id: 'writer', name: 'Writer' }] }
+  const clicked = []
+  const live = show(relay, {
+    sessionId: 'room',
+    roster: team({ rooms: [parked], roomsById: { room: parked } }),
+    actions: { continueRoom: id => clicked.push(id) },
+  })
+  const button = find(live, node => node.type === 'button' && text(node) === 'Continue')
+  assert.ok(button, 'the Continue button is drawn while the room parks calls')
+  button.props.onClick()
+  assert.deepEqual(clicked, ['room'])
 })
 
 // The trigger of a post in a group chat carries the event's time, not the post's.
@@ -345,6 +372,15 @@ const docks = (store, roster, options) => {
   effects = []
   return out
 }
+
+test('a secret request refused on a read-only window says so in one line', () => {
+  const refused = 'No card can be shown now. The Bot team in /somewhere is open in another dsh (Web or Desktop, pid 4 on host-a). This window shows the team but cannot change it; close the other one and reload.'
+  const root = program([call('request_secret', 'program:ro', { args: { name: 'DEMO_TOKEN' }, content: refused })])
+  assert.match(shown(root), /Chief could not ask for a key: this window can only view the team/)
+  // Other refusals stay silent: they are written for the model.
+  const wrong = 'Secret cards only work in your own chat. Tell the group you will ask the user in your own chat, and call request_secret there.'
+  assert.equal(shown(program([call('request_secret', 'program:grp', { args: { name: 'DEMO_TOKEN' }, content: wrong })])), '')
+})
 
 test('a card whose call is not drawn waits in the dock; a drawn one shows only at its call', () => {
   const store = cardStore()
@@ -578,15 +614,18 @@ test('a show_view call the host refused draws nothing; a display-only card draws
   }
   // Refusals the host returned as text reach the cell as a done call; the shared
   // check hides them so the model's retry stays the only card.
-  gone(cell('  ', { type: 'text', text: 'hi' }))
   gone(cell('Card', { type: 'nope' }))
   gone(cell('x'.repeat(8192), { type: 'text', text: 'hi' }))
   gone(cell('Pick', { type: 'options', id: 'o', options: [{ label: 'A' }] }))
   gone(cell('Meter', { type: 'metric', label: 'Done', value: '3' }, { await_reply: true }))
   const card = cell('  Status  ', { type: 'metric', label: 'Done', value: '3' })
-  const title = find(card, node => node.props?.className === 'bt-q-title')
+  const title = find(card, node => node.props?.className === 'bt-view-title')
   assert.ok(title !== undefined)
   assert.equal(text(title), 'Status')
+  // A view needs no title: it then draws without a heading.
+  const bare = cell('  ', { type: 'text', text: 'hi' })
+  assert.equal(find(bare, node => node.props?.className === 'bt-view-title'), undefined)
+  assert.ok(find(bare, node => typeof node.props?.className === 'string' && node.props.className.includes('bt-view-bare')) !== undefined)
 })
 
 test('a display-only call still draws when the args come through the value accessor', () => {
@@ -599,7 +638,82 @@ test('a display-only call still draws when the args come through the value acces
     call: { name: 'show_view', argsRaw: JSON.stringify(data) }, content: text$('The view is on screen.'), subCalls: [],
   }
   const node = show(callNode, { roster: team({ views: {} }) })
-  const title = find(node, item => item.props?.className === 'bt-q-title')
+  const title = find(node, item => item.props?.className === 'bt-view-title')
   assert.ok(title !== undefined, 'the card draws')
   assert.equal(text(title), 'Status')
+})
+
+test('a view works its formulas out, draws a chart, and keeps html in a sandboxed frame', () => {
+  const cell = view => show(call('show_view', 'view-call', { args: { view } }), { roster: team({ views: {} }) })
+  const classed = (node, name) => find(node, item => typeof item.props?.className === 'string' && item.props.className.split(' ').includes(name))
+  const calculator = {
+    type: 'stack', let: { cost: 'req * 2' },
+    children: [
+      { type: 'slider', id: 'req', label: 'Requests', min: 0, max: 100, value: 30 },
+      { type: 'metric', label: 'Cost', value: { '=': "'¥' + cost" }, tone: { '=': "cost > 50 ? 'bad' : 'good'" } },
+    ],
+  }
+  const live = cell(calculator)
+  assert.equal(text(classed(live, 'bt-widget-metric-value')), '¥60')
+  assert.equal(classed(live, 'bt-widget-metric').props['data-tone'], 'bad')
+  assert.ok(classed(live, 'bt-q') !== undefined, 'a view with inputs wears a light frame')
+  assert.equal(find(live, item => item.type === 'input' && item.props.type === 'range').props.value, 30)
+
+  const chart = cell({ type: 'chart', kind: 'bar', categories: ['A', 'B'], series: [{ values: [3, 5] }], unit: 'ms' })
+  assert.ok(classed(chart, 'bt-view-bare') !== undefined, 'a view that only shows has no frame')
+  assert.ok(find(chart, item => item.type === 'svg') !== undefined)
+  const figure = find(chart, item => item.type === 'figure')
+  assert.equal(figure.props['data-kind'], 'bar')
+  // The ⋯ menu sits in the card's head, not on the chart's axes (#476).
+  const head = classed(chart, 'bt-view-head')
+  assert.ok(find(head, item => typeof item.props?.className === 'string' && item.props.className.includes('bt-view-more')) !== undefined, 'the card head has the menu button')
+  assert.equal(find(figure, item => typeof item.props?.className === 'string' && (item.props.className.includes('bt-chart-more') || item.props.className.includes('bt-chart-tools'))), undefined, 'the chart itself has no menu')
+  // A view without a chart has no ⋯ button.
+  const metric = cell({ type: 'metric', label: 'Done', value: '3' })
+  assert.equal(find(metric, item => typeof item.props?.className === 'string' && item.props.className.includes('bt-view-more')), undefined)
+  for (const kind of ['hbar', 'line', 'area', 'donut']) {
+    assert.ok(find(cell({ type: 'chart', kind, categories: ['A', 'B'], series: [{ values: [3, 5] }] }), item => item.type === 'svg') !== undefined, kind)
+  }
+
+  // The ⋯ menu groups per chart when the view holds more than one (#476).
+  const handle = (label, asTable = false) => ({ label, asTable, toggleTable: () => {}, copy: () => {}, save: () => {} })
+  const menuItems = node => findAll(node, item => item.props?.role === 'menuitem').map(text)
+  const single = expand(ViewMenuList({ charts: [handle('Revenue')], pick: run => run }))
+  assert.equal(findAll(single, item => item.props?.className === 'bt-view-menu-label').length, 0, 'one chart needs no group label')
+  assert.deepEqual(menuItems(single), ['View as table', 'Copy data', 'Download image'])
+  const pair = expand(ViewMenuList({ charts: [handle('Revenue'), handle(null, true), handle('Costs')], pick: run => run }))
+  const labels = findAll(pair, item => item.props?.className === 'bt-view-menu-label').map(text)
+  assert.deepEqual(labels, ['Revenue', 'Chart 2', 'Costs'], 'each group is named after its chart')
+  assert.equal(findAll(pair, item => item.props?.className === 'bt-menu-sep').length, 2, 'groups are separated')
+  assert.deepEqual(menuItems(pair), [
+    'View as table', 'Copy data', 'Download image',
+    'View as chart', 'Copy data', 'Download image',
+    'View as table', 'Copy data', 'Download image',
+  ], 'each chart keeps its three actions and its table state')
+  // A table switch must not re-register the chart: the groups keep mount order,
+  // so the toggled chart stays first and its item reads back as the table (#476).
+  const ordered = []
+  expand(WidgetView({
+    view: {
+      type: 'stack',
+      children: [
+        { type: 'chart', kind: 'bar', categories: ['A'], series: [{ values: [1] }], caption: 'One' },
+        { type: 'chart', kind: 'bar', categories: ['A'], series: [{ values: [2] }], caption: 'Two' },
+        { type: 'chart', kind: 'bar', categories: ['A'], series: [{ values: [3] }] },
+      ],
+    },
+    registerChart: (key, handle) => { ordered.push(handle); return () => { ordered.splice(ordered.indexOf(handle), 1) } },
+  }))
+  mount()
+  assert.equal(ordered.length, 3)
+  ordered[0].toggleTable()
+  const orderedMenu = expand(ViewMenuList({ charts: ordered, pick: run => run }))
+  assert.deepEqual(findAll(orderedMenu, item => item.props?.className === 'bt-view-menu-label').map(text), ['One', 'Two', 'Chart 3'], 'the toggled chart keeps its group position')
+  assert.deepEqual(menuItems(orderedMenu).slice(0, 3), ['View as chart', 'Copy data', 'Download image'], 'the first group shows the table state')
+
+  const frame = find(cell({ type: 'html', html: '<b>hi</b>', summary: 'A greeting' }), item => item.type === 'iframe')
+  assert.equal(frame.props.sandbox, 'allow-scripts')
+  assert.match(frame.props.srcDoc, /Content-Security-Policy" content="default-src 'none'/)
+  assert.ok(frame.props.srcDoc.indexOf('Content-Security-Policy') < frame.props.srcDoc.indexOf('<b>hi</b>'), 'the policy comes before the markup')
+  assert.equal(frame.props.title, 'A greeting')
 })

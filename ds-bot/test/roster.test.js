@@ -922,3 +922,42 @@ test('a photo that cannot be read changes nothing, and a non-Main Bot cannot set
   assert.match(await ctx.registeredTools.get('update_bot').execute({ avatar: notes }, mine), /^Could not update the Bot: The avatar must be a PNG/)
   assert.equal((await call('state', {})).value.bots.find(bot => bot.id === writer.id).avatar.image, PNG_DATA_URL)
 })
+
+test('a group\'s relay limit is a user setting the state view shows, and old late-round fields load away', async (t) => {
+  const { call, stop, home } = start({
+    version: 1,
+    mainBotIds: ['chief'],
+    bots: { chief: { id: 'chief', name: 'Chief' }, writer: { id: 'writer', name: 'Writer' } },
+    rooms: {
+      r1: {
+        id: 'r1', name: 'Ops', members: ['chief', 'writer'], mode: 'admin', admin: 'chief', named: true,
+        log: [], seq: 0, seen: {}, lateRounds: 7, quietNoticed: true, quietShown: true,
+      },
+    },
+  })
+  t.after(stop)
+  const shown = (await call('state', {})).value.rooms.find(room => room.id === 'r1')
+  // The released late-round fields load away, and the live relay count never shows.
+  assert.equal('lateRounds' in shown, false)
+  assert.equal('quietNoticed' in shown, false)
+  assert.equal('quietShown' in shown, false)
+  assert.equal('relays' in shown, false)
+  assert.equal(shown.relayLimit, undefined)
+  assert.equal(shown.relayLimitDefault, 6, 'the default is three relays per member')
+  assert.equal('lateRounds' in JSON.parse(readFileSync(join(home, 'state.json'), 'utf8')).rooms.r1, false)
+
+  const set = await call('update-room', { id: 'r1', relayLimit: 4 })
+  assert.equal(set.ok, true)
+  assert.equal(set.value.room.relayLimit, 4)
+  assert.match(set.value.changes.join(' '), /Bots now pause after 4 relays/)
+  const cleared = await call('update-room', { id: 'r1', relayLimit: null })
+  assert.equal(cleared.ok, true)
+  assert.match(cleared.value.changes.join(' '), /Bots pause at the default relay count again/)
+  assert.equal((await call('state', {})).value.rooms.find(room => room.id === 'r1').relayLimit, undefined)
+
+  for (const bad of [0, 2.5, 201, 'six']) {
+    const result = await call('update-room', { id: 'r1', relayLimit: bad })
+    assert.equal(result.ok, false, JSON.stringify(bad))
+    assert.match(result.error.message, /Relay limit must be a whole number from 1 to 200/)
+  }
+})
