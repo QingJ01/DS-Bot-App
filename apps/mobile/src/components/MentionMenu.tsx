@@ -1,5 +1,6 @@
+import { Text } from "./Typography";
 import React from "react";
-import { ScrollView, Text, View } from "react-native";
+import { ScrollView, View } from "react-native";
 import { AnimatedPressable as Pressable } from "./Motion";
 import { Bot } from "../types";
 import { useTheme } from "../theme";
