@@ -55,6 +55,8 @@ export interface ToolActivity {
   /** Bounded, redacted display details supplied by the host. */
   input?: string;
   output?: string;
+  /** A validated, immutable show_view blueprint supplied by the host. */
+  view?: { title?: string; view: unknown };
   isError?: boolean;
   truncated?: boolean;
 }

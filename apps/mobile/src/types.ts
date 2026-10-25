@@ -61,6 +61,9 @@ export interface Capability { name: string; kind: "mcp" | "skill" | "pack"; desc
 export interface CapabilityStatus { state: "ready" | "connecting" | "needs-approval" | "error"; error?: string }
 export interface TeamWork { bots: Record<string, WorkStatus & { roomId?: string }>; rooms?: Record<string, MemberWork[]>; approvals: { id: string; botId: string; roomId?: string; sessionId?: string; answerable?: boolean }[] }
 export interface TeamState {
+  views?: Record<string, PendingView>;
+  sideChatAvailable?: boolean;
+  sideChats?: Record<string, SideChat[]>;
   bots: Bot[];
   rooms: Room[];
   models: Model[];
@@ -83,6 +86,20 @@ export interface TeamState {
   memoryReviews?: Record<string, unknown>;
   capabilities?: Capability[];
   capabilityStatuses?: Record<string, Record<string, CapabilityStatus>>;
+}
+export interface PendingView {
+  id: string;
+  title?: string;
+  view?: unknown;
+  sessionId: string;
+  conversationId: string;
+}
+export interface SideChat {
+  id: string;
+  botId: string;
+  createdAt: number;
+  updatedAt: number;
+  entries: { id: string; question: string; answer: string; status: "answering" | "done" | "failed" | "cancelled"; error?: string }[];
 }
 export function teamState(value: Record<string, unknown>): TeamState {
   return {

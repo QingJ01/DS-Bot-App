@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTextAccumulator, detail, projectEvent, projectQueue, projectRecords } from './projection.js'
+import { projectPendingView, projectSideChats } from './view-projection.js'
 import { createManagement, MANAGEMENT_ACTIONS } from './management.js'
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
@@ -23,6 +24,9 @@ const ACTIONS = {
   folders: [], 'folder-list': ['path'],
   'memory-view': ['botId', 'summarize', 'regenerate'], 'memory-forget': ['botId', 'scope', 'topic', 'text'], 'memory-ask': ['botId', 'text'],
   'answer-question': ['sessionId', 'questionId', 'answer'], 'dismiss-question': ['sessionId'],
+  'view-reply': ['sessionId', 'viewId', 'action', 'values'], 'dismiss-view': ['sessionId', 'viewId'],
+  'side-new': ['sessionId'], 'side-ask': ['sessionId', 'chatId', 'recent', 'text'],
+  'side-cancel': ['sessionId', 'chatId', 'entryId'], 'side-close': ['sessionId', 'chatId'],
   'room-progress': ['roomId'], 'room-continue': ['roomId'], usage: ['timeZone'], models: [], efforts: ['ref'],
   queue: ['conversationId'], 'queue-remove': ['conversationId', 'sessionId', 'itemId'],
   'set-flags': ['id', 'pinned', 'hidden'], 'set-prefs': ['theme', 'accent', 'motion'],
@@ -210,6 +214,20 @@ export function createAdapter(rt) {
     ])
     selected.questions = Object.fromEntries(Object.entries(value.questions ?? {}).filter(([id]) => questionOwners.has(id))
       .map(([sessionId, question]) => [sessionId, { ...question, sessionId, conversationId: questionOwners.get(sessionId) }]))
+    const botOwners = new Map((value.bots ?? []).flatMap(bot => [bot.id, bot.sessionId, ...(bot.parts ?? [])]
+      .filter(validId).map(sessionId => [sessionId, bot.id])))
+    selected.views = Object.fromEntries(Object.entries(value.views ?? {}).flatMap(([sessionId, pending]) => {
+      const botId = botOwners.get(sessionId)
+      if (!botId || !validId(pending?.id) || !Number.isFinite(pending?.askedAt)) return []
+      const projected = projectPendingView(pending.title, pending.view, redact)
+      if (!projected) return []
+      return [[sessionId, {
+        id: pending.id, title: projected.title, ...(projected.view ? { view: projected.view } : {}),
+        askedAt: pending.askedAt, sessionId, conversationId: botId,
+      }]]
+    }))
+    selected.sideChats = projectSideChats(value.sideChats, new Set((selected.bots ?? []).map(bot => bot.id)), redact)
+    selected.sideChatAvailable = true
     selected.connectors = connectors(value.connectors)
     selected.secrets = (value.secrets ?? []).map(secretView).filter(Boolean)
     selected.secretRequests = Object.fromEntries(Object.entries(value.secretRequests ?? {}).filter(([id]) => value.bots?.some(bot => bot.id === id))
@@ -444,6 +462,47 @@ export function createAdapter(rt) {
     const agent = agents.find(item => item.id === body.agentId)
     const owned = new Set([...(view.bots ?? []).flatMap(bot => [bot.id, bot.sessionId, ...(bot.parts ?? [])]),
       ...(view.rooms ?? []).map(room => room.id), ...agents.flatMap(item => item.sessions)])
+    const botById = new Map((view.bots ?? []).map(bot => [bot.id, bot]))
+    const privateOwners = new Map((view.bots ?? []).flatMap(bot => [bot.id, bot.sessionId, ...(bot.parts ?? [])]
+      .filter(validId).map(sessionId => [sessionId, bot.id])))
+    const privateBot = sessionId => {
+      const botId = privateOwners.get(sessionId)
+      return botId === undefined ? undefined : botById.get(botId)
+    }
+    const sideChat = (botId, chatId) => (Array.isArray(view.sideChats?.[botId]) ? view.sideChats[botId] : []).find(chat => chat?.id === chatId)
+    const requirePrivate = sessionId => {
+      const bot = privateBot(sessionId)
+      if (!bot) throw error(404, 'mobile/not-found', 'This action is available only in a Bot private chat')
+      return bot
+    }
+    const mutation = new Set(['view-reply', 'dismiss-view', 'side-new', 'side-ask', 'side-cancel', 'side-close'])
+    if (mutation.has(endpoint)) {
+      if (rt.readOnly?.() !== undefined) throw error(409, 'bot/read-only', 'The team is read-only on this host')
+      const bot = requirePrivate(body.sessionId)
+      if (endpoint === 'view-reply' || endpoint === 'dismiss-view') {
+        if (!validId(body.viewId)) throw error(400, 'mobile/invalid', 'A view ID is required')
+        const current = bot.sessionId
+        const pendingSession = Object.hasOwn(view.views ?? {}, body.sessionId) ? body.sessionId : current
+        const pending = view.views?.[pendingSession]
+        if (!pending || pending.id !== body.viewId) throw error(409, 'mobile/stale-view', 'This view is no longer open')
+        if (endpoint === 'dismiss-view') body.sessionId = current
+      } else if (endpoint === 'side-ask') {
+        if (typeof body.text !== 'string' || body.text.trim() === '' || body.text.length > 12_000) {
+          throw error(400, 'mobile/invalid', 'Write a side question of at most 12000 characters')
+        }
+        if (body.chatId !== undefined && (!validId(body.chatId) || !sideChat(bot.id, body.chatId))) {
+          throw error(404, 'mobile/not-found', 'This side chat is not on the Bot')
+        }
+      } else if (endpoint === 'side-cancel') {
+        if (!validId(body.chatId) || !validId(body.entryId)) throw error(400, 'mobile/invalid', 'A side chat and entry ID are required')
+        const chat = sideChat(bot.id, body.chatId)
+        if (!chat || !(Array.isArray(chat.entries) && chat.entries.some(entry => entry?.id === body.entryId))) {
+          throw error(404, 'mobile/not-found', 'This side entry is not on the Bot')
+        }
+      } else if (endpoint === 'side-close') {
+        if (!validId(body.chatId) || !sideChat(bot.id, body.chatId)) throw error(404, 'mobile/not-found', 'This side chat is not on the Bot')
+      }
+    }
     const questionSession = ['answer-question', 'dismiss-question'].includes(endpoint)
       && (view.rooms ?? []).some(room => room.parts?.includes(body.sessionId))
     const requireBot = id => { if (!bots.has(id)) throw error(404, 'mobile/not-found', 'This Bot is not on the team') }
@@ -771,6 +830,9 @@ export function createAdapter(rt) {
     if (!validId(requestId) || !/^[a-zA-Z0-9._:-]+$/.test(requestId)) throw error(400, 'mobile/invalid', 'A stable request ID is required')
     if (typeof text !== 'string' || text.length > 100_000 || !Array.isArray(attachments) || attachments.length > 8) throw error(400, 'mobile/invalid', 'Invalid message content')
     if (text.trim() === '' && attachments.length === 0) throw error(400, 'mobile/invalid', 'Enter a message or attach a file')
+    if (/^\/side(?:\s|$)/.test(text.trim())) {
+      throw error(400, 'mobile/side-unsupported', 'Use the updated app side-chat UI for /side questions; this message was not sent to the main chat')
+    }
     await checkReferences(conversationId, text, signalFor(signal))
     if (rt.readOnly?.() !== undefined) throw error(409, 'bot/read-only', 'The team is read-only on this host')
     prune()
