@@ -20,16 +20,17 @@ export async function writeCache(scope: string, name: string, value: unknown) {
     /* Browser preview may disable storage. */
   }
 }
+function storageKeys() {
+  return Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)).filter((value): value is string => !!value);
+}
 export async function clearCache(scope: string) {
-  for (const value of Object.keys(localStorage))
+  for (const value of storageKeys())
     if (value.startsWith(prefix + JSON.stringify([scope]).slice(0, -1) + ","))
       localStorage.removeItem(value);
 }
 
 export async function clearCachedContent(scope: string) {
-  const entries = Object.keys(localStorage).filter((value) =>
-    value.startsWith(prefix),
-  );
+  const entries = storageKeys().filter((value) => value.startsWith(prefix));
   for (const entry of entries) {
     let parsed: unknown;
     try {
@@ -44,7 +45,7 @@ export async function clearCachedContent(scope: string) {
     )
       continue;
     const name = parsed[1];
-    if (name.startsWith("pending:") || name.startsWith("archive:")) continue;
+    if (name === "mobile-preferences" || name.startsWith("pending:") || name.startsWith("archive:")) continue;
     if (
       name.startsWith("draft:") &&
       (await readCache(scope, "pending:" + name.slice(6)))
