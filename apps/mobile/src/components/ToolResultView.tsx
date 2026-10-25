@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { Linking, Platform, ScrollView, Text, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { ToolActivity } from "@ds-bot/mobile-sdk";
-import { toolDisplay } from "../logic/tool-results";
+import { shouldShowViewCard, toolDisplay } from "../logic/tool-results";
 import { useTheme } from "../theme";
 import { Button, Label, Notice, Tag } from "./UI";
 import { MarkdownText } from "./MarkdownText";
@@ -14,7 +14,7 @@ export function ToolResultView({tool}: {tool:ToolActivity}) {
   const [raw,setRaw]=useState(false), [copied,setCopied]=useState(false), [error,setError]=useState("");
   const code={fontFamily:Platform.OS==='ios'?'Menlo':'monospace',fontSize:12,lineHeight:19,color:t.ink};
   const kinds={terminal:tr("Terminal"),file:tr("File"),diff:tr("File changes"),search:tr("Search"),web:tr("Web page"),skill:tr("Skill"),tasks:tr("Tasks"),generic:tr("Tool")};
-  if (tool.name === "show_view" && tool.state === "completed" && !tool.isError && tool.view) return <ViewCard shown={tool.view} />;
+  if (shouldShowViewCard(tool)) return <ViewCard shown={tool.view} />;
   return <View style={{gap:10,padding:12,borderRadius:12,borderWidth:1,borderColor:tool.isError?t.error:t.line}}>
     <View style={{flexDirection:'row',gap:8,flexWrap:'wrap'}}><Tag>{kinds[display.kind]}</Tag><Label>{tool.state==='running'?tr("Running"):tool.state==='error'?tr("Failed"):tr("Completed")}</Label></View>
     {tool.durationMs !== undefined && <Label muted>{tr("{seconds}s",{seconds:(tool.durationMs / 1000).toFixed(1)})}</Label>}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {toolDisplay,hideQuestionReceipt,toolLabel} from '../src/logic/tool-results.ts';
+import {toolDisplay,hideQuestionReceipt,shouldShowViewCard,toolLabel} from '../src/logic/tool-results.ts';
 test('delivered files and workspace summaries render bounded file cards with recorded line counts',()=>{
   const delivery=toolDisplay({name:'present',state:'completed',output:JSON.stringify({files:[{path:'report.pdf',description:'Report'}]})});
   assert.equal(delivery.kind,'file');assert.equal(delivery.rows?.[0].detail,'Report');assert.equal(delivery.body,'');
@@ -29,4 +29,16 @@ test('question receipts defer to the question card while errors and real tool re
   }
   for (const name of ['terminal','read_file','custom_tool','ask_user_history']) assert.equal(hideQuestionReceipt({name,state:'completed'}),false);
   assert.equal(toolLabel({name:'terminal',state:'completed'}),'Terminal');
+});
+test('successful show_view receipts without a blueprint still render the unavailable-card fallback',()=>{
+  for (const output of [
+    'The view is on screen.',
+    "The view is on screen; the user's answer arrives as their next message.",
+  ]) {
+    assert.equal(shouldShowViewCard({name:'show_view',state:'completed',output}),true);
+    assert.equal(shouldShowViewCard({name:'show_view',state:'completed',output,isError:true}),false);
+    assert.equal(shouldShowViewCard({name:'show_view',state:'error',output}),false);
+  }
+  assert.equal(shouldShowViewCard({name:'show_view',state:'completed',output:'This view was refused.'}),false);
+  assert.equal(shouldShowViewCard({name:'show_view',state:'completed',view:{title:'Card',view:{type:'text',text:'Hi'}}}),true);
 });

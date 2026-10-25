@@ -36,6 +36,14 @@ export function toolDisplay(tool: {name:string;input?:string;output?:string;stat
 export function isQuestionTool(name: string): boolean {
   return name === 'ask_user' || name === 'ask_user_question';
 }
+const SHOW_VIEW_RECEIPTS = new Set([
+  'The view is on screen.',
+  "The view is on screen; the user's answer arrives as their next message.",
+]);
+export function shouldShowViewCard(tool: {name:string;state:string;isError?:boolean;output?:string;view?:unknown}): boolean {
+  return tool.name === 'show_view' && tool.state === 'completed' && tool.isError !== true
+    && (tool.view !== undefined || SHOW_VIEW_RECEIPTS.has(tool.output ?? ''));
+}
 // The question card owns these interactions. Keep failures visible for diagnosis.
 export function hideQuestionReceipt(tool: {name:string;state:string;isError?:boolean}): boolean {
   return isQuestionTool(tool.name) && tool.state === 'completed' && !tool.isError;

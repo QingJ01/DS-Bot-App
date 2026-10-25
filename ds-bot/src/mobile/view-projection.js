@@ -31,6 +31,19 @@ function display(value, redact, limit = 2000) {
   }
 }
 
+function identity(value, redact) {
+  const original = String(value)
+  if (String(redact(original)) !== original) throw new Error('view identity was redacted')
+  return value
+}
+
+function identityScalar(value, redact) {
+  if (isFormula(value)) return formula(value, redact)
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+    ? identity(value, redact)
+    : value
+}
+
 function safeUrl(value) {
   if (typeof value !== 'string') return undefined
   try {
@@ -45,12 +58,12 @@ function safeUrl(value) {
 }
 
 function formula(value, redact) {
-  return { '=': display(value['='], redact) }
+  return { '=': identity(value['='], redact) }
 }
 
-function scalar(value, redact, preserve = false) {
+function scalar(value, redact) {
   if (isFormula(value)) return formula(value, redact)
-  if (typeof value === 'string') return preserve ? value : display(value, redact)
+  if (typeof value === 'string') return display(value, redact)
   return value
 }
 
@@ -62,19 +75,19 @@ function source(value, redact) {
   return { label: display(value.label ?? '', redact), url }
 }
 
-function option(value, redact, { description = false, preserveValue = false } = {}) {
+function option(value, redact, { description = false, answerLabel = false, preserveValue = false } = {}) {
   if (!isRecord(value)) return undefined
   const result = {}
-  if (typeof value.label === 'string') result.label = display(value.label, redact)
+  if (typeof value.label === 'string') result.label = answerLabel ? identity(value.label, redact) : display(value.label, redact)
   if (description && Object.hasOwn(value, 'description')) result.description = display(value.description, redact)
-  if (preserveValue && Object.hasOwn(value, 'value')) result.value = scalar(value.value, redact, true)
+  if (preserveValue && Object.hasOwn(value, 'value')) result.value = identityScalar(value.value, redact)
   return result
 }
 
 function field(value, redact) {
   if (!isRecord(value) || typeof value.id !== 'string') return undefined
   return {
-    id: value.id,
+    id: identity(value.id, redact),
     label: display(value.label ?? '', redact),
     ...(typeof value.placeholder === 'string' ? { placeholder: display(value.placeholder, redact) } : {}),
   }
@@ -91,7 +104,7 @@ function node(value, redact) {
       result.children = children
     } else if (key === 'let') {
       result.let = isRecord(value.let)
-        ? Object.fromEntries(Object.entries(value.let).filter(([name]) => typeof name === 'string').map(([name, item]) => [name, scalar(item, redact)]))
+        ? Object.fromEntries(Object.entries(value.let).map(([name, item]) => [identity(name, redact), identityScalar(item, redact)]))
         : {}
     } else if (key === 'html') {
       result.html = HTML_PLACEHOLDER
@@ -101,7 +114,7 @@ function node(value, redact) {
       result.items = (Array.isArray(value.items) ? value.items : []).map(item => source(item, redact)).filter(Boolean)
     } else if (key === 'columns' && value.type === 'table') {
       result.columns = (Array.isArray(value.columns) ? value.columns : []).filter(item => isRecord(item) && typeof item.key === 'string').map(item => ({
-        key: item.key, label: display(item.label ?? item.key, redact),
+        key: identity(item.key, redact), label: display(item.label ?? item.key, redact),
       }))
     } else if (key === 'rows' && value.type === 'table') {
       result.rows = (Array.isArray(value.rows) ? value.rows : []).map(row => (Array.isArray(row) ? row : []).map(item => scalar(item, redact)))
@@ -114,14 +127,16 @@ function node(value, redact) {
       }))
     } else if (key === 'options') {
       result.options = (Array.isArray(value.options) ? value.options : []).map(item => option(item, redact, {
-        description: value.type === 'options', preserveValue: value.type === 'choice',
+        description: value.type === 'options',
+        answerLabel: value.type === 'options' || (value.type === 'choice' && (item?.value === undefined || item?.value === null)),
+        preserveValue: value.type === 'choice',
       })).filter(Boolean)
     } else if (key === 'fields') {
       result.fields = (Array.isArray(value.fields) ? value.fields : []).map(item => field(item, redact)).filter(Boolean)
     } else if (key === 'id' || key === 'type') {
-      result[key] = value[key]
+      result[key] = key === 'id' ? identity(value[key], redact) : value[key]
     } else if (key === 'value' && INPUT_TYPES.has(value.type)) {
-      result.value = scalar(value.value, redact, true)
+      result.value = identityScalar(value.value, redact)
     } else if (key === 'value' || key === 'percent' || key === 'min' || key === 'max' || key === 'step' || key === 'height') {
       result[key] = scalar(value[key], redact)
     } else if (key === 'multi') {
@@ -147,7 +162,8 @@ export function projectShownView(title, view, redact = value => value) {
   try { checked = checkShownView(title, view) } catch { return undefined }
   if (checked.error !== undefined) return undefined
   const safeTitle = display(checked.title, redact)
-  const safeView = node(checked.view, redact)
+  let safeView
+  try { safeView = node(checked.view, redact) } catch { return undefined }
   if (!safeView) return undefined
   let safe
   try { safe = checkShownView(safeTitle, safeView) } catch { return undefined }
@@ -170,7 +186,7 @@ export function projectHistoricalView(call, result, redact = value => value) {
   let checked
   try { checked = checkShownView(args.title, args.view) } catch { return undefined }
   if (checked.error !== undefined || (!checked.interactive && args.await_reply === true) || (checked.interactive && args.await_reply === false)) return undefined
-  return projectShownView(args.title, args.view, redact) ?? { title: display(checked.title, redact), view: undefined }
+  return projectShownView(args.title, args.view, redact) ?? { title: display(checked.title, redact) }
 }
 
 export function projectSideChats(value, botIds, redact = text => text) {
