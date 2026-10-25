@@ -14,10 +14,12 @@ const { outputFiles } = await build({
       "export { useDockHold } from './src/client/card-hold.js'",
       "export { PendingQuestion } from './src/client/questions.js'",
       "export { SecretCard } from './src/client/secret-card.js'",
+      "export { PendingView } from './src/client/widget-cell.js'",
     ].join('\n'),
     resolveDir: fileURLToPath(new URL('..', import.meta.url)),
   },
-  bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent', external: ['react'],
+  bundle: true, format: 'cjs', platform: 'browser', write: false, logLevel: 'silent',
+  external: ['react', '@deepseek-ai/dsh-client-ui-primitives'],
 })
 let current
 const slot = (make) => {
@@ -39,12 +41,16 @@ const react = {
   useRef: initial => slot(() => ({ current: initial })),
   useId: () => slot(() => ({ id: 'card-id' })).id,
   useEffect: effect, useLayoutEffect: effect,
+  useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
 }
 const keys = new Set()
 const module = { exports: {} }
 runInNewContext(outputFiles[0].text, {
   module, exports: module.exports,
-  require: name => { assert.equal(name, 'react'); return react },
+  require: (name) => {
+    assert.ok(name === 'react' || name === '@deepseek-ai/dsh-client-ui-primitives')
+    return name === 'react' ? react : { MarkdownText: ({ text }) => text }
+  },
   document: {
     activeElement: null, querySelector: () => null,
     addEventListener: (type, listener) => { if (type === 'keydown') keys.add(listener) },
@@ -52,7 +58,7 @@ runInNewContext(outputFiles[0].text, {
   },
   HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLSelectElement: class {}, HTMLElement: class {},
 })
-const { useDockHold, PendingQuestion, SecretCard } = module.exports
+const { useDockHold, PendingQuestion, SecretCard, PendingView } = module.exports
 const mount = (Component, props) => {
   const instance = {
     slots: [], effects: [], props,
@@ -241,4 +247,95 @@ test('secret edits stay local and an in-flight save preserves value and scope fo
   assert.equal(find(card.render(), node => node.type.name === 'MaskedInput').props.value, '')
   card.unmount()
   assert.equal(count('chief', 'secret', 'request'), 0)
+})
+
+const pendingView = () => ({ id: 'view-1', callId: 'call-1', title: 'Pick', view: { type: 'options', id: 'pick', options: [{ label: 'A' }, { label: 'B' }] } })
+
+test('a pending view hides but stays mounted while its request is in flight', async () => {
+  const { actions, count } = lease()
+  const wait = deferred()
+  const sent = []
+  let result = wait.promise
+  actions.answerView = (...args) => { sent.push(plain(args)); return result }
+  actions.dismissView = () => { sent.push('dismiss'); return result }
+  const pending = mount(PendingView, { actions, sessionId: 'chief', view: pendingView(), inline: false })
+  const card = pending.render()
+  assert.equal(card.props.style, undefined)
+  // A second submit while the first is in flight is swallowed.
+  childOf(card).props.onSubmit('pick', { selected: ['A'] })
+  childOf(card).props.onSubmit('pick', { selected: ['B'] })
+  const flying = pending.render()
+  assert.deepEqual(plain(flying.props.style), { display: 'none' })
+  assert.equal(childOf(flying).props.busy, true)
+  assert.equal(count('chief', 'view', 'view-1'), 1)
+  await tick()
+  assert.deepEqual(sent, [['chief', 'view-1', 'pick', { selected: ['A'] }]])
+  wait.reject(new Error('Temporary failure'))
+  await tick()
+  // The rejection brings the card back, still holding what the user picked.
+  const back = pending.render()
+  assert.equal(back.props.style, undefined)
+  assert.equal(childOf(back).props.busy, false)
+  // A failed dismiss brings the card back too: the server still waits on it.
+  const dismiss = deferred()
+  result = dismiss.promise
+  childOf(pending.render()).props.onDismiss()
+  assert.deepEqual(plain(pending.render().props.style), { display: 'none' })
+  await tick()
+  assert.deepEqual(sent.at(-1), 'dismiss')
+  dismiss.reject(new Error('flush failed'))
+  await tick()
+  assert.equal(pending.render().props.style, undefined)
+  result = Promise.resolve()
+  childOf(pending.render()).props.onSubmit('pick', { selected: ['B'] })
+  await tick()
+  assert.equal(sent.at(-1)[2], 'pick')
+  assert.deepEqual(plain(pending.render().props.style), { display: 'none' })
+  pending.unmount()
+  assert.equal(count('chief', 'view', 'view-1'), 0)
+})
+
+test('letter keys answer a card only while it is the sole open card with keys', async () => {
+  const { actions } = lease()
+  const answers = []
+  actions.answerQuestion = (...args) => { answers.push(plain(args)); return Promise.resolve() }
+  actions.dismissQuestion = () => Promise.resolve()
+  const ask = id => ({ ...question, id, multiSelect: false })
+  const first = mount(PendingQuestion, { actions, sessionId: 'chief', question: ask('first'), inline: false })
+  const second = mount(PendingQuestion, { actions, sessionId: 'chief', question: ask('second'), inline: false })
+  const firstCard = childOf(first.render())
+  const secondCard = childOf(second.render())
+  const firstView = mount(firstCard.type, firstCard.props)
+  const secondView = mount(secondCard.type, secondCard.props)
+  firstView.render()
+  // A lone card advertises its keys: both options and the own-answer row.
+  assert.equal(all(firstView.render(), node => node.props.className === 'bt-key').length, 3)
+  secondView.render()
+  assert.equal(keys.size, 2)
+  // With two cards open neither shows letters for keys it will not answer.
+  assert.equal(all(firstView.render(), node => node.props.className === 'bt-key').length, 0)
+  const both = secondView.render()
+  assert.equal(all(both, node => node.props.className === 'bt-key').length, 0)
+  assert.ok(options(both).every(option => option.props['aria-keyshortcuts'] === undefined))
+  assert.equal(field(both).props['aria-keyshortcuts'], undefined)
+  const key = () => ({ key: 'a', target: null, preventDefault() { this.defaultPrevented = true } })
+  const shared = key()
+  for (const listener of [...keys]) listener(shared)
+  // Two open cards both stay silent rather than the first listener stealing the key.
+  assert.equal(shared.defaultPrevented, undefined)
+  assert.equal(answers.length, 0)
+  firstView.unmount()
+  assert.equal(keys.size, 1)
+  // Alone again, the surviving card brings its letters back.
+  const alone = secondView.render()
+  assert.equal(all(alone, node => node.props.className === 'bt-key').length, 3)
+  assert.ok(options(alone).every(option => option.props['aria-keyshortcuts'] !== undefined))
+  assert.equal(field(alone).props['aria-keyshortcuts'], 'c')
+  for (const listener of [...keys]) listener(key())
+  await tick()
+  assert.deepEqual(answers, [['chief', 'second', { selected: ['Short'], custom: '' }]])
+  secondView.unmount()
+  first.unmount()
+  second.unmount()
+  assert.equal(keys.size, 0)
 })

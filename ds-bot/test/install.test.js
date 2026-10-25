@@ -76,6 +76,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'on agent/inbox/discarded',
     'on session/event',
     'effect ds-bot: resume interrupted turns',
+    'effect ds-bot: memory recovery',
     'effect ds-bot: memory section',
     'prompt bot-memory 645',
     'tool remember',
@@ -153,6 +154,26 @@ test('the client channel answers from the saved state', async (t) => {
   assert.equal((await call('set-prefs', { motion: 'lively' })).value.motion, 'lively')
   assert.equal('motion' in (await call('set-prefs', { motion: 'normal' })).value, false)
   assert.deepEqual((await call('set-prefs', { motion: 'wild' })).error, { code: 'bot/invalid', message: 'Motion must be quiet, normal or lively', details: {} })
+  // So are the message layout and width, each with only its own values.
+  assert.equal((await call('set-prefs', { layout: 'flat' })).value.layout, 'flat')
+  assert.equal('layout' in (await call('set-prefs', { layout: 'bubble' })).value, false)
+  assert.deepEqual((await call('set-prefs', { layout: 'grid' })).error, { code: 'bot/invalid', message: 'Layout must be bubble or flat', details: {} })
+  assert.equal((await call('set-prefs', { width: 95 })).value.width, 95)
+  assert.equal('width' in (await call('set-prefs', { width: 80 })).value, false)
+  for (const width of [120, 49, 72.5, '90']) {
+    assert.deepEqual((await call('set-prefs', { width })).error, { code: 'bot/invalid', message: 'Width must be a whole percent from 50 to 100', details: {} }, String(width))
+  }
+  assert.equal((await call('set-prefs', { flatWidth: 70 })).value.flatWidth, 70)
+  assert.equal('flatWidth' in (await call('set-prefs', { flatWidth: 100 })).value, false)
+  assert.deepEqual((await call('set-prefs', { flatWidth: 40 })).error, { code: 'bot/invalid', message: 'Flat text width must be a whole percent from 50 to 100', details: {} })
+  // The thinking switch stores only true; false, null and unknown values leave nothing.
+  assert.equal('thinking' in (await call('set-prefs', { thinking: 'yes' })).value, false)
+  assert.equal('thinking' in (await call('set-prefs', { thinking: 1 })).value, false)
+  assert.equal((await call('set-prefs', { thinking: true })).value.thinking, true)
+  assert.equal((await call('set-prefs', { thinking: 'yes' })).value.thinking, true)
+  assert.equal('thinking' in (await call('set-prefs', { thinking: false })).value, false)
+  await call('set-prefs', { thinking: true })
+  assert.equal('thinking' in (await call('set-prefs', { thinking: null })).value, false)
   // A refusal from the team code keeps its message for the user.
   assert.deepEqual((await call('delete-bot', { id: 'nobody' })).error, { code: 'bot/refused', message: 'Unknown Bot', details: {} })
   // Off the Desktop profile there are no Bot browsers.
@@ -186,7 +207,9 @@ test('in the Desktop profile read_browser is the last tool and reads through the
   const poll = call('browser-wait', { clientId: 'w1', open: { b2: { url: 'https://example.com/', title: 'Example' }, nope: { url: 'https://x/' } } })
   await new Promise(resolve => setTimeout(resolve, 10))
   const reading = read({})
-  const requests = (await poll).value
+  const response = (await poll).value
+  const requests = response.requests
+  assert.deepEqual(response.holds, {})
   assert.deepEqual(requests.map(request => request.botId), ['b2'])
   assert.deepEqual((await call('browser-result', { id: requests[0].id, ok: true, page: { url: 'https://example.com/', title: 'Example', text: 'Hello from the page', items: [{ role: 'link', name: 'More', href: 'https://example.com/more' }] } })).value, true)
   const text = await reading
@@ -194,6 +217,32 @@ test('in the Desktop profile read_browser is the last tool and reads through the
   assert.match(text, /Hello from the page/)
   assert.match(text, /\[1\] link "More" → https:\/\/example\.com\/more/)
   assert.equal((await call('state', {})).value.browser, true)
+})
+
+test('browser takeover and give-back are user-only and publish hold state', async t => {
+  const previous = process.env.DS_BOT_APP
+  process.env.DS_BOT_APP = '1'
+  t.after(() => { if (previous === undefined) delete process.env.DS_BOT_APP; else process.env.DS_BOT_APP = previous })
+  const { call, stop } = start(TEAM, { services: { profileContext: { name: 'ds-bot' } } })
+  t.after(stop)
+  await call('state')
+  assert.equal((await call('browser-takeover', { botId: 'b2' })).value, true)
+  const poll = (await call('browser-wait', { clientId: 'hold-window', open: {} })).value
+  assert.deepEqual(poll.holds.b2, { by: 'user', reason: 'takeover', note: 'The user is controlling this browser.' })
+  assert.equal((await call('browser-give-back', { botId: 'b2' })).value, true)
+  assert.deepEqual((await call('browser-wait', { clientId: 'hold-window', open: {} })).value.holds, {})
+})
+
+test('the desktop app has read_browser too; DSH Web does not', (t) => {
+  process.env.DS_BOT_APP = '1'
+  t.after(() => { delete process.env.DS_BOT_APP })
+  const app = start(TEAM, { services: { profileContext: { name: 'ds-bot' } } })
+  t.after(app.stop)
+  assert.ok(app.ctx.calls.includes('tool read_browser'))
+  delete process.env.DS_BOT_APP
+  const web = start(TEAM, { services: { profileContext: { name: 'web' } } })
+  t.after(web.stop)
+  assert.ok(!web.ctx.calls.includes('tool read_browser'))
 })
 
 test('config.browser turns Bot browsers off even in the Desktop profile', (t) => {

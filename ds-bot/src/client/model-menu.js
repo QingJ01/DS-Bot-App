@@ -1,10 +1,10 @@
-import { createElement as h, Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { currentPart } from './text.js'
 import { CheckIcon, SlidersIcon } from './icons.js'
 import { BotMark } from './mark.js'
 import { KeyIcon, MaskedInput } from './secret-card.js'
-import { SPRING_POP, SPRING_SHAPE, spring, useLinger } from './motion.js'
+import { SPRING_POP, SPRING_SHAPE, spring, useLinger, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 
 const MENU_EXIT_MS = 120
@@ -101,11 +101,13 @@ export const Caret = () => h('svg', { className: 'bt-model-caret', width: 12, he
 // A menu that opens under its trigger, or above when the window has no room below. A
 // click outside, Escape, or a scroll outside it closes it.
 export function useAnchoredMenu() {
+  const [anchor, setAnchor] = useState(null)
   const [place, setPlace] = useState(null)
   const [shownPlace, leaving] = useLinger(place, MENU_EXIT_MS)
   const button = useRef(null)
   const menu = useRef(null)
-  const close = () => setPlace(null)
+  const tick = useViewport()
+  const close = () => { setAnchor(null); setPlace(null) }
   useEffect(() => {
     if (place === null) return undefined
     const onDown = (event) => {
@@ -123,15 +125,19 @@ export function useAnchoredMenu() {
       window.removeEventListener('scroll', onScroll, true)
     }
   }, [place])
-  const open = () => {
+  const open = () => setAnchor({})
+  // Re-reads the trigger's rect whenever the visible viewport moves: the menu
+  // tracks its anchor through the on-screen keyboard, not past it.
+  useLayoutEffect(() => {
+    if (anchor === null || !button.current) return
     const rect = button.current.getBoundingClientRect()
     const width = Math.max(240, rect.width)
     const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
-    const below = window.innerHeight - rect.bottom
+    const below = viewBottom() - rect.bottom
     setPlace(below >= 260 || below >= rect.top
       ? { left, width, top: rect.bottom + 4, maxHeight: below - 16, '--bt-origin': 'top right' }
-      : { left, width, bottom: window.innerHeight - rect.top + 4, maxHeight: rect.top - 16, '--bt-origin': 'bottom right' })
-  }
+      : { left, width, bottom: viewBottom() - rect.top + 4, maxHeight: rect.top - 16, '--bt-origin': 'bottom right' })
+  }, [anchor, tick])
   return { isOpen: place !== null, shownPlace, leaving, button, menu, open, close }
 }
 
@@ -328,7 +334,7 @@ export const MODEL_CSS = `
 .bt-model-tick svg{animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} 60ms backwards}
 .bt-model-none{padding:8px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
 .bt-model-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:0 0 10px;box-sizing:border-box;animation:bt-model-in ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
-.bt-model-chips{display:flex;flex-wrap:wrap;gap:6px;margin-left:30px;max-width:min(560px,calc(100% - 30px));max-height:min(240px,36vh);overflow-y:auto;scrollbar-width:thin}
+.bt-model-chips{display:flex;flex-wrap:wrap;gap:6px;margin-left:30px;max-width:min(560px,calc(100% - 30px));max-height:min(240px,36vh);max-height:min(240px,36dvh);overflow-y:auto;scrollbar-width:thin}
 .bt-model-choice-group{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0}
 .bt-model-choice-provider{padding-top:4px;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2);overflow-wrap:anywhere}
 .bt-model-choice-chips{display:flex;flex-wrap:wrap;gap:6px}

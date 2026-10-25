@@ -5,6 +5,40 @@ import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOT
 import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameProblem } from '../shared/mentions.js'
 
+const BROWSER_GRANT_KINDS = new Set(['post', 'upload', 'download', 'delete', '*'])
+const HOSTNAME = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/
+
+function cleanBrowserGrants(input) {
+  if (input === null) return null
+  if (!Array.isArray(input) || input.length > 50) throw new Error('Browser grants must be an array of at most 50 entries')
+  const grants = []
+  const seen = new Set()
+  for (const entry of input) {
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error('Each browser grant must have a site and kinds')
+    }
+    const until = entry.until
+    if (until !== undefined) {
+      if (typeof until !== 'number' || !Number.isFinite(until)) {
+        throw new Error('Browser grant until must be a future epoch-millisecond timestamp')
+      }
+      if (until <= Date.now()) continue
+    }
+    const site = typeof entry.site === 'string' ? entry.site.trim().toLowerCase() : ''
+    if (site !== '*' && !HOSTNAME.test(site)) throw new Error('Browser grant site must be * or a hostname')
+    if (!Array.isArray(entry.kinds) || entry.kinds.length === 0
+      || entry.kinds.some(kind => typeof kind !== 'string' || !BROWSER_GRANT_KINDS.has(kind))) {
+      throw new Error('Browser grant kinds must be a non-empty subset of post, upload, download, delete, *')
+    }
+    const kinds = [...new Set(entry.kinds)].sort()
+    const key = `${site}\0${kinds.join('\0')}\0${until ?? ''}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    grants.push({ site, kinds, ...(until !== undefined ? { until } : {}) })
+  }
+  return grants
+}
+
 export function install(rt) {
   const { ctx, defaults, state } = rt
 
@@ -205,9 +239,13 @@ export function install(rt) {
     })
   }
 
-  async function updateBot(id, patch) {
+  async function updateBot(id, patch, actorId) {
     const bot = rt.botOf(id)
     if (bot === undefined) throw new Error('Unknown Bot')
+    if (patch.browserGrants !== undefined && actorId !== undefined) {
+      throw new Error(`Only the user can set what ${bot.name} may do in the browser`)
+    }
+    const browserGrants = patch.browserGrants === undefined ? undefined : cleanBrowserGrants(patch.browserGrants)
     // Checked first, so a folder, model or level that does not pass leaves the rest
     // unchanged too.
     const moving = patch.workDir !== undefined
@@ -262,6 +300,10 @@ export function install(rt) {
       modelChanged = true
     }
     if (patch.permission !== undefined) await rt.setPermission(bot, patch.permission)
+    if (browserGrants !== undefined) {
+      if (browserGrants === null) delete bot.browserGrants
+      else bot.browserGrants = browserGrants
+    }
     const moved = moving && workDir !== bot.workDir
     if (moving) {
       if (workDir === undefined) delete bot.workDir
@@ -408,10 +450,19 @@ export function install(rt) {
     // A Bot's own permissions are the user's to set, so a group's are too.
     if (patch.permission !== undefined && actorId !== undefined) throw new Error(`Only the user can set the permissions of "${room.name}"`)
     const permission = patch.permission === undefined ? undefined : rt.cleanRoomPermission(patch.permission)
+    // The relay limit is the user's guard against a group that never stops; it is
+    // not a member's to move, whatever its role.
+    if (patch.relayLimit !== undefined && actorId !== undefined) throw new Error(`Only the user can set the relay limit of "${room.name}"`)
+    let relayLimit
+    if (patch.relayLimit === null) relayLimit = null
+    else if (patch.relayLimit !== undefined) {
+      if (!Number.isInteger(patch.relayLimit) || patch.relayLimit < 1 || patch.relayLimit > 200) throw new Error('Relay limit must be a whole number from 1 to 200')
+      relayLimit = patch.relayLimit
+    }
     // The second run is the last check before the change is written, so no other change
     // can take the name in between.
     const name = patch.name === undefined ? undefined : cleanRoomName(patch.name, room.id)
-    return { members, admin, name, notice, permission }
+    return { members, admin, name, notice, permission, relayLimit }
   }
 
   // `actorId` is the Bot asking, or undefined for the user. Returns what changed, in words.
@@ -424,7 +475,7 @@ export function install(rt) {
     // No await from here until every change is written.
     const room = rt.roomOf(id)
     if (room === undefined) throw new Error('Unknown group chat')
-    const { members, admin, name, notice, permission } = planRoomChange(room, patch, actorId)
+    const { members, admin, name, notice, permission, relayLimit } = planRoomChange(room, patch, actorId)
 
     const changes = []
     const names = ids => ids.map(member => rt.botOf(member)?.name).filter(Boolean).join(', ')
@@ -444,6 +495,11 @@ export function install(rt) {
     if (patch.mode !== undefined && patch.mode !== room.mode) {
       room.mode = patch.mode
       changes.push(patch.mode === 'admin' ? 'plain messages now go to the admin first' : 'every member now replies in turn')
+    }
+    if (relayLimit !== undefined && relayLimit !== (room.relayLimit ?? null)) {
+      if (relayLimit === null) delete room.relayLimit
+      else room.relayLimit = relayLimit
+      changes.push(relayLimit === null ? 'Bots pause at the default relay count again' : `Bots now pause after ${relayLimit} relays`)
     }
     if (notice !== undefined && notice !== (room.notice ?? '')) {
       room.notice = notice

@@ -28,6 +28,9 @@ export interface Room {
   hidden?: boolean;
   workDir?: string;
   permission?: string;
+  paused?: { id: string; name?: string }[];
+  relayLimit?: number;
+  relayLimitDefault?: number;
 }
 export interface Model {
   ref: string;

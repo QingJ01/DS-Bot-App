@@ -209,6 +209,39 @@ test('a page that asks for a new window opens a new tab in the same Bot', async 
   assert.deepEqual(guest.loads, ['https://pop.example.com/'])
 })
 
+test('an app popup is adopted and activated before a Bot has attached', async () => {
+  const calls = []
+  let receive
+  const doc = { body: { append() {} }, createElement: () => ({ style: {}, isConnected: true, append() {}, remove() {} }) }
+  const bridge = {
+    views: {
+      subscribe(listener) { receive = listener; return () => {} },
+      async sync(botId) { return [{ botId, tabId: 'user-popup', loading: false }] },
+      async create(botId, tabId) { calls.push({ type: 'create', botId, tabId }); return tabId },
+      async place(tabId, rect, visible) { calls.push({ type: 'place', tabId, rect, visible }) },
+      async navigate() {},
+      async command() { throw new Error('IPC rejected') },
+      async focus() {},
+      async read() {},
+      async close() {},
+    },
+  }
+  const browsers = createBotBrowsers({ bridge, createSource, storage: fakeDesktop().storage, document: doc })
+  browsers.ensureTabs('a')
+  browsers.setMobileControl('a', true)
+  receive({ type: 'created', botId: 'a', tabId: 'user-popup', url: 'http://127.0.0.1:43118/popup', createdByBot: false, loading: false })
+  await tick()
+  assert.deepEqual(browsers.tabs.getSnapshot().a, { ids: ['user-popup'], active: 'user-popup', mobileControl: true })
+  assert.ok(calls.some(call => call.type === 'create' && call.tabId === 'user-popup'))
+  await browsers.show('user-popup', BOX)
+  assert.ok(calls.some(call => call.type === 'place' && call.tabId === 'user-popup' && call.visible))
+  receive({ type: 'updated', botId: 'a', tabId: 'user-popup', url: 'http://127.0.0.1:43118/popup', loading: false })
+  await assert.rejects(browsers.mobileControl('a', { command: 'reload', tabId: 'user-popup', expiresAt: Date.now() + 10_000 }), /IPC rejected/)
+  receive({ type: 'closed', botId: 'a', tabId: 'user-popup' })
+  assert.deepEqual(browsers.tabs.getSnapshot().a, { ids: [], active: null, mobileControl: true })
+  browsers.dispose()
+})
+
 test('past six live guests the least recently shown one is released; forget drops all of a Bot’s tabs', async () => {
   const desktop = fakeDesktop()
   const browsers = createBotBrowsers({ bridge: desktop.bridge, createSource, storage: desktop.storage, document: desktop.doc })
@@ -241,6 +274,21 @@ test('retain forgets Bots that are gone, saved tabs included', async () => {
   assert.equal(browsers.pages.getSnapshot()[tb], undefined)
   assert.deepEqual(Object.keys(JSON.parse(desktop.storage.getItem(STORAGE.browsers))), ['a'])
   assert.equal(desktop.released.length, 1)
+})
+
+test('a bridge that keeps logins on disk forgets a deleted Bot’s storage, tabs or none', async () => {
+  const desktop = fakeDesktop()
+  const forgotten = []
+  const bridge = { ...desktop.bridge, forget: async (key) => { forgotten.push(key) } }
+  const browsers = createBotBrowsers({ bridge, createSource, storage: desktop.storage, document: desktop.doc })
+  await browsers.navigate(browsers.openTab('a'), 'example.com')
+  await browsers.retain(['a', 'b', 'c'])
+  assert.deepEqual(forgotten, [])
+  // a had a tab, b never had one; both go, c stays.
+  await browsers.retain(['c'])
+  assert.deepEqual(forgotten.sort(), ['bot:a', 'bot:b'])
+  await browsers.retain(['c'])
+  assert.equal(forgotten.length, 2)
 })
 
 test('a settled page leaves a text excerpt, shown or hidden, and no tab is ever captured', async () => {

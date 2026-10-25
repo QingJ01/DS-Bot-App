@@ -1,0 +1,81 @@
+[
+  {
+    "name": "p_session",
+    "value": "dummy-p_session",
+    "domain": "127.0.0.1",
+    "path": "/cookies",
+    "secure": false,
+    "httpOnly": false,
+    "sameSite": "Lax"
+  },
+  {
+    "name": "p_persist",
+    "value": "dummy-p_persist",
+    "domain": "127.0.0.1",
+    "path": "/cookies",
+    "secure": false,
+    "httpOnly": false,
+    "sameSite": "Lax",
+    "expiry": 1824209292
+  },
+  {
+    "name": "p_http",
+    "value": "dummy-p_http",
+    "domain": "127.0.0.1",
+    "path": "/cookies",
+    "secure": false,
+    "httpOnly": true,
+    "sameSite": "Lax",
+    "expiry": 1824209292
+  },
+  {
+    "name": "p_lax",
+    "value": "dummy-p_lax",
+    "domain": "127.0.0.1",
+    "path": "/cookies",
+    "secure": false,
+    "httpOnly": false,
+    "sameSite": "Lax",
+    "expiry": 1824209292
+  },
+  {
+    "name": "p_strict",
+    "value": "dummy-p_strict",
+    "domain": "127.0.0.1",
+    "path": "/cookies",
+    "secure": false,
+    "httpOnly": false,
+    "sameSite": "Strict",
+    "expiry": 1824209292
+  },
+  {
+    "name": "p_none",
+    "value": "dummy-p_none",
+    "domain": "127.0.0.1",
+    "path": "/cookies",
+    "secure": true,
+    "httpOnly": false,
+    "sameSite": "None",
+    "expiry": 1824209292
+  },
+  {
+    "name": "p_secure",
+    "value": "dummy-p_secure",
+    "domain": "127.0.0.1",
+    "path": "/cookies",
+    "secure": true,
+    "httpOnly": false,
+    "sameSite": "Lax",
+    "expiry": 1824209292
+  },
+  {
+    "name": "p_path",
+    "value": "dummy-p_path",
+    "domain": "127.0.0.1",
+    "path": "/cookies",
+    "secure": false,
+    "httpOnly": false,
+    "sameSite": "Lax",
+    "expiry": 1824209292
+  }
+]

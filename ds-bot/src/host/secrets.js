@@ -3,7 +3,7 @@
 // their shell, tool results lose it before they are saved, and every model request
 // has it replaced by [secret:<NAME>] before it leaves.
 import { randomUUID } from 'node:crypto'
-import { chmod, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { replaceFile } from './files.js'
@@ -110,38 +110,74 @@ export function install(rt) {
   // reads it again each time; a copy read then is also read again after taking over,
   // before this host saves anything.
   let loadedReadOnly = false
+  // An existing secrets file that cannot be read is not an empty one: writing over it
+  // would lose every key in it. While `blocked` holds the reason nothing is written,
+  // and each load reads the file again (a busy file may only be briefly unreadable).
+  let blocked
   const loadSecrets = () => {
-    if (loaded !== null && (loadedReadOnly || rt.readOnly() !== undefined)) loaded = null
+    if (loaded !== null && (loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined)) loaded = null
     return loaded ??= readSecrets()
   }
   const readSecrets = async () => {
     loadedReadOnly = rt.readOnly() !== undefined
+    let contents
     try {
-      const parsed = JSON.parse(await readFile(path, 'utf8'))
-      secrets.clear()
-      for (const entry of Array.isArray(parsed?.secrets) ? parsed.secrets : []) {
-        if (!SECRET_NAME.test(entry?.name ?? '') || typeof entry.value !== 'string') continue
-        secrets.set(entry.name, {
-          name: entry.name,
-          value: entry.value,
-          purpose: typeof entry.purpose === 'string' ? entry.purpose : '',
-          scope: entry.scope === 'all' ? 'all' : Array.isArray(entry.scope) ? entry.scope.filter(id => typeof id === 'string') : 'all',
-          requestedBy: typeof entry.requestedBy === 'string' ? entry.requestedBy : null,
-          createdAt: Number(entry.createdAt) || Date.now(),
-          updatedAt: Number(entry.updatedAt) || Date.now(),
-          ...(Number.isFinite(entry.lastUsedAt) ? { lastUsedAt: entry.lastUsedAt } : {}),
-        })
-      }
-      if (!loadedReadOnly) await chmod(path, 0o600).catch(() => {})
+      contents = await readFile(path, 'utf8')
     } catch (error) {
-      if (error?.code === 'ENOENT') secrets.clear()
-      else rt.warn('ds-bot: unreadable secrets file %s (%s)', path, reason(error))
+      if (error?.code === 'ENOENT') {
+        blocked = undefined
+        secrets.clear()
+      } else {
+        blocked = reason(error)
+        rt.warn('ds-bot: unreadable secrets file %s (%s)', path, blocked)
+      }
+      changed()
+      return
     }
+    let parsed
+    try {
+      parsed = JSON.parse(contents)
+    } catch {
+      parsed = null
+    }
+    if (parsed === null || typeof parsed !== 'object' || !Array.isArray(parsed.secrets)) {
+      // A file that is not a secrets file is kept aside, like a broken state.json, then
+      // the store goes on with an empty one.
+      const backup = `${path}.broken-${Date.now()}`
+      try {
+        await copyFile(path, backup)
+        blocked = undefined
+        secrets.clear()
+        rt.warn('ds-bot: unreadable secrets file %s; backed up as %s', path, backup)
+      } catch (error) {
+        blocked = reason(error)
+        rt.warn('ds-bot: unreadable secrets file %s; backup failed: %s', path, error)
+      }
+      changed()
+      return
+    }
+    blocked = undefined
+    secrets.clear()
+    for (const entry of parsed.secrets) {
+      if (!SECRET_NAME.test(entry?.name ?? '') || typeof entry.value !== 'string') continue
+      secrets.set(entry.name, {
+        name: entry.name,
+        value: entry.value,
+        purpose: typeof entry.purpose === 'string' ? entry.purpose : '',
+        scope: entry.scope === 'all' ? 'all' : Array.isArray(entry.scope) ? entry.scope.filter(id => typeof id === 'string') : 'all',
+        requestedBy: typeof entry.requestedBy === 'string' ? entry.requestedBy : null,
+        createdAt: Number(entry.createdAt) || Date.now(),
+        updatedAt: Number(entry.updatedAt) || Date.now(),
+        ...(Number.isFinite(entry.lastUsedAt) ? { lastUsedAt: entry.lastUsedAt } : {}),
+      })
+    }
+    if (!loadedReadOnly) await chmod(path, 0o600).catch(() => {})
     changed()
   }
 
   // Resolves once secrets.json holds the current map; rejects when the write failed.
   const persist = () => {
+    if (blocked !== undefined) return Promise.reject(new Error(`The secrets file ${path} could not be read (${blocked}). DS Bot does not change it; fix or move the file and reload.`))
     const readOnly = rt.readOnly()
     if (readOnly !== undefined) return Promise.reject(new Error(readOnly))
     const snapshot = JSON.stringify({ version: 1, secrets: [...secrets.values()] }, null, 2)
@@ -166,7 +202,7 @@ export function install(rt) {
     if (usedTimer !== null) return
     usedTimer = setTimeout(() => {
       usedTimer = null
-      if (loadedReadOnly || rt.readOnly() !== undefined) return
+      if (loadedReadOnly || rt.readOnly() !== undefined || blocked !== undefined) return
       void persist().then(() => rt.save()).catch(() => {})
     }, USED_SAVE_MS)
     usedTimer.unref?.()
@@ -338,7 +374,8 @@ export function install(rt) {
     async 'secret-update'(body) {
       const secret = secrets.get(normalizeName(body.name))
       if (secret === undefined) throw new Error('No such key')
-      secret.scope = cleanScope(body.scope)
+      if (body.scope !== undefined) secret.scope = cleanScope(body.scope)
+      if (typeof body.purpose === 'string') secret.purpose = body.purpose.trim().slice(0, 300)
       secret.updatedAt = Date.now()
       const notes = []
       reconcile(secret.name, notes)

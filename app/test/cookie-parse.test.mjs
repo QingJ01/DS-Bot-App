@@ -1,0 +1,125 @@
+// The cookie-file parser: format detection by content, decoding variants, normalization,
+// and per-entry skip reporting. Fixtures are the P0 sample set (fake data only).
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import test from 'node:test'
+import { parseCookieFile } from '../src/cookie-parse.mjs'
+
+const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'cookies')
+const parse = (name) => parseCookieFile(readFileSync(join(fixtures, name)))
+
+// Every file carries the same eight fake cookies in a different spelling; all of them
+// must parse to 8 entries with none skipped, and carry the warnings the spelling costs.
+const CASES = [
+  ['cookies.txt', 'netscape', 'utf-8', []],
+  ['cookie-editor.json', 'cookie-editor', 'utf-8', []],
+  ['playwright-storage-state.json', 'playwright', 'utf-8', []],
+  ['cookies.crlf-bom.txt', 'netscape', 'utf-8', []],
+  ['cookies.utf16le-bom.txt', 'netscape', 'utf-16le', []],
+  ['cookies.spaces.txt', 'netscape', 'utf-8', ['spaces-not-tabs']],
+  ['cookies.no-header.txt', 'netscape', 'utf-8', []],
+  ['cookies.dotted.txt', 'netscape', 'utf-8', []],
+  ['cookies.cookie-editor-export.txt', 'netscape', 'utf-8', []],
+  ['cookie-editor.current.json', 'cookie-editor', 'utf-8', []],
+  ['cookie-editor.ms-expiry.json', 'cookie-editor', 'utf-8', ['expiry-milliseconds']],
+  ['cookie-editor.minimal.json', 'cookie-editor', 'utf-8', ['missing-field']],
+  ['playwright.crlf-bom.json', 'playwright', 'utf-8', []],
+  ['selenium.json', 'cookie-editor', 'utf-8', []],
+]
+
+test('every format and encoding variant parses all eight cookies', () => {
+  for (const [file, format, encoding, warningCodes] of CASES) {
+    const parsed = parse(file)
+    assert.equal(parsed.ok, true, `${file}: ${parsed.error}`)
+    assert.equal(parsed.format, format, file)
+    assert.equal(parsed.encoding, encoding, file)
+    assert.equal(parsed.cookies.length, 8, file)
+    assert.equal(parsed.skipped.length, 0, file)
+    const codes = new Set(parsed.warnings.map((w) => w.code))
+    for (const code of warningCodes) assert.ok(codes.has(code), `${file}: warning ${code}`)
+  }
+})
+
+test('flags survive: HttpOnly prefix, Secure, SameSite, session', () => {
+  const byName = (parsed, name) => parsed.cookies.find((c) => c.name === name)
+  const editor = parse('cookie-editor.json')
+  assert.equal(byName(editor, 'p_http').httpOnly, true)
+  assert.equal(byName(editor, 'p_none').sameSite, 'None')
+  assert.equal(byName(editor, 'p_none').secure, true)
+  assert.equal(byName(editor, 'p_session').expires, undefined)
+  const txt = parse('cookies.txt')
+  assert.equal(byName(txt, 'p_http').httpOnly, true, '#HttpOnly_ is data, not a comment')
+  assert.equal(byName(txt, 'p_session').expires, undefined, 'expiry 0 is a session cookie')
+  const pw = parse('playwright-storage-state.json')
+  assert.equal(byName(pw, 'p_session').expires, undefined, 'expires -1 is a session cookie')
+  assert.equal(byName(pw, 'p_persist').sameSite, 'Lax')
+})
+
+test('a cookie header string is recognized and refused: it has no domain or path', () => {
+  const parsed = parse('header-string.txt')
+  assert.equal(parsed.ok, false)
+  assert.equal(parsed.format, 'header-string')
+  assert.match(parsed.error, /no domain/i)
+})
+
+test('malformed lines are skipped with reasons; the good ones still parse', () => {
+  const parsed = parse('malformed.cookies.txt')
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.format, 'netscape')
+  assert.equal(parsed.cookies.length, 5)
+  const codes = parsed.skipped.map((s) => s.code)
+  for (const code of ['field-count', 'bad-expiry', 'missing-domain', 'bad-char-name', 'prefix', 'expired']) {
+    assert.ok(codes.includes(code), `missing skip code ${code}`)
+  }
+  // A skipped entry names where it was and why; never the value.
+  for (const item of parsed.skipped) {
+    assert.ok(item.where)
+    assert.ok(item.reason)
+    assert.equal(item.value, undefined)
+  }
+})
+
+test('malformed JSON entries are skipped with reasons', () => {
+  const parsed = parse('malformed.cookie-editor.json')
+  assert.equal(parsed.ok, true)
+  assert.ok(parsed.cookies.length > 0)
+  assert.ok(parsed.skipped.length > 0)
+})
+
+test('truncated JSON reports unreadable', () => {
+  const parsed = parse('truncated.json')
+  assert.equal(parsed.ok, false)
+})
+
+test('duplicates resolve last-entry-wins with a warning', () => {
+  const parsed = parseCookieFile(JSON.stringify([
+    { name: 'n', value: 'one', domain: 'example.com', path: '/' },
+    { name: 'n', value: 'two', domain: 'example.com', path: '/' },
+  ]))
+  assert.equal(parsed.ok, true)
+  assert.equal(parsed.cookies.length, 1)
+  assert.equal(parsed.cookies[0].value, 'two')
+  assert.ok(parsed.warnings.some((w) => w.code === 'duplicate'))
+})
+
+test('SameSite=None without Secure is dropped to unspecified with a warning, not skipped', () => {
+  const parsed = parseCookieFile(JSON.stringify([{ name: 'n', value: 'v', domain: 'example.com', path: '/', secure: false, httpOnly: false, sameSite: 'None', expirationDate: 1893456000 }]))
+  assert.equal(parsed.cookies.length, 1)
+  assert.equal(parsed.cookies[0].sameSite, undefined)
+  assert.ok(parsed.warnings.some((w) => w.code === 'samesite-none-insecure'))
+})
+
+test('prefix rules and expired entries are refused before they can fail the store', () => {
+  const parsed = parseCookieFile(JSON.stringify([
+    { name: '__Host-x', value: 'v', domain: 'example.com', path: '/app', secure: true, httpOnly: false, expirationDate: 1893456000 },
+    { name: 'old', value: 'v', domain: 'example.com', path: '/', expirationDate: 1000000000 },
+    { name: 'semi;name', value: 'v', domain: 'example.com', path: '/', expirationDate: 1893456000 },
+    { name: 'good', value: 'v', domain: 'example.com', path: '/', secure: true, httpOnly: true, sameSite: 'Strict', expirationDate: 1893456000 },
+  ]))
+  assert.equal(parsed.cookies.length, 1)
+  assert.equal(parsed.cookies[0].name, 'good')
+  const codes = parsed.skipped.map((s) => s.code)
+  assert.ok(codes.includes('prefix') && codes.includes('expired') && codes.includes('bad-char-name'))
+})

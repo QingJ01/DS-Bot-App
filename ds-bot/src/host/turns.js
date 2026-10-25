@@ -22,6 +22,24 @@ export function turnFailure(error) {
 
 export const failureLine = failure => `${failure.code}${failure.status ? ` ${failure.status}` : ''}${failure.message ? `: ${failure.message.slice(0, 200)}` : ''}`
 
+// The reply a sender waits for, sent the way a finished turn sends it: the work it was
+// for closes, and the answer goes up to the Bot that asked. `id` is the Session the
+// answer comes from; `source` is the trigger the turn answered.
+export function answerSender(rt, id, source, text, long) {
+  const back = rt.roomOf(source.senderRoomId)?.sessions?.[source.senderSessionId]
+  const work = rt.closeWork?.(source.exchangeId, rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot', text)
+  void rt.deliver({
+    fromId: rt.selfOf(id),
+    toId: source.senderSessionId,
+    ...(back ? { sessionId: back } : {}),
+    text: long?.text ?? text,
+    ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
+    role: 'reply',
+    replyTo: source.exchangeId,
+    ...(work ? { work } : {}),
+  }).catch(error => rt.warn('ds-bot: reply delivery failed: %s', error))
+}
+
 // A group's own Session never reaches a model, so the snapshot DSH prepared there
 // rides with the user's queued message to the members who answer it.
 export function attachReference(queued, source, text) {
@@ -184,20 +202,7 @@ export function install(rt) {
   // reply in its Session there while it is still a member. A sender that asked for it
   // while working on another Bot's request goes on with that work when it reads it.
   // `long`: the text as attachLong sends it, when it went as a file.
-  const tellSender = (id, source, text, long) => {
-    const back = rt.roomOf(source.senderRoomId)?.sessions?.[source.senderSessionId]
-    const work = rt.closeWork?.(source.exchangeId, rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot', text)
-    void rt.deliver({
-      fromId: rt.selfOf(id),
-      toId: source.senderSessionId,
-      ...(back ? { sessionId: back } : {}),
-      text: long?.text ?? text,
-      ...(long?.length === undefined ? {} : { files: long.files, length: long.length }),
-      role: 'reply',
-      replyTo: source.exchangeId,
-      ...(work ? { work } : {}),
-    }).catch(error => rt.warn('ds-bot: reply delivery failed: %s', error))
-  }
+  const tellSender = (id, source, text, long) => answerSender(rt, id, source, text, long)
 
   // Runs before a deleted Bot leaves the team. Its Sessions stop with it, and the
   // turn/end that follows is no longer the team's, so their activity and turn records go
@@ -291,7 +296,8 @@ export function install(rt) {
       bots[botId] = { since: entry.since, ...doingOf(entry), ...(owner ? { roomId: owner.roomId } : {}) }
     }
     for (const job of rt.switchJobs()) {
-      const work = { since: job.since, switching: true, ...(job.roomId ? { roomId: job.roomId } : {}) }
+      // `folder` marks the switch the chat must name: the working folder changed.
+      const work = { since: job.since, switching: true, ...(job.folder === true ? { folder: true } : {}), ...(job.roomId ? { roomId: job.roomId } : {}) }
       if (job.roomId === undefined) bots[job.botId] = work
       else bots[job.botId] ??= work
     }
@@ -317,7 +323,7 @@ export function install(rt) {
       if (entry.turn !== undefined && owner !== undefined) add(owner.roomId, owner.botId, { since: entry.since, ...doingOf(entry) })
     }
     for (const job of rt.switchJobs()) {
-      if (job.roomId !== undefined) add(job.roomId, job.botId, { since: job.since, switching: true })
+      if (job.roomId !== undefined) add(job.roomId, job.botId, { since: job.since, switching: true, ...(job.folder === true ? { folder: true } : {}) })
     }
     return rooms
   }
@@ -452,6 +458,8 @@ export function install(rt) {
           })
         } else if (source?.kind === SOURCE_KIND && source.role === 'kickoff' && rt.roomOf(id)) {
           queueRoomMessage(id, { text: '', kickoff: true })
+        } else if (source?.kind === SOURCE_KIND && source.role === 'resume' && rt.roomOf(id)) {
+          queueRoomMessage(id, { text: '', resume: true })
         } else if (source?.kind === SOURCE_KIND) {
           if (entry.turn === undefined) entry.pending = source
           else if (!opened) claimTrigger(id, entry, source)

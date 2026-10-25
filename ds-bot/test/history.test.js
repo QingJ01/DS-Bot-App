@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { termQuery } from '../src/host/chat-index.js'
-import { canonicalHeadings, cardText, historyEntry, questionReply, readReply, replyText } from '../src/host/parts.js'
+import { canonicalHeadings, cardText, historyEntry, questionReply, readReply, replyText, viewCardText } from '../src/host/parts.js'
+import { VIEW_BYTE_LIMIT, viewBytes } from '../src/shared/views.js'
 
 test('cardText shows a question card as the user saw it', () => {
   const card = { question: ' Start where? ', detail: 'pick one', options: [{ label: 'Plan' }, { label: ' ' }, { label: 'Draft' }] }
@@ -11,6 +12,31 @@ test('cardText shows a question card as the user saw it', () => {
   assert.equal(cardText({ question: 'Q', options: ['A'] }), '')
   assert.equal(cardText({ question: '', options: [{ label: 'A' }] }), '')
   assert.equal(cardText({ question: 'Q', options: [] }), '')
+})
+
+test('viewCardText records only a card the tool would show', () => {
+  const meter = { type: 'metric', label: '进度', value: '70%' }
+  const choices = { type: 'options', id: 'pick', options: [{ label: 'A' }, { label: 'B' }] }
+  assert.equal(viewCardText({ title: 'Meter', view: meter }), '[View card] Meter\nmetric: 进度=70%')
+  assert.equal(viewCardText(JSON.stringify({ title: 'Pick', view: choices })), '[View card] Pick\noptions: A/B')
+  // A provider-wrapped array normalizes before the summary, as in the tool.
+  const wrapped = { title: 'Pick', view: { type: 'stack', children: { item: { item: [choices] } } } }
+  assert.equal(viewCardText(wrapped), '[View card] Pick\noptions: A/B')
+  // A view needs no title.
+  assert.equal(viewCardText({ title: ' ', view: meter }), '[View card]\nmetric: 进度=70%')
+  // Calls the tool refuses showed no card: an unknown component or a broken one,
+  // a wait the card cannot honor, or too many bytes as sent.
+  assert.equal(viewCardText({ title: 'X', view: { type: 'chart' } }), '')
+  assert.equal(viewCardText({ title: 'X', view: { type: 'gauge' } }), '')
+  assert.equal(viewCardText({ title: 'Meter', view: meter, await_reply: true }), '')
+  assert.equal(viewCardText({ title: 'Pick', view: choices, await_reply: false }), '')
+  let children = [{ type: 'text', text: 'x' }]
+  while (viewBytes('', { type: 'stack', children }) <= VIEW_BYTE_LIMIT) children = { item: children }
+  assert.equal(viewCardText({ title: 'Big', view: { type: 'stack', children } }), '')
+  const shown = { type: 'tool/call', data: { name: 'show_view', arguments: { title: 'Meter', view: meter } } }
+  assert.deepEqual(historyEntry(shown, false), { answer: true, text: '[View card] Meter\nmetric: 进度=70%' })
+  const refused = { type: 'tool/call', data: { name: 'show_view', arguments: { title: 'X', view: { type: 'chart' } } } }
+  assert.equal(historyEntry(refused, false), undefined)
 })
 
 const said = (text, source) => ({ type: 'user/message', data: { content: [{ type: 'text', text }], source } })

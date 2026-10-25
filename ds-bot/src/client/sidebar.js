@@ -1,14 +1,14 @@
-import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { FishLogo } from './dsh-primitives.js'
 import { isMainOf } from './sources.js'
 import { currentPart, previewOf, relativeShort } from './text.js'
-import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, PlugIcon, ClockIcon, GearIcon, PhoneIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon } from './icons.js'
+import { PlusIcon, SearchIcon, SidebarIcon, GaugeIcon, PlugIcon, ClockIcon, GearIcon, PhoneIcon, PinMarkIcon, ConnectorIcon, SwitchIcon, CloudDownloadIcon, SignOutIcon } from './icons.js'
 import { MAIN_LOOK } from './characters.js'
 import { botState, BotMark, BotAvatar, RoomAvatar } from './mark.js'
 import { reducedMotion } from './activity-row.js'
 import { Shimmer, workPhrase } from './cells.js'
-import { springEasing, SPRING_SHAPE } from './motion.js'
+import { springEasing, SPRING_SHAPE, useViewport, viewBottom } from './motion.js'
 import { hostText, t } from './i18n.js'
 import { showsDshRow } from './dsh-offer.js'
 
@@ -35,6 +35,8 @@ const useGroupWork = (useWork, pick) => (useWork ? useWork(work => JSON.stringif
 const workKeys = text => JSON.parse(text)
 const doingOf = ({ tool, said, note, target, switching }) => ({ tool, said, note, target, switching })
 const workLine = (lead, doing, more) => h(Shimmer, null, `${lead} · ${workPhrase(doing)}…${more > 0 ? ` +${more}` : ''}`)
+// The row already names the Bot; its own-chat preview is just what it is doing.
+const doingLine = doing => h(Shimmer, null, `${workPhrase(doing)}…`)
 // The Bots and groups a Bot waits for (handoffs.js), by the names they have now.
 const waitingFor = (roster, waits) => {
   const names = [...(waits?.bots ?? []).map(id => roster.byId[id]?.name), ...(waits?.rooms ?? []).map(id => roster.roomsById[id]?.name)].filter(Boolean)
@@ -58,6 +60,8 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   const groups = workKeys(useGroupWork(useWork, rooms => Object.entries(rooms).flatMap(([roomId, entries]) => entries.filter(entry => entry.botId === id).map(entry => ({ id: roomId, ...doingOf(entry) })))))
   const away = !running && groups.length > 0
   const state = botState(running || away, doing, alert)
+  // A Bot running in its own chat previews what it is doing, like a group's row.
+  const runningLine = running && doing ? doingLine(doing) : null
   const awayLine = away ? workLine(roster.roomsById[groups[0].id]?.name ?? t('a group chat'), groups[0], groups.length - 1) : null
   const waits = workKeys(useWork ? useWork(work => JSON.stringify(work.waiting?.[id] ?? null)) : 'null')
   const waitsFor = state === 'waiting' ? waitingFor(roster, waits) : ''
@@ -85,9 +89,10 @@ function BotRow({ bot, roster, actions, useSessions, useSessionStatus, useSessio
   pinned && !wide ? h(PinMark) : null,
   wide ? h('span', { className: 'bt-row-body' },
     h('span', { className: 'bt-row-name' }, h('span', { className: 'bt-row-title' }, bot.name), pinned ? h(PinMark) : null),
-    awayLine ? h('span', { className: 'bt-row-preview' }, awayLine)
-      : waitsFor ? h('span', { className: 'bt-row-preview' }, waitsFor)
-        : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
+    runningLine ? h('span', { className: 'bt-row-preview' }, runningLine)
+      : awayLine ? h('span', { className: 'bt-row-preview' }, awayLine)
+        : waitsFor ? h('span', { className: 'bt-row-preview' }, waitsFor)
+          : preview ? h('span', { className: 'bt-row-preview' }, preview) : null) : null,
   wide && unread && !active ? h('span', { className: 'bt-unread', 'aria-hidden': true }) : null)
 }
 
@@ -342,13 +347,17 @@ function UpdateButton({ useUpdate, actions }) {
   const dsh = update?.dsh
   const dshPhase = dsh?.phase ?? 'idle'
   const dshRow = showsDshRow(dsh, update?.app)
-  if (!update?.available && !dshRow && phase === 'idle' && dshPhase === 'idle') return null
-  const cloudPhase = phase === 'installing' || dshPhase === 'installing' ? 'installing' : phase !== 'idle' ? phase : dshPhase
-  const toggle = () => {
+  // Hooks first: an update that turns visible after the sidebar mounted would
+  // otherwise add hooks on a later render and crash the slot.
+  const tick = useViewport()
+  useLayoutEffect(() => {
+    if (!open) return
     const rect = button.current?.getBoundingClientRect()
     if (rect) setBox({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 288)), top: rect.bottom + 6 })
-    setOpen(value => !value)
-  }
+  }, [open, tick])
+  if (!update?.available && !dshRow && phase === 'idle' && dshPhase === 'idle') return null
+  const cloudPhase = phase === 'installing' || dshPhase === 'installing' ? 'installing' : phase !== 'idle' ? phase : dshPhase
+  const toggle = () => setOpen(value => !value)
   const start = () => {
     setError('')
     void actions.installUpdate({ targetId: update.targetId }).catch(failure => setError(hostText(failure?.message ?? String(failure))))
@@ -359,7 +368,10 @@ function UpdateButton({ useUpdate, actions }) {
   }
   const label = phase === 'installing' ? t('Updating DS Bot…')
     : dshPhase === 'installing' ? t('Updating DSH…')
-      : phase === 'installed' ? (update.restartRequired ? t('DS Bot {version} is installed. Restart DSH to use it.', { version: update.installed ?? update.latest }) : t('Update installed. Reload this window.'))
+      : phase === 'installed' ? (update.restartRequired
+        ? t('DS Bot {version} is installed. Restart DSH to use it.', { version: update.installed ?? update.latest })
+        : t('DS Bot {version} is installed.', { version: update.installed ?? update.latest }))
+        : phase === 'updated' ? t('DS Bot {version} is installed.', { version: update.installed ?? update.latest })
         : dshPhase === 'installed' ? t('Restart DSH to start using DSH {version}.', { version: dsh.installed ?? dsh.verified })
           : update?.available ? t('DS Bot {version} is available', { version: update.latestRef ?? update.latest })
             : t('DSH {version} is available', { version: dsh?.verified })
@@ -374,17 +386,20 @@ function UpdateButton({ useUpdate, actions }) {
     h('button', {
       ref: button, type: 'button', className: 'bt-round bt-update', 'data-phase': cloudPhase, 'aria-label': label, title: label,
       'aria-haspopup': 'dialog', 'aria-expanded': open, onClick: toggle,
-    }, h(CloudDownloadIcon, { done: phase === 'installed' }), phase === 'failed' || dshPhase === 'failed' ? h('span', { className: 'bt-update-dot', 'aria-hidden': true }) : null),
+    }, h(CloudDownloadIcon, { done: phase === 'installed' || phase === 'updated' }), phase === 'failed' || dshPhase === 'failed' ? h('span', { className: 'bt-update-dot', 'aria-hidden': true }) : null),
     open && box ? createPortal(h('div', { className: 'bt-update-pop', role: 'dialog', 'aria-label': update?.available || phase !== 'idle' ? t('DS Bot update') : t('DSH update'), style: box },
       update?.available || phase !== 'idle' ? h(Fragment, null,
-        h('div', { className: 'bt-update-title' }, phase === 'installed' ? t('Update installed') : t('DS Bot {version}', { version: update.latestRef ?? update.latest })),
+        h('div', { className: 'bt-update-title' }, phase === 'installed' || phase === 'updated' ? t('Update installed') : t('DS Bot {version}', { version: update.latest })),
         h('div', { className: 'bt-update-text' }, phase === 'installed'
-          ? (update.restartRequired ? t('Restart DSH to start using DS Bot {version}.', { version: update.installed ?? update.latest }) : t('Update installed. Reload this window.'))
-          : t('You have {version}.', { version: update.current })),
+          ? update.restartRequired
+            ? t('Restart DSH to start using DS Bot {version}.', { version: update.installed ?? update.latest })
+            : t('DS Bot {version} is installed.', { version: update.installed ?? update.latest })
+          : phase === 'updated' ? t('DS Bot {version} is installed.', { version: update.installed ?? update.latest })
+            : t('You have {version}.', { version: update.current })),
         message ? h('div', { className: 'bt-update-error', role: 'alert' }, t('The update did not finish: {reason}', { reason: message })) : null,
         h('div', { className: 'bt-update-actions' },
           update.notesUrl ? h('a', { className: 'bt-update-notes', href: update.notesUrl, target: '_blank', rel: 'noopener noreferrer' }, t("What's new")) : null,
-          phase === 'installed' ? null : h('button', {
+          phase === 'installed' || phase === 'updated' ? null : h('button', {
             type: 'button', className: 'bt-update-go', disabled: phase === 'installing', onClick: start,
           }, phase === 'installing' ? t('Updating…') : phase === 'failed' ? t('Try again') : t('Update')))) : null,
       dshRow ? h('div', { className: 'bt-update-dsh' },
@@ -475,6 +490,9 @@ function pressSettingsShortcut() {
   }))
 }
 
+const NO_SUBSCRIBE = () => () => {}
+const NO_SNAPSHOT = () => null
+
 // The footer avatar opens an account menu above itself, with Bot settings as one
 // entry. Shell panels hidden from the Bot sidebar (plugins, automation) live here too.
 // `seat` is the shell's settings.launcher seat: at priority -10 the whale wins it
@@ -512,11 +530,54 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
     window.addEventListener('keydown', onKey, true)
     return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
   }, [open])
-  const toggle = () => {
-    const rect = button.current?.getBoundingClientRect()
-    if (rect) setBox({ left: rect.left, bottom: window.innerHeight - rect.top + 5 })
-    setOpen(value => !value)
+  // The shell's account plugin lends its sign-out operation; the item shows only
+  // when the plugin's entry is there and its account snapshot says signed in. The
+  // entry can arrive after this mounts, so its operations follow the entry.
+  const signIn = actions.signInEntry?.() ?? null
+  const ops = useMemo(() => signIn?.inject?.() ?? {}, [signIn])
+  const accountSource = ops.hooks?.account
+  const account = useSyncExternalStore(accountSource?.subscribe ?? NO_SUBSCRIBE, accountSource ? () => accountSource.getSnapshot() : NO_SNAPSHOT)
+  const signedIn = signIn !== null && typeof ops.signOut === 'function' && account?.view?.status === 'credential-stored'
+  const accountT = actions.accountT?.() ?? (key => key)
+  const [confirm, setConfirm] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [signOutError, setSignOutError] = useState('')
+  const askSignOut = async () => {
+    setSignOutError('')
+    let state = 'none'
+    try {
+      if (await ops.hasRunningAccountTasks?.()) state = 'running'
+    } catch { state = 'unknown' }
+    setConfirm(state)
   }
+  const cancelSignOut = () => { setConfirm(null); setSignOutError('') }
+  const runSignOut = async () => {
+    setBusy(true)
+    setSignOutError('')
+    try {
+      await ops.signOut()
+      setConfirm(null)
+      setOpen(false)
+    } catch (error) {
+      setSignOutError(String(error?.message ?? error))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const tick = useViewport()
+  const anchor = () => {
+    const rect = button.current?.getBoundingClientRect()
+    if (rect) setBox({ left: rect.left, bottom: viewBottom() - rect.top + 5 })
+  }
+  useLayoutEffect(() => { if (open) anchor() }, [open, tick])
+  const toggle = () => { if (!open) anchor(); setOpen(value => !value) }
+  // Closing the menu drops a half-finished sign-out confirm with it.
+  useEffect(() => {
+    if (open) return
+    setConfirm(null)
+    setSignOutError('')
+    setBusy(false)
+  }, [open])
   const groups = [
     [
       [t('Usage'), GaugeIcon, () => actions.openSettings('usage')],
@@ -528,16 +589,23 @@ export function AccountLauncher({ seat = true, settingsOpen, openSettings, openO
       [t('Switch to classic Agent mode'), SwitchIcon, () => actions.setSurface('agent')],
     ],
   ]
+  if (signedIn) groups.push([[accountT('signOut'), SignOutIcon, askSignOut, undefined, true]])
   return h(Fragment, null,
     h('button', { ref: button, type: 'button', className: 'bt-account', 'aria-label': t('Account'), 'aria-haspopup': 'menu', 'aria-expanded': open, onClick: toggle },
       h('span', { className: 'bt-you', 'aria-hidden': true }, h(BotMark, { look: MAIN_LOOK, size: 24 }))),
     open && box ? createPortal(h('div', { className: 'bt-menu bt-menu-up bt-account-menu', role: 'menu', 'aria-label': t('Account'), style: box },
-      groups.map((group, index) => h(Fragment, { key: index },
-        index > 0 ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
-        group.map(([label, Icon, run, hint]) => h('button', {
-          key: label, type: 'button', role: 'menuitem',
-          onClick: () => { setOpen(false); void Promise.resolve(run()).catch(error => actions.reportError(error, 'menu')) },
-        }, h(Icon), h('span', { className: 'bt-menu-label' }, label), hint ? h('span', { className: 'bt-menu-hint' }, hint) : null))))), document.body) : null)
+      confirm !== null ? h('div', { className: 'bt-confirm', role: 'alertdialog', 'aria-label': accountT('signOut') },
+        h('p', { className: 'bt-confirm-text' }, accountT(confirm === 'running' ? 'signOutRunningDescription' : confirm === 'unknown' ? 'signOutUnknownDescription' : 'signOutDescription')),
+        signOutError !== '' ? h('p', { className: 'bt-confirm-error', role: 'alert' }, signOutError) : null,
+        h('div', { className: 'bt-confirm-row' },
+          h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: cancelSignOut }, t('Cancel')),
+          h('button', { type: 'button', className: 'bt-confirm-go', disabled: busy, onClick: () => { void runSignOut() } }, accountT('signOut'))))
+        : groups.map((group, index) => h(Fragment, { key: index },
+          index > 0 ? h('div', { className: 'bt-menu-sep', role: 'separator' }) : null,
+          group.map(([label, Icon, run, hint, stay]) => h('button', {
+            key: label, type: 'button', role: 'menuitem',
+            onClick: () => { if (stay !== true) setOpen(false); void Promise.resolve(run()).catch(error => actions.reportError(error, 'menu')) },
+          }, h(Icon), h('span', { className: 'bt-menu-label' }, label), hint ? h('span', { className: 'bt-menu-hint' }, hint) : null))))), document.body) : null)
 }
 
 // Opens the Main Bot whenever the main view holds no Bot conversation, the way
@@ -608,6 +676,14 @@ export function BrandName() {
 
 // The expanded footer keeps the phone entry with the account; the rail uses one column.
 export const SIDEBAR_CSS = `
+.bt-confirm{width:260px;max-width:72vw;padding:10px 12px 12px;display:flex;flex-direction:column;gap:10px}
+.bt-confirm-text{margin:0;font-size:13px;line-height:19px;color:var(--bt-ink-2)}
+.bt-confirm-error{margin:0;font-size:12px;line-height:17px;color:var(--bt-danger);overflow-wrap:anywhere}
+.bt-confirm-row{display:flex;justify-content:flex-end;gap:8px}
+.bt-menu .bt-confirm button{width:auto;min-height:0}
+.bt-confirm-go{height:28px;padding:0 14px;border:0;border-radius:999px;background:var(--bt-accent);color:var(--bt-accent-ink);font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:opacity .12s ease}
+.bt-confirm-go:hover:not(:disabled){opacity:.9}
+.bt-confirm-go:disabled{opacity:.6;cursor:default}
 .bt-side-top .bt-brand{cursor:default;padding-left:6px}
 .bt-side-top .bt-brand:hover{background:none}
 .bt-brand .bt-mark{flex:none}

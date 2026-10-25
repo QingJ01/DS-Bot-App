@@ -1,4 +1,5 @@
-// Windows downloads and installs updates; macOS asks before opening the release page.
+// Windows and a Linux AppImage download and install updates; macOS and a Linux deb ask before
+// opening the release page.
 
 export const UPDATE_TEXT = {
   en: {
@@ -73,10 +74,38 @@ function isHttpsPage(page) {
   }
 }
 
-export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, open, feed = RELEASES_URL, log = console }) {
+// The About row shows the checker's phase: checking → current | downloading → downloaded |
+// available | failed. While a check, a download or a ready install is on, a new check must
+// not start, so `check()` is a no-op in those phases.
+const UPDATE_BUSY = new Set(['checking', 'downloading', 'downloaded'])
+
+function stateHolder(log) {
+  let state = { phase: 'checking' }
+  const listeners = new Set()
+  return {
+    state: () => state,
+    set: (next) => {
+      state = next
+      for (const listener of [...listeners]) {
+        try { listener(next) } catch (error) { log.error(`DeepSeek Bot: an update state listener failed: ${error instanceof Error ? error.message : String(error)}`) }
+      }
+    },
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+  }
+}
+
+// `asset` names the release asset of this install (default: the macOS zip); a release without
+// it does not count.
+export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, open, feed = RELEASES_URL, log = console, asset }) {
+  const assetName = asset ?? (version => `DS-Bot-App-${version}-mac-${arch}.zip`)
   let asked
   let latest = Promise.resolve(null)
-  const check = () => {
+  const holder = stateHolder(log)
+  const run = () => {
+    holder.set({ phase: 'checking' })
     latest = (async () => {
       try {
         const response = await fetch(feed, {
@@ -84,11 +113,13 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
         })
         if (!response.ok) {
           log.error(`DS Bot App: update check failed: HTTP ${String(response.status)}`)
+          holder.set({ phase: 'failed' })
           return null
         }
         const releases = await response.json()
         if (!Array.isArray(releases)) {
           log.error('DS Bot App: update check failed: releases response is not an array')
+          holder.set({ phase: 'failed' })
           return null
         }
         const currentVersion = parseVersion(current)
@@ -99,14 +130,17 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
             || (release.prerelease === true && !allowPrerelease)) continue
           const version = typeof release.tag_name === 'string' ? release.tag_name.replace(/^v/u, '') : ''
           if (!isNewer(version, current)) continue
-          if (!Array.isArray(release.assets) || !release.assets.some(asset => asset?.name === `DS-Bot-App-${version}-mac-${arch}.zip`)) continue
+          if (!Array.isArray(release.assets) || !release.assets.some(entry => entry?.name === assetName(version))) continue
           if (!isHttpsPage(release.html_url)) {
             log.error('DS Bot App: update check failed: release page URL is not HTTPS')
             continue
           }
           if (found === undefined || isNewer(version, found.version)) found = { version, page: release.html_url }
         }
-        if (found === undefined) return null
+        if (found === undefined) {
+          holder.set({ phase: 'current' })
+          return null
+        }
         log.info(`DS Bot App: update ${found.version} available`)
         if (ask !== undefined && asked !== found.version) {
           asked = found.version
@@ -114,16 +148,20 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
             .then(yes => (yes ? open(found.page) : undefined))
             .catch((error) => { log.error(`DS Bot App: update ${found.version} not opened: ${error instanceof Error ? error.message : String(error)}`) })
         }
+        holder.set({ phase: 'available', version: found.version, page: found.page })
         return found
       } catch (error) {
         log.error(`DS Bot App: update check failed: ${error instanceof Error ? error.message : String(error)}`)
+        holder.set({ phase: 'failed' })
         return null
       }
     })()
   }
-  check()
+  // A check runs at once and then on the timer; a manual one only starts when none is on.
+  const check = () => { if (!UPDATE_BUSY.has(holder.state().phase)) run() }
+  run()
   const timer = setInterval(check, CHECK_EVERY_MS)
-  return { stop: () => { clearInterval(timer) }, latest: () => latest }
+  return { stop: () => { clearInterval(timer) }, latest: () => latest, state: holder.state, subscribe: holder.subscribe, check }
 }
 
 /**
@@ -140,34 +178,57 @@ export function watchReleases({ current, arch, fetch = globalThis.fetch, ask, op
  *   stop: () => void,
  *   latest: () => Promise<{ version: string, downloaded: Promise<boolean> } | null>,
  *   install: () => Promise<void>,
+ *   state: () => { phase: string, version?: string, page?: string },
+ *   subscribe: (listener: (state: { phase: string }) => void) => () => void,
+ *   check: () => void,
  * }} `latest` is what the newest check found: the version and whether its download finished.
- *   `install` stops the Host and runs the installer, which opens the app again.
+ *   `install` stops the Host and runs the installer, which opens the app again. `state` is
+ *   the phase the About row shows; `check` runs the same check the timer does and does
+ *   nothing while a check, a download or a ready install is on.
  */
 export function watchUpdates({ updater, beforeInstall, ask, feed, log = console }) {
   updater.autoDownload = true
   updater.autoInstallOnAppQuit = true
   if (feed) updater.setFeedURL({ provider: 'generic', url: feed })
+  const holder = stateHolder(log)
   const install = async () => {
     await beforeInstall()
     updater.quitAndInstall(true, true)
   }
   let asked
+  updater.on('checking-for-update', () => { holder.set({ phase: 'checking' }) })
+  updater.on('update-not-available', () => { holder.set({ phase: 'current' }) })
+  updater.on('update-available', (info) => { holder.set({ phase: 'downloading', version: info?.version }) })
   updater.on('update-downloaded', ({ version }) => {
     log.info(`DS Bot App: update ${version} downloaded`)
+    holder.set({ phase: 'downloaded', version })
     if (ask === undefined || asked === version) return
     asked = version
     void ask(version).then(now => (now ? install() : undefined))
       .catch((error) => { log.error(`DS Bot App: update ${version} not installed: ${error instanceof Error ? error.message : String(error)}`) })
   })
-  updater.on('error', (error) => { log.error(`DS Bot App: update failed: ${error instanceof Error ? error.message : String(error)}`) })
+  // A downloaded update stays ready: a later failed check does not hide it.
+  updater.on('error', (error) => {
+    log.error(`DS Bot App: update failed: ${error instanceof Error ? error.message : String(error)}`)
+    if (holder.state().phase !== 'downloaded') holder.set({ phase: 'failed' })
+  })
   let latest = Promise.resolve(null)
   // A failed check or download also comes as an 'error' event.
-  const check = () => {
-    latest = updater.checkForUpdates().then(result => (result?.isUpdateAvailable && result.downloadPromise
-      ? { version: result.updateInfo.version, downloaded: result.downloadPromise.then(() => true, () => false) }
-      : null), () => null)
+  // The events normally move the phase; a check that settles without one must not leave it
+  // on `checking`, or the busy guard would also stop the timer's checks.
+  const settled = (next) => { if (holder.state().phase === 'checking') holder.set(next) }
+  const run = () => {
+    latest = updater.checkForUpdates().then((result) => {
+      if (result?.isUpdateAvailable && result.downloadPromise) {
+        settled({ phase: 'downloading', version: result.updateInfo.version })
+        return { version: result.updateInfo.version, downloaded: result.downloadPromise.then(() => true, () => false) }
+      }
+      settled({ phase: 'current' })
+      return null
+    }, () => { settled({ phase: 'failed' }); return null })
   }
-  check()
+  const check = () => { if (!UPDATE_BUSY.has(holder.state().phase)) run() }
+  run()
   const timer = setInterval(check, CHECK_EVERY_MS)
-  return { stop: () => { clearInterval(timer) }, latest: () => latest, install }
+  return { stop: () => { clearInterval(timer) }, latest: () => latest, install, state: holder.state, subscribe: holder.subscribe, check }
 }

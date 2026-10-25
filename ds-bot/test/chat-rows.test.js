@@ -11,7 +11,7 @@ const bundle = await build({
 })
 const module = { exports: {} }
 runInNewContext(bundle.outputFiles[0].text, {
-  module, exports: module.exports, Intl, Date,
+  module, exports: module.exports, Intl, Date, TextEncoder,
   require: (name) => {
     const platform = {
       react: {
@@ -41,6 +41,20 @@ test('a Bot\'s messages in a row are one block', () => {
     { kind: 'bot', text: 'three', time: 4 * MINUTE },
   ]
   assert.deepEqual(shape(ChatRows({ items, sessionId: 'b', roster, actions: {} })), ['EarlierUser', 'bot:one+two', 'EarlierUser', 'bot:three'])
+})
+
+test('a view row renders as a view card from its blueprint', () => {
+  const items = [
+    { kind: 'user', text: 'show me', time: MINUTE },
+    { kind: 'view', title: 'A long note', view: { type: 'stack', children: [0, 1, 2, 3].map(() => ({ type: 'text', text: 'x'.repeat(1900) })) }, callId: 'c1', time: 2 * MINUTE },
+    { kind: 'bot', text: 'done', time: 3 * MINUTE },
+  ]
+  const rows = [...ChatRows({ items, sessionId: 'b', roster, actions: {} })]
+  assert.deepEqual(shape(rows), ['EarlierUser', 'WidgetCell', 'bot:done'])
+  // The card draws the blueprint, not nothing: run the cell and look inside.
+  const cell = rows[1]
+  const rendered = cell.type(cell.props)
+  assert.equal(rendered.props.className, 'bt-q-inline')
 })
 
 test('with the clock, a time separator sits above the first entry and after each pause of half an hour', () => {

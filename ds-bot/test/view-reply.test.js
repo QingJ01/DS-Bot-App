@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply } from '../index.js'
-import { VIEW_BYTE_LIMIT, viewBytes } from '../src/shared/views.js'
+import { normalizeView, VIEW_BYTE_LIMIT, viewBytes } from '../src/shared/views.js'
 import { fakeContext } from './fake-ctx.js'
 
 const TEAM = {
@@ -236,4 +236,19 @@ test('a user message drops the open question and the open view together', async 
   const open = await team()
   assert.equal(open.questions['writer-now'], undefined)
   assert.equal(open.views['writer-now'], undefined)
+})
+
+test('show_view measures the bytes the model sent, before unwrapping the provider encoding', async (t) => {
+  const { ctx, show, stop } = start()
+  t.after(stop)
+  await ctx.registeredTools.get('list_bots').execute({}, { agent: { id: 'chief' } })
+  // Nested { item: ... } wrappers all disappear in normalization: measured after
+  // unwrapping this card would pass with a fraction of the bytes it was sent with.
+  let children = [{ type: 'text', text: 'x' }]
+  while (viewBytes('', { type: 'stack', children }) <= VIEW_BYTE_LIMIT) children = { item: children }
+  const wrapped = { type: 'stack', children }
+  assert.ok(viewBytes('Meter', normalizeView(wrapped)) < VIEW_BYTE_LIMIT)
+  const over = await show('writer-now', { title: 'Meter', view: wrapped, await_reply: false })
+  assert.equal(over.text, `The view is ${viewBytes('Meter', wrapped)} bytes; the limit is ${VIEW_BYTE_LIMIT}.`)
+  assert.equal(over.concluded, false)
 })

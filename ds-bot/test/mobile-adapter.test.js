@@ -65,6 +65,20 @@ test('conversation activity timestamps come only from the owned public session s
   assert.equal(JSON.stringify(conversations).includes('do-not-expose'),false)
 })
 
+test('mobile resumes only an owned writable group and projects the returned state', async () => {
+  const { rt, view, adapter, calls } = fixture()
+  view.rooms[0].paused = [{ id: 'b1', name: 'Chief' }]
+  const result = await adapter.action('room-continue', { roomId: 'room', ignored: 'private' })
+  assert.deepEqual(calls.find(call => call[1] === 'room-continue'), ['team', 'room-continue', { roomId: 'room' }])
+  assert.deepEqual(result.rooms[0].paused, view.rooms[0].paused)
+  assert.deepEqual(result.rooms[0].parts, [])
+  assert.equal(JSON.stringify(result).includes('do-not-expose'), false)
+  await assert.rejects(adapter.action('room-continue', { roomId: 'foreign' }), { status: 404 })
+  rt.readOnly = () => 'Another host owns this team'
+  await assert.rejects(adapter.action('room-continue', { roomId: 'room' }), { status: 409 })
+  assert.equal(calls.filter(call => call[1] === 'room-continue').length, 1)
+})
+
 test('mobile working folders forward only reviewed fields and validate team ownership', async () => {
   const { adapter, calls } = fixture()
   await adapter.action('update-bot', { id: 'b1', workDir: '/srv/project', ignored: 'private' })

@@ -196,7 +196,8 @@ container's workspace is always `/workspace`).
 
 ## Limits
 
-- No Bot browser / `read_browser` tool: those exist in dsh Desktop only.
+- No Bot browser / `read_browser` tool: those exist in dsh Desktop and the
+  desktop app only.
 - Over plain http, API keys and secret values you type cross the network in
   clear text — use HTTPS off-box (see [Network](#network)).
 - Full access is the only permission mode: a Bot can change everything the

@@ -6,9 +6,10 @@ import { readAvatar } from './avatar.js'
 import { COLORS, EXTRA_COLORS, MESSAGE_INLINE_MAX, ROOM_MODES, SOURCE_KIND } from './constants.js'
 import { within } from './folders.js'
 import { absoluteLinks } from './links.js'
+import { NAME_MAX } from './requests.js'
 import { unquote } from './text.js'
 import { mentionSpans } from '../shared/mentions.js'
-import { normalizeView, checkShownView } from '../shared/views.js'
+import { checkShownView } from '../shared/views.js'
 
 export const output = { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] }
 export const GROUP_REF = { type: 'string', required: true, description: 'Exact group chat name from list_bots' }
@@ -120,11 +121,13 @@ export function install(rt) {
 
   // Work for a group stays in it: from a group Session, message_bot calls a member there
   // exactly as an "@Name" line would, and never reaches a Bot outside the group.
+  const groupRefusal = (room, sender, target) => {
+    if (room.members.includes(target.id)) return undefined
+    const add = rt.isMain(sender.id) || rt.isAdminOf(room, sender.id) ? ', or add it yourself with update_group first' : ''
+    return `Not sent: ${target.name} is not in "${room.name}", and work for this group stays in it. Ask the user to add ${target.name} to the group${add}.`
+  }
+
   const callInGroup = async (exec, room, sender, target, message) => {
-    if (!room.members.includes(target.id)) {
-      const add = rt.isMain(sender.id) || rt.isAdminOf(room, sender.id) ? ', or add it yourself with update_group first' : ''
-      refuse(`Not sent: ${target.name} is not in "${room.name}", and work for this group stays in it. Ask the user to add ${target.name} to the group${add}.`)
-    }
     const call = `@${target.name}`
     await rt.roomStepText(exec.agent.id, rt.live.get(exec.agent.id)?.info, message.startsWith(call) ? message : `${call} ${message}`, false)
     return `Called ${target.name} in "${room.name}" with your message, as writing "${call}" there does: it works on it in the group, and you answer its result there. Nothing went to its own chat.`
@@ -137,7 +140,7 @@ export function install(rt) {
 
   ctx.tools.register(defineTool({
     name: 'message_bot',
-    description: 'Send a message to another Bot on the team. If that Bot is working, it reads your message at its next step and can change course, then answers once that work is done; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to "user" it answers the user in its own chat instead. In a group chat it reaches only members of that group, as writing "@Name" there does.',
+    description: 'Send a message to another Bot on the team. If that Bot is working, it reads your message at its next step and can change course, then answers once that work is done; if it is idle, it starts on it right away. Its reply arrives later as a new message to you; with reply_to "user" it answers the user in its own chat instead. In a group chat it reaches only members of that group, as writing "@Name" there does. With request_id you name the request yourself: a repeat of that name with the same message is not sent again, but gives the receipt of the first call back.',
     parameters: {
       to: { type: 'string', required: true, description: 'Exact Bot name from list_bots' },
       message: { type: 'string', required: true, description: 'Self-contained message; the other Bot cannot see this conversation' },
@@ -151,6 +154,10 @@ export function install(rt) {
         enum: ['now', 'queue'],
         description: '"now" (default): a working Bot reads your message at its next step, between its current actions, and answers once its current work is done; use it for questions, information it needs, corrections and warnings. "queue": it reads your message only after its current work is done, as a separate task; use it only for a new task unrelated to what it is doing now. With reply_to "user" the message always queues.',
       },
+      request_id: {
+        type: 'string',
+        description: `Your own name for this request, up to ${NAME_MAX} characters, so that a repeat of it is not sent twice. Send the same request_id with the same message when you repeat a call: the receipt of the first call comes back and nothing is sent again. A request_id names one request: with other content it is refused.`,
+      },
     },
     output,
     async execute(args, exec) {
@@ -161,62 +168,99 @@ export function install(rt) {
       if (target === undefined) return `No Bot named ${args.to}. Team: ${Object.values(state.bots).map(bot => bot.name).join(', ')}`
       if (target.id === sender.id) return 'You cannot message yourself.'
       if (String(args.message ?? '').trim() === '') return 'Write a message to send.'
+      const name = typeof args.request_id === 'string' ? args.request_id.trim() : ''
+      if (name.length > NAME_MAX) return `The request_id is ${name.length} characters long; a request name is at most ${NAME_MAX}.`
       const text = absoluteLinks(String(args.message), rt.sessionFolder?.(exec.agent?.session ?? exec.agent))
       const room = rt.roomOf(rt.groupOwners.get(exec.agent?.id)?.roomId)
-      if (room !== undefined) return callInGroup(exec, room, sender, target, text.trim())
+      // The request the caller named: it is admitted once, and a repeat of it is not sent again.
+      const request = name === '' ? undefined : rt.requestIdentity({
+        caller: sender.id,
+        context: room === undefined ? 'chat' : `room:${room.id}`,
+        name,
+        payload: {
+          to: target.id,
+          message: String(args.message ?? '').replace(/\r\n?/g, '\n').trim(),
+          reply_to: args.reply_to === 'user' ? 'user' : 'me',
+          when: args.when === 'queue' ? 'queue' : 'now',
+        },
+      })
+      // What the caller gets for a request that was admitted before.
+      const answer = (outcome) => {
+        if (outcome.status === 'replay') return outcome.receipt
+        if (outcome.status === 'conflict') refuse(`Not sent: request_id "${name}" was already used for a different request. A request_id names one request; send this one under a new name.`)
+        if (outcome.status === 'uncertain') refuse(`Not sent again: the outcome of request_id "${name}" is not known (the delivery failed, or DS Bot restarted while it was in flight), so it was not sent again. Check whether ${target.name} got it before sending it under a new name.`)
+        if (outcome.status === 'expired') return `Nothing was sent again: request_id "${name}" was admitted before, but its receipt is no longer kept, so only the fact that it was sent is left. Send the work under a new request_id if it must be done again.`
+        if (outcome.status === 'readonly') refuse(`Not sent: this window cannot save the Bot team, so it cannot record the request_id "${name}". Send it from the window that owns the team, or leave the request_id out.`)
+        return outcome.receipt
+      }
+      if (request !== undefined) {
+        const seen = await rt.knownRequest(request)
+        if (seen !== undefined) return answer(seen)
+      }
+      if (room !== undefined) {
+        const refusal = groupRefusal(room, sender, target)
+        if (refusal !== undefined) refuse(refusal)
+        const send = () => callInGroup(exec, room, sender, target, text.trim())
+        return request === undefined ? await send() : answer(await rt.admitRequest(request, send))
+      }
       const posted = calledInPosts.get(exec.agent?.id)
       const postedIn = posted !== undefined && posted.turn === turnOf(exec) ? posted.calls.get(target.id) : undefined
       if (postedIn !== undefined) refuse(`Not sent: you called ${target.name} in "${postedIn}" in this turn, and it works on that there. Send each task one way only; to add to it, post in that group.`)
       // Whoever waits for this work gets the answer by itself; a message there only
-      // sends the work round in a circle.
+      // sends the work round in a circle. Not a failed call: the turn goes on with
+      // the work, and the result says where its answer goes instead of showing a
+      // bare error the Bot cannot act on.
       const works = worksOf(exec)
       if (rt.upstreamOf(works).has(target.id)) {
-        refuse(`Not sent: ${target.name} is waiting for the result of the work you are doing, and your answer reaches it by itself. Finish the work and end your turn; to ask ${target.name} something, end your turn with the question.`)
+        return `Not sent: ${target.name} is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. Finish the work and end your turn; to ask ${target.name} something, end your turn with the question.`
       }
-      const toUser = args.reply_to === 'user'
-      const work = toUser ? undefined : works[0]
-      const chat = rt.chatOf(target.id)
-      const agent = await rt.resolveAgent(chat)
-      const status = rt.statusOf(target.id)
-      // A request it has not read yet, sent for the same work, takes this one in, so
-      // messages to a Bot that cannot read them do not pile up.
-      const earlier = unreadRequest(agent, sender.id, toUser)
-      const joinable = earlier !== undefined && (toUser || rt.sameWork(earlier.message.source.exchangeId, work))
-      const before = joinable ? bodyOf(earlier.message) : undefined
-      let long = await rt.attachLong(before ? `${before.text}\n\n${text}` : text, `Message from ${sender.name}.txt`)
-      if (long === undefined) return tooLong(text)
-      const joins = before !== undefined && agent.inbox?.remove?.(earlier.message.id) === true
-      if (before !== undefined && !joins) long = await rt.attachLong(text, `Message from ${sender.name}.txt`) ?? long
-      const working = rt.live.get(chat)?.turn !== undefined
-      const steer = (args.when !== 'queue' && !toUser) || (joins && earlier.steered)
-      const exchangeId = joins ? earlier.message.source.exchangeId : randomUUID()
-      if (joins) rt.forgetDelivery?.(exchangeId)
-      else if (!toUser) rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: work })
-      try {
-        await rt.deliver({ fromId: sender.id, toId: target.id, text: long.text, files: [...long.files, ...(joins ? before.files : [])], length: long.length, role: 'request', steer, exchangeId, ...(joins ? { merged: true } : {}), ...(toUser ? { audience: 'user' } : {}) })
-      } catch (error) {
-        if (!joins) rt.dropWork(exchangeId)
-        throw error
+      const send = async () => {
+        const toUser = args.reply_to === 'user'
+        const work = toUser ? undefined : works[0]
+        const chat = rt.chatOf(target.id)
+        const agent = await rt.resolveAgent(chat)
+        const status = rt.statusOf(target.id)
+        // A request it has not read yet, sent for the same work, takes this one in, so
+        // messages to a Bot that cannot read them do not pile up.
+        const earlier = unreadRequest(agent, sender.id, toUser)
+        const joinable = earlier !== undefined && (toUser || rt.sameWork(earlier.message.source.exchangeId, work))
+        const before = joinable ? bodyOf(earlier.message) : undefined
+        let long = await rt.attachLong(before ? `${before.text}\n\n${text}` : text, `Message from ${sender.name}.txt`)
+        if (long === undefined) return tooLong(text)
+        const joins = before !== undefined && agent.inbox?.remove?.(earlier.message.id) === true
+        if (before !== undefined && !joins) long = await rt.attachLong(text, `Message from ${sender.name}.txt`) ?? long
+        const working = rt.live.get(chat)?.turn !== undefined
+        const steer = (args.when !== 'queue' && !toUser) || (joins && earlier.steered)
+        const exchangeId = joins ? earlier.message.source.exchangeId : randomUUID()
+        if (joins) rt.forgetDelivery?.(exchangeId)
+        else if (!toUser) rt.openWork(exchangeId, { from: sender.id, to: target.id, parent: work })
+        try {
+          await rt.deliver({ fromId: sender.id, toId: target.id, text: long.text, files: [...long.files, ...(joins ? before.files : [])], length: long.length, role: 'request', steer, exchangeId, ...(joins ? { merged: true } : {}), ...(toUser ? { audience: 'user' } : {}) })
+        } catch (error) {
+          if (!joins) rt.dropWork(exchangeId)
+          throw error
+        }
+        const sent = toUser
+          ? `Delivered to ${target.name}. It will answer the user in its own chat; nothing comes back to you, so point the user to ${target.name}'s chat instead of relaying.`
+          : working && steer
+            ? `Delivered to ${target.name} while it is working: it reads your message at its next step and answers once that work is done. Its reply will arrive later as a new message; do not wait for it.`
+            : working
+              ? `Queued for ${target.name}: it reads your message after its current work. Its reply will arrive later as a new message; do not wait for it.`
+              : `Delivered to ${target.name}. Its reply will arrive later as a new message; do not wait for it.`
+        const asker = rt.ownsWork(sender.id, work) ? rt.botOf(state.works[work].from)?.name : undefined
+        const notes = [
+          joins ? `${target.name} had not read your earlier message yet, so this one was added to it, and it answers both at once.` : '',
+          status === 'idle' ? '' : `${target.name} now: ${status}.`,
+          asker ? `When you have handed on everything, end your turn: each reply brings you back to this work, and your answer goes to ${asker} once all of it is back.` : '',
+        ].filter(Boolean)
+        const out = [sent, ...notes].join(' ')
+        // Messages reach a Bot's own chat only; work in a group goes on without them.
+        const groups = activeSessions(target.id).running.filter(sessionId => sessionId !== chat)
+        if (groups.length === 0) return out
+        const stop = rt.isMain(sender.id) ? ' If it must not go on there, use stop_bot.' : ''
+        return `${out} Your message does not reach its work in ${groups.map(whereOf).join(' and ')}.${stop}`
       }
-      const sent = toUser
-        ? `Delivered to ${target.name}. It will answer the user in its own chat; nothing comes back to you, so point the user to ${target.name}'s chat instead of relaying.`
-        : working && steer
-          ? `Delivered to ${target.name} while it is working: it reads your message at its next step and answers once that work is done. Its reply will arrive later as a new message; do not wait for it.`
-          : working
-            ? `Queued for ${target.name}: it reads your message after its current work. Its reply will arrive later as a new message; do not wait for it.`
-            : `Delivered to ${target.name}. Its reply will arrive later as a new message; do not wait for it.`
-      const asker = rt.ownsWork(sender.id, work) ? rt.botOf(state.works[work].from)?.name : undefined
-      const notes = [
-        joins ? `${target.name} had not read your earlier message yet, so this one was added to it, and it answers both at once.` : '',
-        status === 'idle' ? '' : `${target.name} now: ${status}.`,
-        asker ? `When you have handed on everything, end your turn: each reply brings you back to this work, and your answer goes to ${asker} once all of it is back.` : '',
-      ].filter(Boolean)
-      const out = [sent, ...notes].join(' ')
-      // Messages reach a Bot's own chat only; work in a group goes on without them.
-      const groups = activeSessions(target.id).running.filter(sessionId => sessionId !== chat)
-      if (groups.length === 0) return out
-      const stop = rt.isMain(sender.id) ? ' If it must not go on there, use stop_bot.' : ''
-      return `${out} Your message does not reach its work in ${groups.map(whereOf).join(' and ')}.${stop}`
+      return request === undefined ? await send() : answer(await rt.admitRequest(request, send))
     },
   }))
 
@@ -319,7 +363,7 @@ export function install(rt) {
         // does: setting one keeps a custom character, and clearing removes only the image.
         // They are read here, after the waits above, so a change made meanwhile stays.
         const avatar = image === undefined ? undefined : { ...rt.botOf(bot.id)?.avatar, image }
-        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, ...(avatar !== undefined ? { avatar } : {}), ...(model ? { model } : {}), ...(effort === undefined ? {} : { effort }), ...(moving ? { workDir: workDir ?? '' } : {}) })
+        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, ...(avatar !== undefined ? { avatar } : {}), ...(model ? { model } : {}), ...(effort === undefined ? {} : { effort }), ...(moving ? { workDir: workDir ?? '' } : {}) }, self)
         if (!moving) return `Updated ${next.name}.`
         const folder = workDir ?? 'the team workspace'
         return bot.id === caller.id ? `Updated ${next.name}. From your next step on, you work in ${folder}.` : `Updated ${next.name}. It now works in ${folder}.`
@@ -353,7 +397,7 @@ export function install(rt) {
     const workDir = await rt.workFolder(target)
     await rt.approveFolder(exec, { path: workDir, sessions: rt.sessionsOfBot(bot.id), who: { en: bot.name, zh: ` ${bot.name} ` } })
     const result = await next()
-    if (result?.isError !== true) await rt.updateBot(bot.id, { workDir: workDir ?? '' })
+    if (result?.isError !== true) await rt.updateBot(bot.id, { workDir: workDir ?? '' }, rt.selfOf(exec.agent?.id))
     return result
   })
 
@@ -619,16 +663,16 @@ export function install(rt) {
 
   ctx.tools.register(defineTool({
     name: 'show_view',
-    description: 'Show the user a view card in your own chat: text, metrics, a table, progress, choices, a confirmation, or a short form. An interactive card (options, confirm, or form) ends your turn; the answer arrives as the user\'s next message. Keep the view under 8 KB. Never collect a key, token, or password in a form.',
+    description: 'Draw a view in your own chat as part of your reply: a chart, key numbers, a table, a small calculator the user can try values in, or a choice, confirmation or short form. Text you write before and after the call shows around it. Use a view when it answers better than text: a chart to compare values or show a trend, inputs with formulas to let the user try numbers (worked out in the page, no new turn), options to let the user pick. Plain rows and columns read fine as a Markdown table, and one number needs no view. Give the answer first, then the view. Never invent data; mark sample numbers and assumptions as such. Do not repeat the same data as text, chart and table. Add only the controls the user needs. A view with options, confirm, form or submit ends your turn, and the answer arrives as the user\'s next message. Never collect a key, token or password. Keep the view under 8 KB.',
     parameters: {
-      title: { type: 'string', required: true, description: 'One short title for the card' },
+      title: { type: 'string', description: 'Optional short heading shown above the view' },
       view: {
         type: 'object',
         required: true,
         additionalProperties: true,
-        description: 'One component { type, ...props, children? }. type is stack (children, 1 to 16), text ({ text }), metric ({ label, value, tone? }), table ({ columns: [{ key, label }], rows }), options ({ id, options: [{ label, description? }], multi? }), confirm ({ id, confirmLabel?, cancelLabel? }), form ({ id, fields: [{ id, label, placeholder? }], submitLabel? }), or progress ({ label?, percent }).',
+        description: 'One component { type, ...props }. Layout: stack (children, top to bottom) and row (children, side by side, wraps when narrow), 1 to 16 children; the outermost may define let: { name: "formula" }. Display: text ({ text: Markdown, tone?: "muted" }), metric ({ label, value, tone?: good|warn|bad, caption? }), table ({ columns: [{ key, label }], rows: [[cells]] }), chart ({ kind?: bar|hbar|line|area|donut, categories: [labels], series: [{ name?, values: [numbers] }], unit?, caption? }; donut takes one series), progress ({ label?, percent 0-100, or value with max, valueLabel?, tone? }), callout ({ text, tone?: info|good|warn|bad }), sources ({ items: [{ label, url }] }), html ({ html, summary, height? }: only for what nothing else can draw; it runs sandboxed with no network, cannot submit, and should use the CSS variables --bt-ink, --bt-ink-2, --bt-line, --bt-card, --bt-accent, --bt-green, --bt-star, --bt-danger). Inputs, which keep their value in the page: slider ({ id, label, min, max, step?, value, unit? }), number ({ id, label, value, min?, max?, step?, unit? }), choice ({ id, label, options: [{ label, value }], value? }), toggle ({ id, label, value? }); an input id is a plain name such as price. A metric value, caption or tone, a text, a progress field, a callout, a table cell or a chart value may be a formula { "=": "expression" } over input ids and let names: numbers, \'text\', + - * / %, < <= > >= == !=, && || !, a ? b : c, and min max abs floor ceil sqrt pow round clamp fixed(x, digits) format(x, digits) percent(x, digits). Answers, which end your turn: options ({ id, options: [{ label, description? }], multi? }), confirm ({ id, confirmLabel?, cancelLabel? }), form ({ id, fields: [{ id, label, placeholder? }], submitLabel? }), submit ({ id, label }: sends the inputs\' values to you).',
       },
-      await_reply: { type: 'boolean', description: 'Wait for the user to submit the card. A view with options, confirm, or form always waits; a display-only view cannot.' },
+      await_reply: { type: 'boolean', description: 'Wait for the user to submit the view. A view with options, confirm, form or submit always waits; a view without them cannot.' },
     },
     output,
     async execute(args, exec) {
@@ -636,10 +680,10 @@ export function install(rt) {
       const id = exec.agent?.id
       if (rt.groupOwners.has(id)) return 'View cards only work in your own chat. In a group, ask in your message instead.'
       if (!rt.chatOwners.has(id)) return `Only Bots on the team can use show_view. Use ${BLOCKING_QUESTION_TOOL} if it is available in this session, or ask the user in your reply.`
-      const view = normalizeView(args.view)
-      const checked = checkShownView(args.title, view)
+      const checked = checkShownView(args.title, args.view)
       if (checked.error !== undefined) return checked.error
       const title = checked.title
+      const view = checked.view
       if (!checked.interactive && args.await_reply === true) return 'This view has nothing to submit; call show_view with await_reply: false.'
       if (checked.interactive && args.await_reply === false) return 'This view has controls to submit, so it waits for the user\'s answer; call show_view without await_reply: false.'
       const awaitReply = args.await_reply ?? checked.interactive
