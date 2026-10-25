@@ -19,7 +19,7 @@ export function install(rt) {
   const { ctx, home, statePath } = rt
 
   /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, rooms:Record<string,any>, agents:Record<string,any>, capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, questions: {}, views: {}, prefs: {}, switching: {}, revision: 0 }
+  const state = { version: 1, mainBotIds: [], bots: {}, rooms: {}, agents: {}, capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, prefs: {}, switching: {}, revision: 0 }
   let loaded = null
   let writing = Promise.resolve()
   const { warn } = rt
@@ -160,6 +160,7 @@ export function install(rt) {
       migrated = true
     }
     if (state.works === null || typeof state.works !== 'object' || Array.isArray(state.works)) state.works = {}
+    if (state.requests === null || typeof state.requests !== 'object' || Array.isArray(state.requests)) state.requests = {}
     if (state.views === null || typeof state.views !== 'object' || Array.isArray(state.views)) state.views = {}
     // LEGACY: aside cards lived in this file only before the feature shipped;
     // they are kept under btw/ per part now. A saved copy is dropped, not moved.
@@ -293,11 +294,11 @@ export function install(rt) {
     return warnReadOnly()
   }
 
-  const save = () => {
-    if (stopped) return writing
+  const save = ({ required = false } = {}) => {
+    if (stopped) return required ? Promise.reject(new Error('The Bot team cannot be saved after this host stopped.')) : writing
     indexSessions()
     // A reading host keeps the file's revision, so its window does not skip the next change.
-    if (!writable()) return writing
+    if (!writable()) return required ? Promise.reject(new Error(`This host cannot save the Bot team: ${readOnly()}`)) : writing
     state.revision += 1
     state.exchanges = state.exchanges.slice(-MAX_EXCHANGES)
     const snapshot = JSON.stringify(state)

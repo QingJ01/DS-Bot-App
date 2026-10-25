@@ -32,6 +32,23 @@ function botHint(update) {
   return `${update.latest ? t('Up to date') : t('Could not check for updates.')} · ${checked}`
 }
 
+// The DS Bot row in the desktop app shows the app's own update state, kept as ownApp on
+// the update value. Anything that is not a state object (DSH Desktop, DSH Web, an
+// unpackaged app) leaves the row with today's "comes with the app" text.
+export function ownAppRow(ownApp) {
+  if (ownApp === null || typeof ownApp !== 'object') return null
+  const version = typeof ownApp.version === 'string' ? ownApp.version : ''
+  switch (ownApp.phase) {
+    case 'checking': return { hint: t('Checking for updates…'), button: null }
+    case 'current': return { hint: t('Up to date'), button: 'check' }
+    case 'downloading': return { hint: t('Downloading {version}…', { version }), button: null }
+    case 'downloaded': return { hint: t('{version} is ready; it installs when you restart', { version }), button: 'restart' }
+    case 'available': return { hint: t('{version} is available', { version }), button: 'open' }
+    case 'failed': return { hint: t('Could not check for updates.'), button: 'check' }
+    default: return null
+  }
+}
+
 function dshHint(dsh, shown) {
   if (dsh.phase === 'installing') return t('Updating DSH…')
   if (dsh.phase === 'installed') return t('Restart DSH to start using DSH {version}.', { version: dsh.installed ?? dsh.verified })
@@ -72,7 +89,16 @@ export function AboutPage({ useUpdate, actions, run, Section, Row, updatesOnly =
   // Same rule as the sidebar card.
   const dshNew = showsDshRow(dsh, update.app)
   const dshShown = dshNew && dsh.available
-  const botControl = phase === 'installed' || phase === 'updated' || update.source === 'app' ? null
+  const ownRow = update.source === 'app' ? ownAppRow(update.ownApp) : null
+  const ownControl = ownRow?.button === 'restart'
+    ? h('button', { type: 'button', className: 'bt-fb-primary', onClick: () => run(actions.installOwnApp()) }, t('Restart to update'))
+    : ownRow?.button === 'check'
+      ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.checkOwnApp()) }, t('Check for updates'))
+      : ownRow?.button === 'open'
+        ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => run(actions.openOwnApp()) }, t('Download'))
+        : null
+  const botControl = ownRow !== null ? ownControl
+    : phase === 'installed' || phase === 'updated' || update.source === 'app' ? null
     : update.available || phase === 'installing'
       ? h('button', { type: 'button', className: 'bt-fb-primary', disabled: phase === 'installing', onClick: () => run(actions.installUpdate({ targetId: update.targetId })) },
           phase === 'installing' ? t('Updating…') : phase === 'failed' ? t('Try again') : t('Update'))
@@ -102,7 +128,7 @@ export function AboutPage({ useUpdate, actions, run, Section, Row, updatesOnly =
       h('p', { className: 'bt-note' }, t('Updates come from this project’s releases. Your team and conversations are kept.')),
       h(Row, { label: t('Installed version'), hint: `${update.current ?? ''}${update.currentRevision ? ` · r${update.currentRevision}` : ''}` },
         update.phase !== 'installing' && update.phase !== 'installed' ? h('button', { type: 'button', className: 'bt-soft bt-soft-sm', disabled: checking || update.enabled === false, onClick: check }, checking ? t('Checking…') : t('Check for updates')) : null),
-      h(Row, { label: 'DS Bot', hint: botHint(update) }, botControl, update.available && update.notesUrl ? h('a', linkProps(update.notesUrl), t("What's new")) : null),
+      h(Row, { label: 'DS Bot', hint: ownRow?.hint ?? botHint(update) }, botControl, update.available && update.notesUrl ? h('a', linkProps(update.notesUrl), t("What's new")) : null),
       update.canRepair && !update.available && phase !== 'installed' && phase !== 'installing' ? h(Row, { label: t('Repair installation'), hint: t('Reinstall the latest release without removing your team or conversations.') },
         h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: () => setRepair({ id: update.targetId, label: update.latestRef ?? update.latest }) }, t('Repair installation'))) : null,
       repair ? h('div', { role: 'group', 'aria-label': t('Repair installation') },
