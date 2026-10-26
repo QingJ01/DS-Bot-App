@@ -9,6 +9,13 @@ export function install(rt) {
   const { ctx } = rt
 
   const presets = () => ctx.get?.('permissionPresets')
+  let pending = Promise.resolve()
+  // A Session becomes visible under the same lock that changes its inherited preset.
+  function withPermissions(action) {
+    const result = pending.then(action)
+    pending = result.catch(() => {})
+    return result
+  }
 
   // The presets DSH offers, or undefined when the profile has none.
   function permissionCatalog() {
@@ -22,14 +29,15 @@ export function install(rt) {
 
   async function setPreset(sessionId, name) {
     const agent = await rt.resolveAgent(sessionId)
-    presets().set(agent.session, name)
+    await presets().set(agent.session, name)
   }
 
   // Sets the preset on one of the Bot's Sessions: its group's there, else its own; a Bot
   // without one keeps DSH's default. `room` is for a group Session not indexed yet.
   async function applyPermission(bot, sessionId, room = roomOfSession(sessionId)) {
     const name = room?.permission ?? bot.permission
-    if (presets() === undefined || !name) return
+    if (!name) return
+    if (presets() === undefined) throw new Error('Permissions are not available in this DeepSeek Harness')
     await setPreset(sessionId, name)
   }
 
@@ -95,5 +103,9 @@ export function install(rt) {
     return changed
   }
 
-  Object.assign(rt, { permissionCatalog, applyPermission, setPermission, cleanRoomPermission, setRoomPermission })
+  Object.assign(rt, {
+    permissionCatalog, applyPermission, cleanRoomPermission, withPermissions,
+    setPermission: (bot, name) => withPermissions(() => setPermission(bot, name)),
+    setRoomPermission: (room, name) => withPermissions(() => setRoomPermission(room, name)),
+  })
 }

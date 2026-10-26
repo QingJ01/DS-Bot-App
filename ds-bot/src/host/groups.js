@@ -195,6 +195,10 @@ export function install(rt) {
   // a fresh look at the log and a brief of the member's own chat; the brief is the
   // first message, so it stays fixed and the prefix stays cacheable.
   async function groupSessionFor(room, member) {
+    return rt.withPermissions(() => createGroupSession(room, member))
+  }
+
+  async function createGroupSession(room, member) {
     room.sessions ??= {}
     const known = room.sessions[member.id]
     if (known !== undefined) {
@@ -209,18 +213,28 @@ export function install(rt) {
     if (gone || room.sessions?.[member.id] !== undefined) {
       void ctx.workspaceRegistry.archiveSession(id, { stopActivity: true })
         .catch(error => rt.warn('ds-bot: unused group Session of %s in %s not archived: %s', member.name, room.name, error))
-      return gone ? undefined : groupSessionFor(room, member)
+      return gone ? undefined : createGroupSession(room, member)
     }
-    room.sessions[member.id] = id
-    rt.groupOwners.set(id, { botId: member.id, roomId: room.id })
-    delete room.seen[member.id]
     const ref = await rt.desiredModel(member)
     if (ref !== undefined) {
       await rt.selectSessionModel(id, splitRef(ref))
         .catch(error => rt.warn('ds-bot: model for %s in %s not applied: %s', member.name, room.name, error))
     }
-    await rt.applyPermission(member, id, room)
-      .catch(error => rt.warn('ds-bot: permission for %s in %s not applied: %s', member.name, room.name, error))
+    try {
+      await rt.applyPermission(member, id, room)
+    } catch (error) {
+      await ctx.workspaceRegistry.archiveSession(id, { stopActivity: true })
+        .catch(cause => rt.warn('ds-bot: unused group Session of %s in %s not archived: %s', member.name, room.name, cause))
+      throw error
+    }
+    if (rt.roomOf(room.id) !== room || !room.members.includes(member.id) || rt.botOf(member.id) === undefined) {
+      await ctx.workspaceRegistry.archiveSession(id, { stopActivity: true })
+        .catch(error => rt.warn('ds-bot: unused group Session of %s in %s not archived: %s', member.name, room.name, error))
+      return undefined
+    }
+    room.sessions[member.id] = id
+    rt.groupOwners.set(id, { botId: member.id, roomId: room.id })
+    delete room.seen[member.id]
     await rt.save()
     await rt.ensureCapabilities(id)
     return { id, brief: await rt.ownChatBrief(member) }

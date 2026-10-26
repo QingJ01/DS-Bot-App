@@ -939,39 +939,46 @@ export function install(rt) {
     const freshId = await rt.createSession(room ? `${bot.name} · ${room.name}` : bot.name, { dir })
     const picked = await freshRoute(bot, session)
     if (picked !== undefined) await selectRoute(bot, freshId, picked)
-    await rt.applyPermission(bot, freshId, room)
-      .catch(error => rt.warn('ds-bot: permission for the fresh part of %s not applied: %s', bot.name, error))
-    // The fresh part took several awaits: a Bot or group deleted meanwhile, a member that
-    // left, or a part that is no longer the current one gets no fresh part.
-    const current = room !== undefined ? room.sessions?.[bot.id] : rt.chatOf(bot.id)
-    const gone = rt.botOf(bot.id) === undefined || (room !== undefined && (rt.roomOf(room.id) !== room || !room.members.includes(bot.id)))
-    if (gone || current !== agent.id) {
-      await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
-        .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', bot.name, error))
-      return
-    }
     const segment = { sessionId: agent.id, endedAt: Date.now(), ...(tokens !== undefined ? { tokens } : {}), ...noted }
-    if (room !== undefined) {
-      room.segments ??= {}
-      ;(room.segments[bot.id] ??= []).push(segment)
-      room.sessions[bot.id] = freshId
-    } else {
-      ;(bot.segments ??= []).push(segment)
-      bot.sessionId = freshId
-      // The card's call stays in the old part, so the fresh part shows it in the
-      // composer dock, which takes a card without a call.
-      if (state.questions[agent.id] !== undefined) {
-        const { callId: _call, ...question } = state.questions[agent.id]
-        state.questions[freshId] = question
-        delete state.questions[agent.id]
+    const adopted = await rt.withPermissions(async () => {
+      try {
+        await rt.applyPermission(bot, freshId, room)
+      } catch (error) {
+        await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
+          .catch(cause => rt.warn('ds-bot: unused fresh part of %s not archived: %s', bot.name, cause))
+        throw error
       }
-      if (state.views?.[agent.id] !== undefined) {
-        const { callId: _call, ...pending } = state.views[agent.id]
-        state.views[freshId] = pending
-        delete state.views[agent.id]
+      // Recheck membership after applying the preset, before exposing the Session.
+      const current = room !== undefined ? room.sessions?.[bot.id] : rt.chatOf(bot.id)
+      const gone = rt.botOf(bot.id) === undefined || (room !== undefined && (rt.roomOf(room.id) !== room || !room.members.includes(bot.id)))
+      if (gone || current !== agent.id) {
+        await ctx.workspaceRegistry.archiveSession(freshId, { stopActivity: true })
+          .catch(error => rt.warn('ds-bot: unused fresh part of %s not archived: %s', bot.name, error))
+        return false
       }
-    }
-    await rt.save()
+      if (room !== undefined) {
+        room.segments ??= {}
+        ;(room.segments[bot.id] ??= []).push(segment)
+        room.sessions[bot.id] = freshId
+      } else {
+        ;(bot.segments ??= []).push(segment)
+        bot.sessionId = freshId
+        // The card's call stays in the old part; the composer dock keeps the card.
+        if (state.questions[agent.id] !== undefined) {
+          const { callId: _call, ...question } = state.questions[agent.id]
+          state.questions[freshId] = question
+          delete state.questions[agent.id]
+        }
+        if (state.views?.[agent.id] !== undefined) {
+          const { callId: _call, ...pending } = state.views[agent.id]
+          state.views[freshId] = pending
+          delete state.views[agent.id]
+        }
+      }
+      await rt.save()
+      return true
+    })
+    if (!adopted) return
     // A model the user picked until now went to the earlier part, which was still the
     // Bot's; from here on a change goes to the fresh one.
     const now = await freshRoute(bot, session)

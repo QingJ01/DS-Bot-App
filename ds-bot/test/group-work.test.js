@@ -116,6 +116,22 @@ const settle = async (check) => {
 const text = message => message.content.map(block => block.text ?? '').join('\n')
 const kinds = result => result.replies.map(reply => [reply.kind ?? 'message', reply.name])
 
+test('a failed preset leaves a fresh group Session unregistered and receives no work', async t => {
+  const host = await start(t, { sessions: {}, permission: 'read-only' }, {
+    permissionPresets: {
+      catalog: () => ({ options: [{ value: 'read-only' }], defaultPreset: 'read-only' }),
+      resolve: () => ({}),
+      set: async () => { throw new Error('preset write failed') },
+    },
+  })
+  const round = host.round('permission-failure', host.say('@Chief harmless input'))
+  await settle(() => round() !== undefined)
+  assert.ok(round().replies.some(reply => reply.kind === 'failed' && /preset write failed/.test(reply.text)))
+  assert.deepEqual(host.agentOf('s1').calls, [])
+  const saved = JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8'))
+  assert.deepEqual(saved.rooms.r1.sessions, {})
+})
+
 test('work past the grace lets the round go on, and the member that asked answers the result', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const host = await start(t)

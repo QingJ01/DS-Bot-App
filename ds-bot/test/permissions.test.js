@@ -41,6 +41,42 @@ test('a fresh Session gets the Bot\'s preset, and a Bot without one keeps the de
   assert.deepEqual(writes, ['fresh=workspace-write'])
 })
 
+test('a configured preset cannot be silently dropped or asynchronously rejected', async () => {
+  const bot = { id: 'b1', permission: 'workspace-write' }
+  await assert.rejects(runtime({ presets: false }).rt.applyPermission(bot, 'fresh'), /Permissions are not available/)
+  const { rt } = runtime()
+  rt.ctx.get('permissionPresets').set = async () => { throw new Error('write failed') }
+  await assert.rejects(rt.applyPermission(bot, 'fresh'), /write failed/)
+})
+
+test('group permission changes and new Session registration serialize in either order', async () => {
+  for (const updateFirst of [true, false]) {
+    const { rt, writes } = runtime()
+    const room = { permission: 'danger-full-access', sessions: { a: 'old-a' } }
+    const bot = { id: 'b', name: 'B' }
+    rt.botOf = id => ({ id, name: id })
+    let enter, release
+    const entered = new Promise(resolve => { enter = resolve })
+    const gate = new Promise(resolve => { release = resolve })
+    rt.resolveAgent = async session => {
+      if (session === (updateFirst ? 'old-a' : 'new-b')) { enter(); await gate }
+      return { session }
+    }
+    const register = () => rt.withPermissions(async () => {
+      await rt.applyPermission(bot, 'new-b', room)
+      room.sessions.b = 'new-b'
+    })
+    const update = () => rt.setRoomPermission(room, 'workspace-write')
+    const first = updateFirst ? update() : register()
+    await entered
+    const second = updateFirst ? register() : update()
+    release()
+    await Promise.all([first, second])
+    assert.equal(room.permission, 'workspace-write')
+    assert.equal(writes.filter(write => write.startsWith('new-b=')).at(-1), 'new-b=workspace-write')
+  }
+})
+
 test('an unknown preset is refused and the Bot keeps its own', async () => {
   const { rt, writes } = runtime()
   const bot = { id: 'b1', permission: 'workspace-write' }
