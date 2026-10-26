@@ -114,6 +114,7 @@ export function ChatScreen({
   const [side, setSide] = useState(false);
   const [sideChatId, setSideChatId] = useState<string | null>(null);
   const [sideBusy, setSideBusy] = useState(false);
+  const [sideError, setSideError] = useState("");
   const sideSending = useRef(false);
   const [context, setContext] = useState<Message[] | null>(null);
   const [contextBusy, setContextBusy] = useState(false);
@@ -187,13 +188,14 @@ export function ChatScreen({
   const pendingViews = Object.values(team.views ?? {}).filter(view => bot && view.conversationId === bot.id && view.sessionId === conversation.sessionId);
   async function send() {
     if (sideSending.current) return;
+    setSideError("");
     const aside = chat.pending ? null : sideQuestion(composer.text);
     if (aside === null) {
       if (await chat.send(attachments, attachments[0]?.sessionId)) { setAttachments([]); bottom.current = true; }
       return;
     }
     const refusal = sideRefusal(aside, !!bot && !room, team.sideChatAvailable === true, attachments.length, composer.references.length);
-    if (refusal) { chat.setError(tr(refusal)); return; }
+    if (refusal) { setSideError(tr(refusal)); return; }
     if (!writable || chat.busy) return;
     sideSending.current = true;
     setSideBusy(true);
@@ -204,13 +206,13 @@ export function ChatScreen({
       setSideChatId(result.chatId);
       setSide(true);
       await refresh();
-    } catch (err) { chat.setError(errorText(err)); }
+    } catch (err) { setSideError(errorText(err)); }
     finally { sideSending.current = false; setSideBusy(false); }
   }
   const mention = (bot || room) && composerFocused && writable && !chat.pending && !chat.busy ? mentionQuery(composer.text, selection) : null;
   const mentionKey = `${chat.draft}:${selection.start}`;
   const mentionRows = mention && dismissedMention !== mentionKey ? mentionCandidates(team.bots, bot?.id, room, mention.query, tr("Everyone")) : [];
-  function setComposerText(text: string) { chat.setDraft(composeReferenceDraft(text, composer.references)); }
+  function setComposerText(text: string) { setSideError(""); chat.setDraft(composeReferenceDraft(text, composer.references)); }
   function pickMention(name: string) {
     if (!mention) return;
     const insert = `@${name} `;
@@ -483,7 +485,7 @@ export function ChatScreen({
           gap: 9,
         }}
       >
-        <Notice capsule error text={chat.error} />
+        <Notice capsule error text={sideError || chat.error} />
         <MentionMenu rows={mentionRows} pick={pickMention} close={() => setDismissedMention(mentionKey)} />
         {!!composer.references.length && <View pointerEvents="box-none" style={{flexDirection:"row",flexWrap:"wrap",gap:8}}>{composer.references.map(ref=><View key={ref.sessionId} style={{flexDirection:"row",alignItems:"center",backgroundColor:t.surface,borderColor:t.line,borderWidth:1,borderRadius:999,paddingLeft:14,gap:8}}>
           <Icon name="chat" size={16}/><Text numberOfLines={1} style={{color:t.ink,fontSize:13,maxWidth:180}}>{ref.label}</Text><IconButton name="close" size={44} label={tr("Remove reference {name}",{name:ref.label})} disabled={!!chat.pending || chat.busy} onPress={()=>chat.setDraft(composeReferenceDraft(composer.text,composer.references.filter(item=>item.sessionId!==ref.sessionId)))}/>
