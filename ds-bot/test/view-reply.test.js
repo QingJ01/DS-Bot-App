@@ -221,6 +221,17 @@ test('dismiss-view drops the open view and leaves a question card alone', async 
   assert.equal((await call('dismiss-view', { sessionId: 'writer-now' })).ok, true)
 })
 
+test('dismiss-view with a stale ID leaves a replacement view open', async (t) => {
+  const { show, call, team, stop } = start()
+  t.after(stop)
+  await show('writer-now', { title: 'Pick', view: CHOICES })
+  const pending = (await team()).views['writer-now']
+  const stale = await call('dismiss-view', { sessionId: 'writer-now', viewId: 'replacement' })
+  assert.equal(stale.error.message, 'This view is no longer open')
+  assert.equal((await team()).views['writer-now'].id, pending.id)
+  assert.equal((await call('dismiss-view', { sessionId: 'writer-now', viewId: pending.id })).ok, true)
+})
+
 test('a user message drops the open question and the open view together', async (t) => {
   const { ctx, emit, show, team, stop } = start()
   t.after(stop)

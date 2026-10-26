@@ -172,6 +172,77 @@ test('mobile state and mutation responses expose administration metadata without
   assert.deepEqual(conversations.find(item => item.kind === 'room').parts, [])
 })
 
+test('mobile state projects private views and owned side chats without model HTML or secrets', async () => {
+  const { rt, view, adapter } = fixture()
+  rt.redactSecrets = value => value.replaceAll('SECRET', '[redacted]')
+  view.views = {
+    new: { id: 'view-1', title: 'SECRET title', askedAt: 10, view: { type: 'stack', children: [
+      { type: 'text', text: 'SECRET summary' },
+      { type: 'html', html: '<script>SECRET</script>', summary: 'SECRET summary' },
+      { type: 'sources', items: [{ label: 'SECRET source', url: 'https://example.test/path?token=SECRET' }] },
+    ] } },
+    'hidden-member-session': { id: 'foreign', title: 'foreign', askedAt: 11, view: { type: 'text', text: 'foreign' } },
+  }
+  view.sideChats = {
+    b1: [{ id: 'chat-1', botId: 'b1', createdAt: 1, updatedAt: 2, entries: [
+      { id: 'entry-1', question: 'SECRET question', answer: 'SECRET answer', status: 'done', createdAt: 1, finishedAt: 2, error: 'SECRET error' },
+      { id: 'bad', question: 3, answer: 'hidden', status: 'done' },
+    ] }],
+    unknown: [{ id: 'foreign-chat', botId: 'unknown', entries: [] }],
+  }
+  const state = await adapter.state()
+  assert.equal(state.sideChatAvailable, true)
+  assert.equal(state.views.new.conversationId, 'b1')
+  assert.equal(state.views.new.view.children[1].html, '<p>HTML view is unavailable on mobile.</p>')
+  assert.equal(state.views.new.view.children[1].summary, '[redacted] summary')
+  assert.equal(state.views.new.view.children[2].items[0].url, 'https://example.test/path')
+  assert.equal(state.views.new.view.children[2].items.length, 1)
+  assert.equal(state.views['hidden-member-session'], undefined)
+  assert.equal(state.sideChats.unknown, undefined)
+  assert.equal(state.sideChats.b1[0].entries.length, 1)
+  assert.equal(JSON.stringify(state).includes('SECRET'), false)
+})
+
+test('mobile view and side actions require private ownership and preserve the side host delegation', async () => {
+  const { rt, view, adapter, calls } = fixture()
+  view.views = { new: { id: 'view-1', title: 'Question', askedAt: 10, view: { type: 'confirm', id: 'confirm-1' } } }
+  view.sideChats = { b1: [{ id: 'chat-1', botId: 'b1', entries: [{ id: 'entry-1', question: 'q', answer: '', status: 'answering' }] }] }
+  await adapter.action('view-reply', { sessionId: 'new', viewId: 'view-1', action: 'confirm', values: {} })
+  assert.deepEqual(calls.at(-1), ['team', 'view-reply', { sessionId: 'new', viewId: 'view-1', action: 'confirm', values: {} }])
+  await adapter.action('dismiss-view', { sessionId: 'old', viewId: 'view-1' })
+  assert.deepEqual(calls.at(-1), ['team', 'dismiss-view', { sessionId: 'new', viewId: 'view-1' }])
+  await adapter.action('side-ask', { sessionId: 'new', chatId: 'chat-1', text: 'follow up' })
+  assert.deepEqual(calls.at(-1), ['team', 'side-ask', { sessionId: 'new', chatId: 'chat-1', text: 'follow up' }])
+  await assert.rejects(adapter.action('side-cancel', { sessionId: 'peer', chatId: 'chat-1', entryId: 'entry-1' }), { status: 404 })
+  await assert.rejects(adapter.action('side-close', { sessionId: 'peer', chatId: 'chat-1' }), { status: 404 })
+  await assert.rejects(adapter.action('side-close', { sessionId: 'new', chatId: 'missing' }), { status: 404 })
+  await assert.rejects(adapter.action('dismiss-view', { sessionId: 'new', viewId: 'replacement' }), { status: 409 })
+  rt.readOnly = () => 'locked'
+  await assert.rejects(adapter.action('side-new', { sessionId: 'new' }), { status: 409 })
+})
+
+test('legacy mobile /side is refused before uploads while /sidechat remains ordinary text', async () => {
+  const { adapter, calls } = fixture()
+  await assert.rejects(adapter.submit({ conversationId: 'b1', sessionId: 'new', requestId: 'side-1', text: '/side summarize', attachments: ['expired'] }), { code: 'mobile/side-unsupported' })
+  assert.equal(calls.some(call => call[0] === 'prompt'), false)
+  await adapter.submit({ conversationId: 'b1', sessionId: 'new', requestId: 'sidechat-1', text: '/sidechat summarize', attachments: [] })
+  assert.equal(calls.at(-1)[0], 'prompt')
+})
+
+test('historical successful show_view keeps its full blueprint beside truncated tool input', () => {
+  const longView = { type: 'stack', children: [0, 1, 2, 3].map(() => ({ type: 'text', text: 'x'.repeat(1900) })) }
+  const records = [
+    { event: { type: 'tool/call', seq: 1, time: 1, data: { callId: 'view-call', name: 'show_view', arguments: JSON.stringify({ title: 'Long', view: longView }) } } },
+    { event: { type: 'tool/result', seq: 2, time: 2, data: { callId: 'view-call', message: { content: [{ type: 'text', text: 'The view is on screen.' }] } } } },
+    { event: { type: 'tool/call', seq: 3, time: 3, data: { callId: 'bad-view', name: 'show_view', arguments: JSON.stringify({ title: 'Bad', view: { type: 'text', text: 'not shown' } }) } } },
+    { event: { type: 'tool/result', seq: 4, time: 4, data: { callId: 'bad-view', message: { isError: true, content: [{ type: 'text', text: 'The view was refused.' }] } } } },
+  ]
+  const [message, rejected] = projectRecords(records, { sessionId: 'new', redact: text => text })
+  assert.equal(message.tool.input.endsWith('[Detail truncated]'), true)
+  assert.deepEqual(message.tool.view, { title: 'Long', view: longView })
+  assert.equal(rejected.tool.view, undefined)
+})
+
 test('logical conversation IDs cannot be replaced by arbitrary or hidden Session IDs', async () => {
   const { adapter, calls } = fixture()
   for (const id of ['new', 'old', 'ordinary-agent', 'hidden-member-session', '../../data']) {

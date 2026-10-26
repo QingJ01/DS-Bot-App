@@ -1,3 +1,5 @@
+import { projectHistoricalView } from './view-projection.js'
+
 const textOf = content => (Array.isArray(content) ? content : []).filter(block => block?.type === 'text').map(block => block.text ?? '').join('\n')
 const reasoningOf = content => (Array.isArray(content) ? content : []).filter(block => block?.type === 'reasoning').map(block => block.text ?? '').join('\n')
 const privateKey = /token|password|passwd|secret|api[_-]?key|authorization|cookie|credential|private[_-]?key/i
@@ -106,13 +108,16 @@ export function projectEvent(event, { sessionId, kind = 'bot', hiddenTurns = [],
     const sensitive = privateKey.test(name)
     const input = detail(sensitive ? '[Sensitive tool details omitted]' : call?.arguments ?? '', 6000, redact)
     const completed = event.type === 'tool/result'
-    const output = completed ? detail(sensitive ? '[Sensitive tool details omitted]' : textOf(data.message?.content), 12000, redact) : undefined
+    const resultText = completed ? textOf(data.message?.content) : ''
+    const output = completed ? detail(sensitive ? '[Sensitive tool details omitted]' : resultText, 12000, redact) : undefined
+    const shown = completed && !sensitive && data.message?.isError !== true ? projectHistoricalView(call, resultText, redact) : undefined
     return [{ ...base, id: `${sessionId}:tool:${callId}`, seq: Number.isSafeInteger(call?.seq) ? call.seq : event.seq,
       createdAt: call?.time ?? base.createdAt, updatedSeq: event.seq, role: 'tool', text: name,
       ...(Number.isInteger(data.turn) ? { turn: data.turn } : {}), ...(Number.isInteger(data.step) ? { step: data.step } : {}),
       tool: { callId, name, ...(completed && Number.isFinite(new Date(call?.time).getTime()) && Number.isFinite(new Date(event.time).getTime()) && new Date(event.time).getTime() >= new Date(call.time).getTime() ? { durationMs: new Date(event.time).getTime() - new Date(call.time).getTime() } : {}), state: completed ? data.message?.isError ? 'error' : 'completed' : 'running',
         ...(input.text ? { input: input.text } : {}), ...(output ? { output: output.text, isError: data.message?.isError === true } : {}),
-        ...(input.truncated || output?.truncated ? { truncated: true } : {}) } }]
+        ...(input.truncated || output?.truncated ? { truncated: true } : {}),
+        ...(shown ? { view: shown } : {}) } }]
   }
   if (event.type === 'assistant/message') {
     const text = visible(textOf(data.message?.content))

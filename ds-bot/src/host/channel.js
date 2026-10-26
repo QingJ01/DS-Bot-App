@@ -320,13 +320,18 @@ export function install(rt) {
             await rt.save()
           }
           return ok(true)
-        case 'dismiss-view':
+        case 'dismiss-view': {
           await rt.load()
-          if (rt.own(state.views, body.sessionId) !== undefined) {
+          const pendingView = rt.own(state.views, body.sessionId)
+          if (body.viewId !== undefined && (typeof body.viewId !== 'string' || pendingView?.id !== body.viewId)) {
+            return fail('This view is no longer open', 'bot/stale')
+          }
+          if (pendingView !== undefined) {
             delete state.views[body.sessionId]
             await rt.save()
           }
           return ok(true)
+        }
         case 'secret-set':
         case 'secret-allow':
         case 'secret-cancel':

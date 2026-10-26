@@ -35,6 +35,9 @@ import {
 import { MediaComposer } from "../components/MediaComposer";
 import { MessageBubble } from "../components/MessageBubble";
 import { QuestionCard } from "../components/QuestionCard";
+import { PendingViewCard } from "../components/ViewCard";
+import { SideChats } from "../components/SideChats";
+import { sideQuestion, sideRefusal } from "../logic/views";
 import { useConversation } from "../hooks/useConversation";
 import { Host } from "../storage";
 import { errorText, TeamState } from "../types";
@@ -108,6 +111,11 @@ export function ChatScreen({
   const [voice, setVoice] = useState(false);
   const [skills, setSkills] = useState(false);
   const [browser, setBrowser] = useState(false);
+  const [side, setSide] = useState(false);
+  const [sideChatId, setSideChatId] = useState<string | null>(null);
+  const [sideBusy, setSideBusy] = useState(false);
+  const [sideError, setSideError] = useState("");
+  const sideSending = useRef(false);
   const [context, setContext] = useState<Message[] | null>(null);
   const [contextBusy, setContextBusy] = useState(false);
   const [contextCursor, setContextCursor] = useState<string | null>(null);
@@ -177,10 +185,34 @@ export function ChatScreen({
       : (question.sessionId ?? sessionId) === conversation.sessionId)
     .map(([sessionId, question]) => ({ question, sessionId: question.sessionId ?? sessionId }));
   const writable = online && !team.readOnly && chat.status !== "unauthorized";
+  const pendingViews = Object.values(team.views ?? {}).filter(view => bot && view.conversationId === bot.id && view.sessionId === conversation.sessionId);
+  async function send() {
+    if (sideSending.current) return;
+    setSideError("");
+    const aside = chat.pending ? null : sideQuestion(composer.text);
+    if (aside === null) {
+      if (await chat.send(attachments, attachments[0]?.sessionId)) { setAttachments([]); bottom.current = true; }
+      return;
+    }
+    const refusal = sideRefusal(aside, !!bot && !room, team.sideChatAvailable === true, attachments.length, composer.references.length);
+    if (refusal) { setSideError(tr(refusal)); return; }
+    if (!writable || chat.busy) return;
+    sideSending.current = true;
+    setSideBusy(true);
+    chat.setError("");
+    try {
+      const result = await client.action<{ chatId: string }>("side-ask", { sessionId: conversation.sessionId, recent: true, text: aside });
+      chat.setDraft("");
+      setSideChatId(result.chatId);
+      setSide(true);
+      await refresh();
+    } catch (err) { setSideError(errorText(err)); }
+    finally { sideSending.current = false; setSideBusy(false); }
+  }
   const mention = (bot || room) && composerFocused && writable && !chat.pending && !chat.busy ? mentionQuery(composer.text, selection) : null;
   const mentionKey = `${chat.draft}:${selection.start}`;
   const mentionRows = mention && dismissedMention !== mentionKey ? mentionCandidates(team.bots, bot?.id, room, mention.query, tr("Everyone")) : [];
-  function setComposerText(text: string) { chat.setDraft(composeReferenceDraft(text, composer.references)); }
+  function setComposerText(text: string) { setSideError(""); chat.setDraft(composeReferenceDraft(text, composer.references)); }
   function pickMention(name: string) {
     if (!mention) return;
     const insert = `@${name} `;
@@ -422,6 +454,7 @@ export function ChatScreen({
                 disabled={!writable}
               />
             ))}
+            {pendingViews.map(pending => <PendingViewCard key={`${pending.sessionId}:${pending.id}`} pending={pending} client={client} refresh={refresh} disabled={!writable} />)}
           </View>
         }
       />
@@ -452,7 +485,7 @@ export function ChatScreen({
           gap: 9,
         }}
       >
-        <Notice capsule error text={chat.error} />
+        <Notice capsule error text={sideError || chat.error} />
         <MentionMenu rows={mentionRows} pick={pickMention} close={() => setDismissedMention(mentionKey)} />
         {!!composer.references.length && <View pointerEvents="box-none" style={{flexDirection:"row",flexWrap:"wrap",gap:8}}>{composer.references.map(ref=><View key={ref.sessionId} style={{flexDirection:"row",alignItems:"center",backgroundColor:t.surface,borderColor:t.line,borderWidth:1,borderRadius:999,paddingLeft:14,gap:8}}>
           <Icon name="chat" size={16}/><Text numberOfLines={1} style={{color:t.ink,fontSize:13,maxWidth:180}}>{ref.label}</Text><IconButton name="close" size={44} label={tr("Remove reference {name}",{name:ref.label})} disabled={!!chat.pending || chat.busy} onPress={()=>chat.setDraft(composeReferenceDraft(composer.text,composer.references.filter(item=>item.sessionId!==ref.sessionId)))}/>
@@ -474,6 +507,7 @@ export function ChatScreen({
             !writable ||
             chat.status === "unauthorized" ||
             chat.busy ||
+            sideBusy ||
             !!chat.pending
           }
           transcription={transcription}
@@ -487,7 +521,7 @@ export function ChatScreen({
             maxLength={Math.max(0,100000-(chat.draft.length-composer.text.length))}
             placeholder={tr("Ask {p0}", { p0: String(conversation.name) })}
             value={composer.text}
-            editable={!chat.pending && !chat.busy}
+            editable={!chat.pending && !chat.busy && !sideBusy}
             onChangeText={setComposerText}
             onSelectionChange={event => setSelection(event.nativeEvent.selection)}
             onFocus={() => setComposerFocused(true)}
@@ -525,15 +559,11 @@ export function ChatScreen({
               !writable ||
               chat.status === "unauthorized" ||
               chat.busy ||
+              sideBusy ||
               (!chat.pending && !chat.draft.trim() && !attachments.length) ||
               !!bot?.waiting
             }
-            onPress={async () => {
-              if (await chat.send(attachments, attachments[0]?.sessionId)) {
-                setAttachments([]);
-                bottom.current = true;
-              }
-            }}
+            onPress={() => void send()}
           />
 
         </MediaComposer>
@@ -571,8 +601,10 @@ export function ChatScreen({
         <Button secondary title={tr("Conversation history")} onPress={() => {setOptions(false);setParts(true);}}/>
         <Button secondary title={tr("Skills")} disabled={!online || !!chat.pending || chat.busy} onPress={() => {setOptions(false);setSkills(true);}}/>
         {!!bot && <Button secondary title={tr("Desktop browser")} disabled={!online} onPress={() => {setOptions(false);setBrowser(true);}}/>}
+        {!!bot && !room && <Button secondary title={tr("Side chats")} disabled={sideBusy} onPress={() => {setOptions(false);setSide(true);}}/>}
         {!!bot && <Button secondary title={tr("Choose a model")} disabled={!writable} onPress={() => {setOptions(false);setModels(true);}}/>}
       </Sheet>
+      <Sheet title={tr("Side chats")} visible={side} onClose={() => setSide(false)}>{bot && (team.sideChatAvailable ? <SideChats key={bot.id} openChatId={sideChatId} client={client} sessionId={conversation.sessionId} chats={team.sideChats?.[bot.id] ?? []} disabled={!writable || sideBusy} refresh={refresh} /> : <Notice text={tr("Update the host plugin to use side chats.")} />)}</Sheet>
       <Sheet title={tr("Desktop browser")} visible={browser} onClose={() => setBrowser(false)}>{bot && <DesktopBrowser client={client} botId={bot.id} online={online} />}</Sheet>
       <Sheet title={tr("Skills")} visible={skills} onClose={() => setSkills(false)}><SkillsPanel client={client} team={team} online={online} refresh={refresh} conversationId={conversation.id} onChoose={name => { chat.setDraft(`/${name}${chat.draft ? " " + chat.draft : " "}`); setSkills(false); input.current?.focus(); }} /></Sheet>
       <Sheet
