@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { after, before, describe, test } from 'node:test'
@@ -137,6 +137,30 @@ describe('importTeam', () => {
   test('does not replace a team that is there', async () => {
     await assert.rejects(importTeam({ from, to, workspace }), /already has a Bot team/u)
   })
+})
+
+test('a linked source state becomes an independent file without changing the source', async t => {
+  const root = mkdtempSync(join(tmpdir(), '.dsh-test-linked-state-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const from = oldHome(root)
+  const { to, workspace } = newHome(root)
+  const original = join(root, 'original-state.json')
+  const state = join(from, 'bot', 'state.json')
+  const before = readFileSync(state, 'utf8')
+  writeFileSync(original, before)
+  rmSync(state)
+  try { symlinkSync(original, state) } catch (error) {
+    if (error.code === 'EPERM') return t.skip('Symbolic links require permission on this host')
+    throw error
+  }
+  await importTeam({ from, to, workspace })
+  const copied = join(to, 'bot', 'state.json')
+  assert.equal(readFileSync(original, 'utf8'), before)
+  assert.equal(lstatSync(copied).isSymbolicLink(), false)
+  assert.equal(readJson(copied).workspaceId, undefined)
+  assert.deepEqual(readJson(copied).agents, {})
+  writeFileSync(copied, '{}')
+  assert.equal(readFileSync(original, 'utf8'), before)
 })
 
 test('import leaves mobile trust behind while preserving user-authored skills', async () => {

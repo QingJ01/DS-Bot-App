@@ -15,7 +15,7 @@ export { within }
 // that the app does not have.
 export const MODEL_ROWS = ['llm-deepseek', 'llm-deepseek-account', 'llm-pi-ai', 'agent-default-model', 'agent-preset-registry']
 // The team's lock, its turns in flight and its workspace belong to the old home.
-const LEFT_BEHIND = new Set(['state.lock', 'inflight.json', 'workspace'])
+const LEFT_BEHIND = new Set(['state.json', 'state.lock', 'inflight.json', 'workspace'])
 // Only user-authored skills cross hosts; mobile identity and authorization never do.
 function copyBotFile(root, path) {
   const parts = relative(root, path).split(/[\\/]/u)
@@ -173,9 +173,10 @@ export async function importTeam({ from, to, workspace, profile, dsh, signal }) 
   }
   const stage = join(to, `.import-${String(Date.now())}`)
   const oldBot = join(from, 'bot')
+  if (lstatSync(oldBot).isSymbolicLink()) throw new Error('The source Bot directory must not be a symbolic link')
   signal?.throwIfAborted()
   await cp(oldBot, join(stage, 'bot'), { recursive: true, filter: path => copyBotFile(oldBot, path) })
-  const team = readJson(join(stage, 'bot', 'state.json'))
+  const team = structuredClone(found.team)
   // The new data location registers its own team workspace. A DSH Agent's Sessions do not move
   // to a fresh part, so they would go on working in the old team folder in the user's DSH home.
   delete team.workspaceId

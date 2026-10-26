@@ -191,6 +191,23 @@ const moveWriter = async (host, input, step = 2) => {
   assert.deepEqual(await host.preStep('b', input, step), { kind: 'reject' })
 }
 
+test('a failed preset keeps the old part and its input without starting the fresh part', async t => {
+  const host = await start({ services: { ...services, permissionPresets: {
+    catalog: () => ({ options: [{ value: 'read-only' }], defaultPreset: 'read-only' }),
+    resolve: () => ({}),
+    set: async session => { if (session.id.startsWith('s')) throw new Error('preset write failed') },
+  } } })
+  t.after(host.stop)
+  assert.equal((await host.call('update-bot', { id: 'b', permission: 'read-only' })).ok, true)
+  await moveWriter(host, [said('permission-held', 'Keep this input')])
+  await until(() => host.warnings.some(line => line.includes('did not move on')) && host.state().switching?.b === undefined)
+  assert.equal(host.state().bots.b.sessionId, 'b')
+  assert.equal(host.state().bots.b.permission, 'read-only')
+  assert.deepEqual(host.agentOf('s1').calls, [])
+  assert.ok(host.archived.includes('s1'))
+  assert.ok(host.agentOf('b').calls.some(([kind, message]) => kind === 'followup' && text(message) === 'Keep this input'))
+})
+
 test('a move that fails while the plugin unloads hands its input back to the part it left', async (t) => {
   // The first flush writes the fresh part's handoff; the second moves the input.
   const fail = { flush: 2 }
