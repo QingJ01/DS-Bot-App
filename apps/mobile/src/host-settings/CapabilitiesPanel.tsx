@@ -1,5 +1,6 @@
+import { Text } from "../components/Typography";
 import React, { useRef, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { ScrollView, View } from "react-native";
 import { MobileClient } from "@ds-bot/mobile-sdk";
 import { AnimatedPressable as Pressable } from "../components/Motion";
 import { Button, Icon, Label, Notice, Section } from "../components/UI";

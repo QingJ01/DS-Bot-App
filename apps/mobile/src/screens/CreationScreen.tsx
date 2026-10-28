@@ -1,5 +1,6 @@
+import { Text, TextInput } from "../components/Typography";
 import React, {useEffect, useState} from 'react';
-import {BackHandler, KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View} from 'react-native';
+import {BackHandler, KeyboardAvoidingView, Platform, ScrollView, View} from 'react-native';
 import { PageTransition, AnimatedPressable as Pressable } from "../components/Motion";
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {MobileClient} from '@ds-bot/mobile-sdk';

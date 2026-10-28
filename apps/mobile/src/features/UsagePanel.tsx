@@ -1,12 +1,9 @@
+import { Text } from "../components/Typography";
 import { dateLocale } from "../i18n";
 import { tr } from "../i18n";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ScrollView,
-  Text,
-  useWindowDimensions,
-  View,
-} from "react-native";
+  ScrollView, useWindowDimensions, View } from "react-native";
 import { AnimatedPressable as Pressable } from "../components/Motion";
 import { Button, Busy, Card, Field, Notice } from "../components/UI";
 import { BotAvatar, botColor, RoomAvatar } from "../components/BotAvatar";

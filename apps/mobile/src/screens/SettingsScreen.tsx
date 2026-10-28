@@ -1,3 +1,4 @@
+import { FONT_SCALES, FontScale, Text } from "../components/Typography";
 import { AboutPanel } from "../host-settings/AboutPanel";
 import { PluginUpdateCard } from "../host-settings/PluginUpdateCard";
 import { CapabilitiesPanel } from "../host-settings/CapabilitiesPanel";
@@ -6,7 +7,7 @@ import { PluginsPanel } from "../host-settings/PluginsPanel";
 import { NotificationsPanel } from "../components/NotificationsPanel";
 import { tr } from "../i18n";
 import React, { useEffect, useState } from "react";
-import { Platform, ScrollView, Switch, Text, View } from "react-native";
+import { Platform, ScrollView, Switch, View } from "react-native";
 import { AnimatedPressable as Pressable } from "../components/Motion";
 import { Device, MobileClient } from "@ds-bot/mobile-sdk";
 import {
@@ -82,6 +83,8 @@ export function SettingsScreen({
   classic = false,
   onClassicChange,
   onLocaleChange,
+  fontScale = 1,
+  onFontScaleChange,
 }: {
   client: MobileClient;
   host: Host;
@@ -97,6 +100,8 @@ export function SettingsScreen({
   classic?: boolean;
   onClassicChange?: (value: boolean) => void;
   onLocaleChange?: (value: LocalePreference) => void;
+  fontScale?: FontScale;
+  onFontScaleChange?: (value: FontScale) => void;
 }) {
   const t = useTheme();
   const { tr, preference } = useI18n();
@@ -191,7 +196,7 @@ export function SettingsScreen({
             </Section>
             <Section title={tr("Preferences")}>
               <SettingRow title={tr("Notifications")} onPress={() => setPage("notifications")}/>
-              <SettingRow title={tr("Appearance")} onPress={() => setPage("general")}/>
+              <SettingRow title={tr("Appearance")} hint={tr("Theme, accent and text size.")} onPress={() => setPage("general")}/>
               <SettingRow title={tr("Language")} onPress={() => setPage("general")}/>
               <SettingRow title={tr("Plugin updates")} onPress={() => setPage("updates")}/>
               <SettingRow title={tr("About DS Bot")} onPress={() => setPage("about")} last/>
@@ -216,6 +221,14 @@ export function SettingsScreen({
                 "The phone follows your system’s light or dark appearance.",
               )}
             >
+              <SettingRow title={tr("Text size")} hint={tr("Only changes this phone. Your system text size still applies.")}/>
+              <View style={{flexDirection:"row",flexWrap:"wrap",gap:8,paddingHorizontal:12,paddingBottom:12}}>
+                {FONT_SCALES.map(value => {
+                  const selected = fontScale === value;
+                  const labels: Record<number, string> = { 0.9: "Small", 1: "Standard", 1.15: "Large", 1.3: "Extra large" };
+                  return <Pressable key={value} accessibilityRole="button" accessibilityLabel={tr(labels[value])} accessibilityState={{selected}} onPress={() => onFontScaleChange?.(value)} style={{minHeight:44,justifyContent:"center",borderRadius:999,paddingHorizontal:14,backgroundColor:selected ? t.ink : t.surface,borderWidth:1,borderColor:selected ? t.ink : t.line}}><Text style={{color:selected ? t.bg : t.ink,fontSize:14}}>{tr(labels[value])}</Text></Pressable>;
+                })}
+              </View>
               <SettingRow
                 title={tr("Theme")}
                 hint={tr("Colors for the whole team, on every device.")}

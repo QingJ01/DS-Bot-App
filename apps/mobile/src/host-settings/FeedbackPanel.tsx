@@ -1,7 +1,8 @@
+import { Text } from "../components/Typography";
 import { dateLocale } from "../i18n";
 import { tr } from "./locale";
 import React, { useEffect, useState } from "react";
-import { Linking, Platform, Text, View } from "react-native";
+import { Linking, Platform, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";

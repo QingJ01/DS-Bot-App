@@ -1,18 +1,11 @@
+import { Text, TextInput, useFontScale, type AppTextInput } from "../components/Typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { dateLocale } from "../i18n";
 import { DesktopBrowser } from "../components/DesktopBrowser";
 import { tr } from "../i18n";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  FlatList,
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+  FlatList, Keyboard, KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
 import { AnimatedPressable as Pressable } from "../components/Motion";
 import * as Speech from "expo-speech";
 import {
@@ -132,11 +125,15 @@ export function ChatScreen({
   const [composerFocused, setComposerFocused] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [dockHeight, setDockHeight] = useState(88);
-  const [inputHeight, setInputHeight] = useState(44);
+  const fontScale = useFontScale();
+  const inputMin = Math.round(44 * fontScale);
+  const inputMax = Math.round(150 * fontScale);
+  const [inputHeight, setInputHeight] = useState(inputMin);
+  useEffect(() => setInputHeight(previous => Math.max(inputMin, Math.min(inputMax, previous))), [inputMin, inputMax]);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [dismissedMention, setDismissedMention] = useState("");
   const list = useRef<FlatList<Message>>(null);
-  const input = useRef<TextInput>(null);
+  const input = useRef<AppTextInput>(null);
   const [progress, setProgress] = useState<{id: string; rounds: GroupRound[]}>({id:"",rounds:[]});
   const receiveProgress = useCallback((rounds: GroupRound[]) => setProgress({id:conversation.id,rounds}), [conversation.id]);
   useEffect(() => setProgress({id:"",rounds:[]}), [conversation.id]);
@@ -493,10 +490,10 @@ export function ChatScreen({
             onFocus={() => setComposerFocused(true)}
             onBlur={() => setComposerFocused(false)}
             onContentSizeChange={event => {
-              const height = Math.max(44, Math.min(150, Math.ceil(event.nativeEvent.contentSize.height)));
+              const height = Math.max(inputMin, Math.min(inputMax, Math.ceil(event.nativeEvent.contentSize.height)));
               setInputHeight(previous => Math.abs(previous - height) > 1 ? height : previous);
             }}
-            scrollEnabled={inputHeight >= 150}
+            scrollEnabled={inputHeight >= inputMax}
             underlineColorAndroid="transparent"
             placeholderTextColor={t.muted}
             style={{
@@ -511,10 +508,10 @@ export function ChatScreen({
               fontSize: 17,
               lineHeight: 24,
               includeFontPadding: false,
-              minHeight: 44,
-              maxHeight: 150,
+              minHeight: inputMin,
+              maxHeight: inputMax,
               // Wrapped placeholders must not make an empty composer grow.
-              height: composer.text.length === 0 ? 44 : undefined,
+              height: composer.text.length === 0 ? inputMin : undefined,
             }}
           />
           <IconButton primary brand size={44}

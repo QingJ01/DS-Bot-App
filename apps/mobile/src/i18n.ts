@@ -82,6 +82,13 @@ const zh: Record<string, string> = {
   "Clear cached history and drafts": "清除缓存记录和草稿",
   "Disconnect this device": "断开此设备",
   Language: "语言",
+  "Text size": "文字大小",
+  "Only changes this phone. Your system text size still applies.": "只改变这台手机上的应用文字，系统文字大小仍会叠加生效。",
+  "Theme, accent and text size.": "主题、强调色和文字大小。",
+  Small: "较小",
+  Standard: "标准",
+  Large: "较大",
+  "Extra large": "特大",
   "Follow host": "跟随主机",
   "Follow system": "跟随系统",
   "The phone follows your system’s light or dark appearance.":

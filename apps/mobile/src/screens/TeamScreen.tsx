@@ -1,8 +1,9 @@
+import { Text } from "../components/Typography";
 import { BotCapabilities } from "../host-settings/CapabilitiesPanel";
 import { WorkingFolderPicker } from "../components/WorkingFolderPicker";
 import { useI18n } from "../i18n";
 import React, { useEffect, useRef, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { ScrollView, View } from "react-native";
 import { PageTransition, AnimatedPressable as Pressable } from "../components/Motion";
 import { MobileClient } from "@ds-bot/mobile-sdk";
 import {

@@ -1,5 +1,6 @@
+import { Text } from "./Typography";
 import React, { useEffect, useRef, useState } from "react";
-import { AppState, Modal, Platform, ScrollView, Text, View } from "react-native";
+import { AppState, Modal, Platform, ScrollView, View } from "react-native";
 import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorder, useAudioRecorderState } from "expo-audio";
 import { File } from "expo-file-system";
 import * as Speech from "expo-speech";

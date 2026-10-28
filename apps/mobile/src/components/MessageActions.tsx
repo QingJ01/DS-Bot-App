@@ -7,7 +7,7 @@ import {useTheme} from '../theme';
 import {tr} from '../i18n';
 import {Icon, IconButton, IconName, Notice} from './UI';
 
-export const REACTIONS=['\ud83d\udc4d','\u2764\ufe0f','\ud83d\ude02','\ud83d\ude2e','\ud83d\ude22','\ud83d\ude4f'];
+export const REACTIONS=['👍','❤️','😂','😮','😢','🙏'];
 export type MessageAction={label:string;icon:IconName;disabled?:boolean;onPress:()=>void};
 
 export function MessageActions({visible,author,preview,reactions,allowReactions,actions,onReact,onClose,onDismiss,error}:{

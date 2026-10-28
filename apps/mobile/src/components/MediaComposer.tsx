@@ -1,6 +1,7 @@
+import { Text } from "./Typography";
 import { tr } from "../i18n";
 import React, { useEffect, useRef, useState } from "react";
-import { Keyboard, Modal, Platform, Text, View } from "react-native";
+import { Keyboard, Modal, Platform, View } from "react-native";
 import { AnimatedPressable as Pressable } from "./Motion";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { File } from "expo-file-system";

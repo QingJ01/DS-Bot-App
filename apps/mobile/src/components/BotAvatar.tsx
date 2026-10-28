@@ -1,14 +1,8 @@
+import { Text } from "./Typography";
 import { tr } from "../i18n";
 import React, { useId, useEffect, useRef, useState } from "react";
 import {
-  AccessibilityInfo,
-  AppState,
-  Animated,
-  Image,
-  Platform,
-  Text,
-  View,
-} from "react-native";
+  AccessibilityInfo, AppState, Animated, Image, Platform, View } from "react-native";
 import Svg, {
   Defs,
   G,

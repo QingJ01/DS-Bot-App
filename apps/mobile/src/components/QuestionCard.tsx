@@ -1,6 +1,7 @@
+import { Text } from "./Typography";
 import { tr } from "../i18n";
 import React, { useRef, useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { AnimatedPressable as Pressable } from "./Motion";
 import { MobileClient } from "@ds-bot/mobile-sdk";
 import { Button, Field, Notice, styles } from "./UI";
