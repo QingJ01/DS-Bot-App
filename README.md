@@ -30,12 +30,14 @@ The standalone desktop app imports a team from DeepSeek Harness without inheriti
 | Working folders | Choose a host project or folder for a Bot, or one folder for a group. Chats continue in fresh parts while keeping their history. Available in v0.1.1 and later. |
 | Notifications | Task and approval reminders with Android background reception and optional cloud push. |
 | Appearance and language | Chinese/English and light/dark/system appearance. Cached conversations and drafts remain available offline. |
-| Linux desktop packages | `DS-Bot-App-<version>-linux-x86_64.AppImage` and `DS-Bot-App-<version>-linux-amd64.deb`; the AppImage self-updates, while the deb points to the release page. |
+| Linux desktop packages | `DS-Bot-App-<version>-linux-x86_64.AppImage` and `DS-Bot-App-<version>-linux-amd64.deb`; use the published release assets and verify `SHA256SUMS`. Automatic update installation is unverified. |
 
-The upstream v0.2.1 feature sync is unreleased in this fork; DS Bot remains version 0.1.3 until a release. Web features include `/btw` follow-up context and `show_view` charts, formulas, and sandboxed HTML; they are not native mobile renderers. The desktop adds message-width and flat layouts, optional thinking, exclusive right panels, relay pause/continue, safer memory and secret read failures, home-lock recovery, browser cookie import, save dialogs for downloads, and canonical-path/search fixes.
+The public v0.1.4 release includes the upstream `dev` feature sync through v0.2.2 plus this fork's mobile, security and release adaptations. Web features include `/btw` follow-up context and `show_view` charts, formulas, and safe HTML summaries; mobile now has native choice, confirmation and form cards plus isolated `/side` chats, while charts use data tables and HTML is never executed as model scripts. The desktop adds message-width and flat layouts, optional thinking, exclusive right panels, relay pause/continue, safer memory and secret read failures, home-lock recovery, browser cookie import, save dialogs for downloads, and canonical-path/search fixes.
 
 Scheduled tasks keep their original Session binding when a Bot's chat moves to a new part. Due reminders are forwarded to the current part; switching parts does not copy or recreate tasks.
-At first start the app asks where to keep its data and the Bots' files, and offers to copy a Bot team from your DSH (it only reads your DSH). Set up a model in its settings. Windows and the Linux AppImage update themselves; macOS and the Linux deb point to the release page.
+At first start the app asks where to keep its data and the Bots' files, and offers to copy a Bot team from your DSH (it only reads your DSH). Set up a model in its settings. The public v0.1.4 release provides a Windows x64 `.exe`, macOS arm64 and x64 `.zip` archives (not DMGs), and Linux x86_64 AppImage and amd64 deb packages. Automatic update installation has not been verified; use the matching public assets and `SHA256SUMS`.
+
+The Windows installer is unsigned; macOS archives are ad-hoc signed without Developer ID or notarization. GitHub Actions was disabled for this release; zero CI checks ran, so no passing CI is claimed. See the [v0.1.4 release notes](docs/releases/v0.1.4.md) for validation scope and platform limits.
 
 <p align="center">
   <img src="docs/images/mobile/group.en.png?v=0.1.0-15" width="250" alt="Group conversation with Bot authors">
@@ -57,16 +59,16 @@ Screenshots use demonstration data. [Capture details](docs/images/mobile/README.
 ## Get started
 
 1. Install [DSH Desktop](https://github.com/deepseek-ai/deepseek-harness/releases). Open **Plugins → Add plugin**, paste the text below, install, enable and restart.
-2. Configure your model on the computer. Download `dsbot-android-arm64-v0.1.3.apk` for phones from the [v0.1.3 Release](https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.3); `dsbot-android-x86_64-v0.1.3.apk` is for matching emulators.
+2. Configure your model on the computer. Download signed `dsbot-android-arm64-v0.1.4.apk` for phones from the [public v0.1.4 Release](https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.4); `dsbot-android-x86_64-v0.1.4.apk` is for matching emulators.
 3. Install the APK. On the computer, open DS Bot **Settings → Mobile devices → Enable phone connection**, scan its QR with the phone and approve the device.
 
 ```text
-github:QingJ01/DS-Bot-App#a115f2b722387b3a401bd34e26fe48ad7d34f78d&path:ds-bot
+github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path=ds-bot
 ```
 
-Copy the complete line. The release also includes `ds-bot-0.1.3.tgz`; verify release downloads with `SHA256SUMS`. The plugin archive SHA-256 is `ab65ce3033a88890c3410c371aa7a2fc8c88f96437f4620889128b6a7b1c5b1f`.
+Copy the complete line. The public v0.1.4 release also includes `ds-bot-0.1.4.tgz`; verify release downloads with `SHA256SUMS`. The plugin archive SHA-256 is `1b0e5db000eda951fd21b7f300fea348f2569e540788b651b55820d64eb3c227`.
 
-This pin targets the released v0.1.3 source. Historical v0.1.2 downloads remain published unchanged for existing lockfiles; use v0.1.3 for new installations. See the [v0.1.3 release notes](docs/releases/v0.1.3.md).
+This pin targets the released v0.1.4 source. The signed Android package advances from public v0.1.3 `versionCode` 73 to 82, so install it over public v0.1.3 without uninstalling or clearing data. Older debug-signed test APKs are different: export any local content, uninstall the test APK, install the release APK and pair again; host Bots and chat history remain. Historical v0.1.2 and v0.1.3 downloads remain published unchanged for existing lockfiles. See the [v0.1.4 release notes](docs/releases/v0.1.4.md).
 
 Start on the same Wi-Fi. The plugin sets up local HTTPS without a domain or manual certificate installation. The host runs your Bots, tools and tasks using the configured model provider. Keep the computer or server online while using the App.
 ## Features
@@ -110,11 +112,11 @@ The App uses React Native and Expo, with a shared SDK connecting it to the DSH p
 | [packages/mobile-sdk](packages/mobile-sdk) | Phone-to-host SDK |
 | [ds-bot](ds-bot/README.md) | DSH plugin, mobile bridge and computer interface |
 
-Use Node.js 24 for development. See [Contributing](CONTRIBUTING.md) for setup, tests and contribution guidelines. [GitHub Actions](.github/workflows/build.yml) checks the plugin, desktop packages and mobile app, and builds Android APKs; signing and release steps are in the [release guide](docs/releasing.md).
+Use Node.js 24 for development. See [Contributing](CONTRIBUTING.md) for setup, tests and contribution guidelines. The [GitHub Actions workflow](.github/workflows/build.yml) is configured to check the plugin, desktop packages and mobile app, and build Android APKs; Actions is currently disabled, so this describes workflow intent rather than a passing CI result. Signing and release steps are in the [release guide](docs/releasing.md).
 
 The host integration baseline is DSH `0.2.1-rc.2`. Voice and desktop browser control require the corresponding host services; see [feature configuration](docs/mobile-features.zh.md).
 
-This fork synchronizes the frozen upstream `dev` tree at `02cbb63a29f3591839d2b37ffa91d202a12ede6c` (upstream `v0.2.0`). This sync is unreleased here; the fork remains at `0.1.3`. Docker intentionally retains this fork's offline plugin-archive reinstall, policy metadata seeding and transactional rollback; upstream removed that behavior.
+The public v0.1.4 release includes the upstream `dev` feature sync through v0.2.2, plus this fork's mobile, desktop-storage, permission, import-safety and release adaptations. Docker intentionally retains this fork's offline plugin-archive reinstall, policy metadata seeding and transactional rollback; upstream removed that behavior.
 
 [Local debugging](docs/mobile-local-debug.zh.md) · [Upstream sync](docs/mobile-upstream.zh.md) · [Changelog](CHANGELOG.md)
 
