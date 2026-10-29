@@ -140,14 +140,14 @@ class GitHubInstallationTests(unittest.TestCase):
 
 class InstallationDocumentationTests(unittest.TestCase):
     def test_public_install_text_matches_metadata(self):
-        pattern = re.compile(r'github:QingJ01/DS-Bot-App#[0-9a-f]{40}&path[:=]ds-bot')
+        pattern = re.compile(r"""github:QingJ01/DS-Bot-App#[^\s`"'<>]+""")
         documentation = (
             ROOT / "README.md",
             ROOT / "README.zh.md",
             ROOT / "docs/getting-started.md",
             ROOT / "docs/getting-started.zh.md",
             ROOT / "docs/plugin-install-recovery.md",
-            ROOT / "docs/releases/v0.1.4.md",
+            ROOT / f"docs/releases/{INSTALL['release']}.md",
             ROOT / "scripts/plugin-installer/README.txt",
         )
         for path in documentation:
