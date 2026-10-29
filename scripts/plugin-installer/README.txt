@@ -39,7 +39,7 @@ Package SHA-256:
 1b0e5db000eda951fd21b7f300fea348f2569e540788b651b55820d64eb3c227
 
 Immutable plugin source pin / 固定插件源码：
-github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path=ds-bot
+github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path:ds-bot
 
 Why local installation?
 pnpm 11.7.0 can omit integrity when reinstalling a cached remote tarball

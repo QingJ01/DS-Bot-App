@@ -5,7 +5,7 @@
 打开 **插件 → 添加插件**，粘贴下面完整文本，点击安装、启用，然后重启 DSH：
 
 ```text
-github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path=ds-bot
+github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path:ds-bot
 ```
 
 这是当前公开 `0.1.4` 的正式安装入口。已安装旧版的用户请手动粘贴新固定地址；自动更新安装尚未验证。Windows、macOS、Linux 使用同一行；电脑需要能访问 GitHub 及依赖源。手机请配套安装同一 Release 的 `dsbot-android-arm64-v0.1.4.apk`，对应模拟器使用 `dsbot-android-x86_64-v0.1.4.apk`。桌面包为 Windows x64 `.exe`、macOS arm64/x64 `.zip` 和 Linux AppImage/amd64 deb；Windows 安装器未签名，macOS 为 ad-hoc 签名且未公证。GitHub Actions 已禁用，本次零个 CI 检查运行，因此没有 CI 通过结果；详见 [v0.1.4 发布说明](releases/v0.1.4.md)。历史 `0.1.2` 和 `0.1.3` 附件为兼容已有锁文件保留，不会被覆盖。
@@ -28,7 +28,7 @@ pnpm `11.7.0` 在 DSH 的 `nodeLinker: hoisted`、`autoInstallPeers: false` 配�
 
 正式入口改为 pnpm/DSH 原生支持的 GitHub 包规格，固定完整 40 位提交，并选择仓库内 `ds-bot` 目录。它包含预构建客户端，没有安装时构建脚本；完整提交避免解析可移动分支或依赖 Git 查找标签。GitHub 依赖由 pnpm 的 Git 来源规则校验，不关闭锁文件、文件校验或供应链策略。
 
-[安装元数据](../releases/plugin-install.json)记录正式规格。[Windows/Linux Actions 工作流](https://github.com/QingJ01/DS-Bot-App/actions/workflows/plugin-installer.yml)定义首次安装、缓存卸载重装、当前失败锁文件恢复、删除 `node_modules` 后冻结重装、无 Git 环境，以及全部已打包文件与 matching published archive 逐字节一致的检查流程；当前 GitHub Actions 已禁用，这只是工作流意图，并非本次发布的 CI 通过结果。历史安装包与 APK 不覆盖；以后升级发布新的固定提交规格。
+[安装元数据](../releases/plugin-install.json)记录正式规格。[Windows/Linux Actions 工作流](https://github.com/QingJ01/DS-Bot-App/actions/workflows/plugin-installer.yml)定义首次安装、缓存卸载重装、当前失败锁文件恢复、删除 `node_modules` 后冻结重装、无 Git 环境，以及全部已打包文件与对应的已发布归档逐字节一致的检查流程；当前 GitHub Actions 已禁用，这只是工作流意图，并非本次发布的 CI 通过结果。历史安装包与 APK 不覆盖；以后升级发布新的固定提交规格。
 
 [旧版下载修复记录](releases/integrity-repair-20261014.md) · [完整配置](getting-started.zh.md)
 

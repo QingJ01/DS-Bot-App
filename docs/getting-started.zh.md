@@ -29,7 +29,7 @@
 2. 打开 DSH **插件 → 添加插件**，粘贴下面一整行，然后点击安装：
 
 ```text
-github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path=ds-bot
+github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path:ds-bot
 ```
 
 3. 启用 DS Bot，完全退出并重启 DSH。
@@ -50,7 +50,7 @@ Windows、macOS、Linux 使用同一条安装文本，不需要额外安装 Git�
 
 ```sh
 npm install -g pnpm
-npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path=ds-bot"
+npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path:ds-bot"
 npx @deepseek-ai/dsh@0.2.1-rc.2 web
 ```
 

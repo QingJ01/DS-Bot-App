@@ -26,7 +26,7 @@ Automatic update installation has not been verified. The Windows installer is un
 2. Open **Plugins → Add plugin**, paste this complete line and install:
 
 ```text
-github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path=ds-bot
+github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path:ds-bot
 ```
 
 3. Enable DS Bot, fully quit and restart DSH.
@@ -45,7 +45,7 @@ For DSH Web, install Node.js 24 LTS and pnpm on the server, then run:
 
 ```sh
 npm install -g pnpm
-npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path=ds-bot"
+npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path:ds-bot"
 npx @deepseek-ai/dsh@0.2.1-rc.2 web
 ```
 

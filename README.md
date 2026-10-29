@@ -32,7 +32,7 @@ The standalone desktop app imports a team from DeepSeek Harness without inheriti
 | Appearance and language | Chinese/English and light/dark/system appearance. Cached conversations and drafts remain available offline. |
 | Linux desktop packages | `DS-Bot-App-<version>-linux-x86_64.AppImage` and `DS-Bot-App-<version>-linux-amd64.deb`; use the published release assets and verify `SHA256SUMS`. Automatic update installation is unverified. |
 
-The public v0.1.4 release includes the upstream `dev` feature sync through v0.2.2 plus this fork's mobile, security and release adaptations. Web features include `/btw` follow-up context and `show_view` charts, formulas, and safe HTML summaries; mobile now has native choice, confirmation and form cards plus isolated `/side` chats, while charts use data tables and HTML is never executed as model scripts. The desktop adds message-width and flat layouts, optional thinking, exclusive right panels, relay pause/continue, safer memory and secret read failures, home-lock recovery, browser cookie import, save dialogs for downloads, and canonical-path/search fixes.
+The public v0.1.4 release includes the upstream `dev` feature sync through v0.2.2 plus this fork's mobile, security and release adaptations. Web features include isolated `/side` follow-up context, `show_view` charts and formulas, and sandboxed HTML. Mobile has native choice, confirmation and form cards; charts use data tables, and HTML is shown as a summary without executing scripts. The desktop adds message-width and flat layouts, optional thinking, exclusive right panels, relay pause/continue, safer memory and secret read failures, home-lock recovery, browser cookie import, save dialogs for downloads, and canonical-path/search fixes.
 
 Scheduled tasks keep their original Session binding when a Bot's chat moves to a new part. Due reminders are forwarded to the current part; switching parts does not copy or recreate tasks.
 At first start the app asks where to keep its data and the Bots' files, and offers to copy a Bot team from your DSH (it only reads your DSH). Set up a model in its settings. The public v0.1.4 release provides a Windows x64 `.exe`, macOS arm64 and x64 `.zip` archives (not DMGs), and Linux x86_64 AppImage and amd64 deb packages. Automatic update installation has not been verified; use the matching public assets and `SHA256SUMS`.
@@ -63,7 +63,7 @@ Screenshots use demonstration data. [Capture details](docs/images/mobile/README.
 3. Install the APK. On the computer, open DS Bot **Settings → Mobile devices → Enable phone connection**, scan its QR with the phone and approve the device.
 
 ```text
-github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path=ds-bot
+github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path:ds-bot
 ```
 
 Copy the complete line. The public v0.1.4 release also includes `ds-bot-0.1.4.tgz`; verify release downloads with `SHA256SUMS`. The plugin archive SHA-256 is `1b0e5db000eda951fd21b7f300fea348f2569e540788b651b55820d64eb3c227`.

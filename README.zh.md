@@ -32,7 +32,7 @@ DS Bot App 连接自己电脑或服务器上的 [DeepSeek Harness](https://githu
 | 外观与语言 | 中英文、日间/夜间/跟随系统，离线可查看缓存和编辑草稿。 |
 | Linux 桌面安装包 | `DS-Bot-App-<版本>-linux-x86_64.AppImage` 与 `DS-Bot-App-<版本>-linux-amd64.deb`；请使用发布页文件并校验 `SHA256SUMS`，自动更新安装尚未验证。 |
 
-公开发布的 v0.1.4 已包含 upstream `dev` 至 v0.2.2 的功能同步，以及本 fork 的手机、安全和发布适配。Web 端支持 `/btw` 后续上下文、`show_view` 图表、公式与安全 HTML 摘要；手机端提供原生选择、确认、表单卡片和隔离的 `/side` 对话，图表使用数据表，HTML 不执行模型脚本。桌面端增加消息宽度与平铺布局、可选显示思考内容、右侧面板互斥、群组中继暂停/继续、记忆和密钥读取失败保护、主目录锁恢复、浏览器 Cookie 导入、下载保存对话框，以及规范路径和搜索修复。
+公开发布的 v0.1.4 已包含 upstream `dev` 至 v0.2.2 的功能同步，以及本 fork 的手机、安全和发布适配。Web 端支持隔离的 `/side` 后续上下文、`show_view` 图表与公式，以及沙箱 HTML；手机端提供原生选择、确认和表单卡片，图表以数据表显示，HTML 仅显示摘要且不执行脚本。桌面端增加消息宽度与平铺布局、可选显示思考内容、右侧面板互斥、群组中继暂停/继续、记忆和密钥读取失败保护、主目录锁恢复、浏览器 Cookie 导入、下载保存对话框，以及规范路径和搜索修复。
 
 Bot 对话换段时，定时任务保留原 Session 绑定，到期提醒转发到当前段处理；换段不会复制或重建任务。
 第一次打开时，App 会询问数据和 Bot 文件的保存位置，并可以从你的 DSH 复制 Bot 团队（只读取 DSH，不修改它）。公开 v0.1.4 提供 Windows x64 `.exe`、macOS arm64/x64 `.zip`（不是 DMG）以及 Linux x86_64 AppImage/amd64 deb。自动更新安装尚未验证，请使用发布页文件并校验 `SHA256SUMS`。Windows 安装包未签名；macOS 为 ad-hoc 签名，没有 Developer ID 或公证。GitHub Actions 本次已禁用，没有 CI 检查运行，不能宣称 CI 通过；详见 [v0.1.4 发布说明](docs/releases/v0.1.4.md)。
@@ -61,7 +61,7 @@ Bot 对话换段时，定时任务保留原 Session 绑定，到期提醒转发�
 3. 手机安装 APK。电脑打开 DS Bot **设置 → 移动设备 → 启用手机连接**，手机扫码，电脑批准设备。
 
 ```text
-github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path=ds-bot
+github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path:ds-bot
 ```
 
 以上是完整安装文本，直接复制。公开 v0.1.4 Release 还提供 `ds-bot-0.1.4.tgz`；下载后使用 `SHA256SUMS` 校验。插件归档 SHA-256：`1b0e5db000eda951fd21b7f300fea348f2569e540788b651b55820d64eb3c227`。
