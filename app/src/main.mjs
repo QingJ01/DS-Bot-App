@@ -1,7 +1,7 @@
 // Electron main process: one window for the Bot team, served by the app's own DSH Host.
 // The window loads the Host's loopback address as DSH Web does: DSH's sign-in sends the page's
 // origin as the address the browser comes back to, and accepts only a loopback one.
-import { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
+import { app, BrowserWindow, WebContentsView, dialog, ipcMain, Menu, nativeTheme, protocol, session, shell } from 'electron'
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import { release } from 'node:os'
@@ -23,6 +23,7 @@ import { HostProcess } from './host-process.mjs'
 import { copySessions, findTeam, importTeam, teamInUse, userDshHome } from './import.mjs'
 import { copyData, moveProblem } from './move-data.mjs'
 import { CHECK_PROFILE, PROFILE } from './profile.mjs'
+import { LEGACY_STORAGE_SCHEME, migrateLegacyStorage } from './storage-migration.mjs'
 import { UPDATE_TEXT, watchReleases, watchUpdates } from './updates.mjs'
 import { CAPTION_HEIGHT, cssColor, micaAvailable, nativeThemeSource } from './window-frame.mjs'
 
@@ -54,6 +55,7 @@ const iconFile = join(here, '..', 'assets', process.platform === 'win32' ? 'icon
 // Windows 11 draws Mica behind the page; mica.css lets it through the sidebar.
 const mica = micaAvailable(process.platform, release())
 if (process.env.DS_BOT_SHELL_DATA) app.setPath('userData', process.env.DS_BOT_SHELL_DATA)
+protocol.registerSchemesAsPrivileged([LEGACY_STORAGE_SCHEME])
 
 let mainWindow
 let host
@@ -304,7 +306,10 @@ async function start() {
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(iconFile)
   createWindow()
   // The launch URL trades its token for the Host's cookie and goes on to the page.
-  void ready.then(({ url }) => mainWindow?.loadURL(url)).catch(() => {})
+  void ready.then(async ({ url }) => {
+    await migrateLegacyStorage({ BrowserWindow, session: session.defaultSession, origin, userData: app.getPath('userData') })
+    if (!stopping && !mainWindow?.isDestroyed()) await mainWindow?.loadURL(url)
+  }).catch(fail)
 }
 
 // The Host starts once on the new data location first: DSH then sets up its project list
