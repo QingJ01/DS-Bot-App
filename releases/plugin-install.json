@@ -1,7 +1,7 @@
 {
-  "version": "0.1.3",
-  "release": "v0.1.3",
-  "revision": "v0.1.3",
-  "sourceCommit": "a115f2b722387b3a401bd34e26fe48ad7d34f78d",
-  "spec": "github:QingJ01/DS-Bot-App#a115f2b722387b3a401bd34e26fe48ad7d34f78d&path:ds-bot"
+  "version": "0.1.4",
+  "release": "v0.1.4",
+  "revision": "v0.1.4",
+  "sourceCommit": "1455871a96e868e9b1af3ad1f32704265f4ebf9c",
+  "spec": "github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path:ds-bot"
 }

@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tarfile
@@ -135,6 +136,25 @@ class GitHubInstallationTests(unittest.TestCase):
         # Scripts remain enabled: this must work without an ignore-scripts escape hatch.
         self.pnpm("add", INSTALL["spec"], env=environment)
         self.assert_installed()
+
+
+class InstallationDocumentationTests(unittest.TestCase):
+    def test_public_install_text_matches_metadata(self):
+        pattern = re.compile(r"""github:QingJ01/DS-Bot-App#[^\s`"'<>]+""")
+        documentation = (
+            ROOT / "README.md",
+            ROOT / "README.zh.md",
+            ROOT / "docs/getting-started.md",
+            ROOT / "docs/getting-started.zh.md",
+            ROOT / "docs/plugin-install-recovery.md",
+            ROOT / f"docs/releases/{INSTALL['release']}.md",
+            ROOT / "scripts/plugin-installer/README.txt",
+        )
+        for path in documentation:
+            with self.subTest(path=path.relative_to(ROOT)):
+                matches = pattern.findall(path.read_text(encoding="utf-8"))
+                self.assertTrue(matches, f"no install pin found in {path.relative_to(ROOT)}")
+                self.assertEqual(matches, [INSTALL["spec"]] * len(matches))
 
 
 if __name__ == "__main__":

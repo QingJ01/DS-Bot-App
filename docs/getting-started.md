@@ -10,13 +10,15 @@ The official npm integration baseline is DSH `0.2.1-rc.2`. Keep API keys in DSH'
 
 ## Download matching packages
 
-Download matching files from the public [v0.1.3 Release](https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.3):
+Download matching files from the public [v0.1.4 Release](https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.4):
 
-- Plugin archive: `ds-bot-0.1.3.tgz` — SHA-256 `ab65ce3033a88890c3410c371aa7a2fc8c88f96437f4620889128b6a7b1c5b1f`.
-- Android phone: signed `dsbot-android-arm64-v0.1.3.apk`; matching emulator: `dsbot-android-x86_64-v0.1.3.apk`.
-- Desktop: `DS-Bot-App-0.1.3-win-x64.exe` or the macOS arm64/x64 DMG.
+- Plugin archive: `ds-bot-0.1.4.tgz` — SHA-256 `1b0e5db000eda951fd21b7f300fea348f2569e540788b651b55820d64eb3c227`.
+- Android phone: signed `dsbot-android-arm64-v0.1.4.apk`; matching emulator: `dsbot-android-x86_64-v0.1.4.apk`.
+- Desktop: `DS-Bot-App-0.1.4-win-x64.exe`, `DS-Bot-App-0.1.4-mac-arm64.zip`, `DS-Bot-App-0.1.4-mac-x64.zip`, `DS-Bot-App-0.1.4-linux-x86_64.AppImage`, or `DS-Bot-App-0.1.4-linux-amd64.deb`.
 
-Verify downloaded release assets with `SHA256SUMS`. The Actions artifacts are development builds; use the published release assets for installation. Historical v0.1.2 downloads remain unchanged for existing lockfiles. **The npm package `ds-bot` is upstream and does not contain this fork's complete mobile implementation.**
+Verify downloaded release assets with `SHA256SUMS`. The Actions artifacts are development builds; use the published release assets for installation. Historical v0.1.2 and v0.1.3 downloads remain unchanged for existing lockfiles. **The npm package `ds-bot` is upstream and does not contain this fork's complete mobile implementation.**
+
+Automatic update installation has not been verified. The Windows installer is unsigned; macOS archives are ad-hoc signed without Developer ID or notarization. GitHub Actions was disabled for this release; zero CI checks ran, so no passing CI is claimed. See the [v0.1.4 release notes](releases/v0.1.4.md).
 
 ## Host installation
 
@@ -24,14 +26,14 @@ Verify downloaded release assets with `SHA256SUMS`. The Actions artifacts are de
 2. Open **Plugins → Add plugin**, paste this complete line and install:
 
 ```text
-github:QingJ01/DS-Bot-App#a115f2b722387b3a401bd34e26fe48ad7d34f78d&path:ds-bot
+github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path:ds-bot
 ```
 
 3. Enable DS Bot, fully quit and restart DSH.
 4. Configure your provider and credential in Harness settings. Choose Chief's model and test a message.
 5. Ask Chief to create Bots/groups, or use the creation pages to set names, roles, instructions and models.
 
-Windows, macOS and Linux use the same installation text. No separate Git, Node.js or pnpm install, archive download or repair script is needed for Desktop. GitHub and dependency registries must be reachable. The source is pinned to the v0.1.3 merge commit and includes the mobile bridge; install the matching v0.1.3 App.
+Windows, macOS and Linux use the same installation text. No separate Git, Node.js or pnpm install, archive download or repair script is needed for Desktop. GitHub and dependency registries must be reachable. The source is pinned to commit `1455871a96e868e9b1af3ad1f32704265f4ebf9c` and includes the mobile bridge; install the matching v0.1.4 App.
 
 ### Updating or recovering a failed install
 
@@ -43,7 +45,7 @@ For DSH Web, install Node.js 24 LTS and pnpm on the server, then run:
 
 ```sh
 npm install -g pnpm
-npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#a115f2b722387b3a401bd34e26fe48ad7d34f78d&path:ds-bot"
+npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path:ds-bot"
 npx @deepseek-ai/dsh@0.2.1-rc.2 web
 ```
 
@@ -58,7 +60,7 @@ Open the local authenticated link printed by DSH on your computer and configure 
 
 No domain, additional app or certificate installation is required. The QR contains a short-lived pairing code and host public-key fingerprint; the App verifies the host before saving credentials. Do not share the QR/JSON. Expired codes need regeneration. Restart restores the host entry; a changed IP/network needs a QR with the new address. [HTTPS and identity details](mobile-local-https.md).
 
-Earlier test APKs used debug signing. When switching to the DeepSeekBot release certificate, export any local content you need, uninstall the old App, install the new one and pair again. Host Bots/history remain. Later updates require the same certificate and an increasing Android `versionCode`.
+The public v0.1.4 APK keeps the release signing certificate and advances `versionCode` from 73 in public v0.1.3 to 82. Install it over public v0.1.3 without uninstalling or clearing data. Earlier test APKs used a debug certificate; when switching from one, export any local content you need, uninstall the old test App, install the release APK and pair again. Host Bots/history remain. Later updates require the same certificate and an increasing Android `versionCode`.
 
 ## Configure features
 

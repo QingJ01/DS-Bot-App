@@ -13,13 +13,15 @@
 
 ## 下载配套插件和 App
 
-从公开的 [v0.1.3 Release](https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.3) 下载配套文件：
+从公开的 [v0.1.4 Release](https://github.com/QingJ01/DS-Bot-App/releases/tag/v0.1.4) 下载配套文件：
 
-- 插件归档：`ds-bot-0.1.3.tgz`，SHA-256：`ab65ce3033a88890c3410c371aa7a2fc8c88f96437f4620889128b6a7b1c5b1f`。
-- Android 手机：已签名的 `dsbot-android-arm64-v0.1.3.apk`；对应模拟器：`dsbot-android-x86_64-v0.1.3.apk`。
-- 桌面端：`DS-Bot-App-0.1.3-win-x64.exe` 或 macOS arm64/x64 DMG。
+- 插件归档：`ds-bot-0.1.4.tgz`，SHA-256：`1b0e5db000eda951fd21b7f300fea348f2569e540788b651b55820d64eb3c227`。
+- Android 手机：已签名的 `dsbot-android-arm64-v0.1.4.apk`；对应模拟器：`dsbot-android-x86_64-v0.1.4.apk`。
+- 桌面端：`DS-Bot-App-0.1.4-win-x64.exe`、`DS-Bot-App-0.1.4-mac-arm64.zip`、`DS-Bot-App-0.1.4-mac-x64.zip`、`DS-Bot-App-0.1.4-linux-x86_64.AppImage` 或 `DS-Bot-App-0.1.4-linux-amd64.deb`。
 
-使用 `SHA256SUMS` 校验下载的 Release 文件。Actions Artifacts 是开发构建；安装请使用已发布的 Release。历史 v0.1.2 下载保持原样，以兼容已有锁文件。**不要直接安装 npm 的 `ds-bot` 来替代这个包。** npm 名称属于上游项目；本仓库的手机桥接、HTTPS 和管理功能由本仓库源码打包。
+使用 `SHA256SUMS` 校验下载的 Release 文件。Actions Artifacts 是开发构建；安装请使用已发布的 Release。历史 v0.1.2 和 v0.1.3 下载保持原样，以兼容已有锁文件。**不要直接安装 npm 的 `ds-bot` 来替代这个包。** npm 名称属于上游项目；本仓库的手机桥接、HTTPS 和管理功能由本仓库源码打包。
+
+自动更新安装尚未验证。Windows 安装包未签名；macOS 压缩包为 ad-hoc 签名，没有 Developer ID 或公证。GitHub Actions 本次已禁用，没有 CI 检查运行，不能宣称 CI 通过；详见 [v0.1.4 发布说明](releases/v0.1.4.md)。
 
 ## 电脑安装
 
@@ -27,14 +29,14 @@
 2. 打开 DSH **插件 → 添加插件**，粘贴下面一整行，然后点击安装：
 
 ```text
-github:QingJ01/DS-Bot-App#a115f2b722387b3a401bd34e26fe48ad7d34f78d&path:ds-bot
+github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path:ds-bot
 ```
 
 3. 启用 DS Bot，完全退出并重启 DSH。
 4. 在 Harness 设置中配置模型与凭据；为 Chief 选择模型，发送消息确认能正常回复。
 5. 可以让 Chief 创建 Bot 与群聊，也可以用客户端的新建入口配置名称、角色、指令和模型。
 
-Windows、macOS、Linux 使用同一条安装文本，不需要额外安装 Git、Node.js 或 pnpm，也不需要下载插件压缩包或运行修复脚本。需要能访问 GitHub 与依赖源。源码固定到 v0.1.3 合并提交，并包含手机连接功能；请配套安装 v0.1.3 App。
+Windows、macOS、Linux 使用同一条安装文本，不需要额外安装 Git、Node.js 或 pnpm，也不需要下载插件压缩包或运行修复脚本。需要能访问 GitHub 与依赖源。源码固定到提交 `1455871a96e868e9b1af3ad1f32704265f4ebf9c`，并包含手机连接功能；请配套安装 v0.1.4 App。
 
 ### 从旧版升级或安装失败后重试
 
@@ -48,7 +50,7 @@ Windows、macOS、Linux 使用同一条安装文本，不需要额外安装 Git�
 
 ```sh
 npm install -g pnpm
-npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#a115f2b722387b3a401bd34e26fe48ad7d34f78d&path:ds-bot"
+npx @deepseek-ai/dsh@0.2.1-rc.2 plugin --profile web add "github:QingJ01/DS-Bot-App#1455871a96e868e9b1af3ad1f32704265f4ebf9c&path:ds-bot"
 npx @deepseek-ai/dsh@0.2.1-rc.2 web
 ```
 
@@ -64,7 +66,7 @@ npx @deepseek-ai/dsh@0.2.1-rc.2 web
 
 无需域名、额外 App 或手动安装证书。二维码带短期配对码与主机公钥指纹，App 验证主机身份后保存设备凭据。二维码过期需重新生成；不要把二维码或配对 JSON 发给别人。电脑重启会恢复手机入口；更换 IP/网络需重新取得新地址的二维码。关闭入口和撤销设备是不同操作。[完整 HTTPS 说明](mobile-local-https.zh.md)。
 
-**从旧测试 APK 换到正式项目签名时**：旧包使用调试证书，Android 不允许直接覆盖。先导出需要保留的本地内容，再卸载旧包、安装新包并重新配对；主机上的 Bot 与聊天仍然保留。以后使用同一项目签名并增加 `versionCode` 即可覆盖更新。
+公开 v0.1.4 APK 沿用正式签名，公开 v0.1.3 的 `versionCode` 73 升至 82；直接覆盖安装，不要卸载或清除数据。**从旧测试 APK 换到正式项目签名时**：旧包使用调试证书，Android 不允许直接覆盖。先导出需要保留的本地内容，再卸载测试包、安装正式 APK 并重新配对；主机上的 Bot 与聊天仍然保留。以后使用同一项目签名并增加 `versionCode` 即可覆盖更新。
 
 ## 常用功能怎么配置
 
