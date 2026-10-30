@@ -22,20 +22,20 @@ The separate Test workflow checks Linux/Windows, Node 22/24 and two DSH versions
 
 Every PR and main build runs `node scripts/check-release.cjs` to catch plugin/App/Expo/lockfile version drift before tagging. Tag builds additionally require matching release notes. The private mobile SDK has its own version and is not independently published.
 
-Plugin update checks support full-commit GitHub installations. For a newer semantic version, they resolve its highest complete revision (plugin archive plus revision checksums) to a full source commit and retain the package subdirectory. A same-version `rN` repair still requires the new installation text from its release notes; it is not an automatic semantic-version upgrade. Revising an older release preserves GitHub's existing latest-release selection.
+Plugin update checks use this fork's GitHub Releases. They resolve the highest complete revision (plugin archive plus revision checksums) to a full source commit and retain the package subdirectory. The updater detects both newer versions and same-version `rN` revisions; installation requires a user click. Development checkouts are protected. Revising an older release preserves GitHub's existing latest-release selection.
 
 ## Download and publish
 
 From the successful run's Artifacts, download and extract `dsbot-plugin` plus `dsbot-android-arm64` for phones or `dsbot-android-x86_64` for emulators. Install matching host/plugin files. Main builds upload artifacts only.
 
-To publish, first verify the password Secret, checks and both signed APKs. Update `ds-bot/package.json`, `apps/mobile/package.json`, both lockfiles and `apps/mobile/app.json` to match the tag, and write bilingual notes in `docs/releases/vMAJOR.MINOR.PATCH.md`. Tag validation rejects missing credentials, mismatched versions and missing notes before building. Then push a unique stable tag:
+To publish, first verify the password Secret, checks and both signed APKs. Update `ds-bot/package.json`, `apps/mobile/package.json`, `app/package.json`, their lockfiles (including the desktop lockfile's bundled `ds-bot` version) and `apps/mobile/app.json` to match the tag, and write bilingual notes in `docs/releases/vMAJOR.MINOR.PATCH.md`. Tag validation rejects missing credentials, mismatched versions and missing notes before building. Then push a unique stable tag:
 
 ```sh
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.4
+git push origin v0.1.4
 ```
 
-The tag pipeline creates a public stable release with the plugin tarball, signed APKs (for example, `dsbot-android-arm64-v0.1.1.apk`), public certificate and combined checksums. Missing signing credentials fail tag validation; unsigned APKs are not published as installable releases. It uploads no signing password, private backup or DSH data. Artifacts expire according to GitHub retention; Releases are intended for versions kept longer. Release checksums use flat filenames: run `sha256sum -c SHA256SUMS` in the download directory, or `shasum -a 256 -c SHA256SUMS` on macOS.
+The tag pipeline creates a public stable release only after the plugin, both Android architectures and all desktop builds pass. It includes the plugin tarball, signed APKs, Windows installer/update metadata, macOS arm64/x64 ZIPs, Linux AppImage/deb/update metadata, public certificate and combined checksums. In the published notes, `<40-character-source-commit>` is replaced with the exact tag build commit so the plugin installation line is ready to copy. Missing signing credentials fail tag validation; unsigned APKs are not published as installable releases. It uploads no signing password, private backup or DSH data. Artifacts expire according to GitHub retention; Releases are intended for versions kept longer. Release checksums use flat filenames: run `sha256sum -c SHA256SUMS` in the download directory, or `shasum -a 256 -c SHA256SUMS` on macOS.
 
 ## Revising a published version
 
