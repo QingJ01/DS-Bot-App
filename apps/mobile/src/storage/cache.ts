@@ -43,7 +43,7 @@ export async function clearCachedContent(scope: string) {
   const database = await db();
   // An unresolved submission and its editable text must survive clearing history.
   await database.runAsync(
-    `DELETE FROM cache WHERE scope = ? AND key NOT LIKE 'pending:%' AND key NOT LIKE 'archive:%' AND NOT (key LIKE 'draft:%' AND EXISTS (SELECT 1 FROM cache AS pending WHERE pending.scope = cache.scope AND pending.key = 'pending:' || substr(cache.key, 7) AND pending.value != 'null'))`,
+    `DELETE FROM cache WHERE scope = ? AND key != 'mobile-preferences' AND key NOT LIKE 'pending:%' AND key NOT LIKE 'archive:%' AND NOT (key LIKE 'draft:%' AND EXISTS (SELECT 1 FROM cache AS pending WHERE pending.scope = cache.scope AND pending.key = 'pending:' || substr(cache.key, 7) AND pending.value != 'null'))`,
     scope,
   );
 }

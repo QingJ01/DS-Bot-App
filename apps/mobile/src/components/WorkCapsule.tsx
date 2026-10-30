@@ -1,5 +1,6 @@
+import { Text } from "./Typography";
 import React from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { AnimatedPressable as Pressable } from "./Motion";
 import { BotAvatar } from "./BotAvatar";
 import { useTheme } from "../theme";

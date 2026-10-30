@@ -1,6 +1,7 @@
+import { Text } from "./Typography";
 import { tr } from "../i18n";
 import React, { useState } from "react";
-import { Linking, Platform, ScrollView, Text, View } from "react-native";
+import { Linking, Platform, ScrollView, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { ToolActivity } from "@ds-bot/mobile-sdk";
 import { shouldShowViewCard, toolDisplay } from "../logic/tool-results";

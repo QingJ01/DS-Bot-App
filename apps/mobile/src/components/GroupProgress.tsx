@@ -1,5 +1,6 @@
+import { Text } from "./Typography";
 import React, { useEffect, useState } from "react";
-import { AppState, Text, View } from "react-native";
+import { AppState, View } from "react-native";
 import { MobileClient } from "@ds-bot/mobile-sdk";
 import { Room, TeamState, WorkStatus, errorText } from "../types";
 import { useTheme } from "../theme";

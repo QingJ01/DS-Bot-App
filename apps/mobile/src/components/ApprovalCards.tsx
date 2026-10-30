@@ -1,6 +1,7 @@
+import { Text } from "./Typography";
 import { language, tr } from "../i18n";
 import React, { useEffect, useRef, useState } from "react";
-import { AppState, Platform, Text, View } from "react-native";
+import { AppState, Platform, View } from "react-native";
 import type { Message, MobileClient } from "@ds-bot/mobile-sdk";
 import { Button, Notice, styles } from "./UI";
 import { useTheme } from "../theme";

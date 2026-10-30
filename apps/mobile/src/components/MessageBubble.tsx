@@ -1,8 +1,9 @@
+import { Text } from "./Typography";
 import { systemEventLabel } from "../logic/system-events";
 import { ToolResultView } from "./ToolResultView";
 import { tr } from "../i18n";
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, Keyboard, Platform, Share, Text, View } from "react-native";
+import { ActivityIndicator, Image, Keyboard, Platform, Share, View } from "react-native";
 import { AnimatedPressable as Pressable } from "./Motion";
 import * as Clipboard from "expo-clipboard";
 import * as Speech from "expo-speech";

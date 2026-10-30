@@ -1,19 +1,8 @@
+import { Text, TextInput } from "./Typography";
 import { tr } from "../i18n";
 import React, { useEffect } from "react";
 import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  BackHandler,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TextInputProps,
-  View,
-  Switch,
-} from "react-native";
+  ActivityIndicator, KeyboardAvoidingView, Platform, BackHandler, Modal, ScrollView, StyleSheet, TextInputProps, View, Switch } from "react-native";
 import { AnimatedPressable as Pressable, PageTransition } from "./Motion";
 import { contrastText, useTheme } from "../theme";
 import { BRAND_BLUE } from "../logic/colors";

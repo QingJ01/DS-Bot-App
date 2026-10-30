@@ -1,3 +1,4 @@
+import { Text } from "./Typography";
 import { tr } from "../i18n";
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";

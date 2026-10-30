@@ -1,17 +1,11 @@
+import { Text, TextInput, setFontScale, useFontScale, FontScale } from "./components/Typography";
 import { createMobileClient } from "./network/client";
 import { useNotifications } from "./hooks/useNotifications";
 import { stopBackgroundNotifications } from './media/background-notifications';
 import { tr } from "./i18n";
 import React, { useEffect, useRef, useState } from "react";
 import {
-  BackHandler,
-  Platform,
-  ScrollView,
-  StatusBar,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+  BackHandler, Platform, ScrollView, StatusBar, View } from "react-native";
 import { AnimatedPressable as Pressable } from "./components/Motion";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { Conversation, Message, MobileClient } from "@ds-bot/mobile-sdk";
@@ -54,7 +48,8 @@ import {
   useI18n,
 } from "./i18n";
 import { conversationTime, orderConversations } from "./logic/conversation-order";
-import { groupWorkMembers, ownBotWork, waitingNames, workDescription } from "./logic/group-work";
+import { groupWorkMembers, ownBotWork, waitingNames } from "./logic/group-work";
+
 type Route =
   | {
       page: "home";
@@ -77,6 +72,7 @@ type Route =
     };
 function Shell() {
   const t = useTheme();
+  const fontScale = useFontScale();
   const { tr, locale } = useI18n();
   const [classic, setClassic] = useState(false);
   const [host, setHost] = useState<Host | null>(null);
@@ -145,11 +141,13 @@ function Shell() {
       void readCache<{
         classic?: boolean;
         locale?: LocalePreference;
+        fontScale?: FontScale;
       }>(host.serverId, "mobile-preferences")
         .then((value) => {
           if (alive && value) {
             setClassic(!!value.classic);
             setLocalePreference(value.locale || "host");
+            setFontScale(value.fontScale);
           }
         })
         .catch(() => {});
@@ -174,17 +172,20 @@ function Shell() {
   async function localPreferences(patch: {
     classic?: boolean;
     locale?: LocalePreference;
+    fontScale?: FontScale;
   }) {
     if (!host) return;
     const previous =
       (await readCache<{
         classic?: boolean;
         locale?: LocalePreference;
+        fontScale?: FontScale;
       }>(host.serverId, "mobile-preferences")) || {};
     await writeCache(host.serverId, "mobile-preferences", {
       ...previous,
       ...patch,
     });
+    if (patch.fontScale !== undefined) setFontScale(patch.fontScale);
     if (patch.classic !== undefined) {
       setClassic(patch.classic);
       setSelected("");
@@ -340,10 +341,12 @@ function Shell() {
     const active = item.id === conversation?.id;
     const lastActivity = conversationTime(item, previews[item.id]);
     const needsApproval = workspace.team.work?.approvals.some(entry => bot ? entry.botId === bot.id && !entry.roomId : room ? entry.roomId === room.id : false);
+    const preview = previews[item.id];
+    const messagePreview = preview?.text.replace(/\s+/g, " ").trim() || (preview?.attachments?.length ? tr("Attachment message") : "") || (typeof item.preview === "string" ? item.preview : "");
     const work = bot ? ownBotWork(bot.id, workspace.team) : room ? groupWorkMembers(room, workspace.team).find(member => member.work)?.work : undefined;
     const names = waitingNames(work);
-    const waiting = names.length ? tr("Waiting for {p0}", { p0: names.join(locale === "zh" ? "、" : ", ") }) : "";
-    const workPreview = needsApproval ? tr("Waiting for approval") : waiting || (work?.switching ? tr("Moving to a fresh conversation") : workDescription(work) || (work ? tr("Working") : ""));
+    const status = names.length ? tr("Waiting for {p0}", { p0: names.join(locale === "zh" ? "、" : ", ") }) : work?.switching ? tr("Moving to a fresh conversation") : work ? tr("Working") : "";
+    const subtitle = needsApproval ? tr("Waiting for approval") : item.waiting ? tr("Waiting for your answer") : status || messagePreview;
       return (
       <Pressable
         key={item.id}
@@ -359,20 +362,20 @@ function Shell() {
         style={({ pressed }) => ({
           flexDirection: "row",
           alignItems: "center",
-          gap: 18,
+          gap: 12,
           paddingHorizontal: 8,
-          paddingVertical: 24,
-          minHeight: 92,
+          paddingVertical: 14,
+          minHeight: 72,
           borderRadius: 22,
           backgroundColor: pressed ? t.hover : undefined,
         })}
       >
         {bot ? (
-          <BotAvatar bot={bot} size={50} main={main} live={!!item.waiting} />
+          <BotAvatar bot={bot} size={44} main={main} live={!!item.waiting} animate={false} />
         ) : room ? (
-          <RoomAvatar room={room} team={workspace.team} size={50} />
+          <RoomAvatar room={room} team={workspace.team} size={44} />
         ) : (
-          <View style={{ width: 50, alignItems: "center" }}>
+          <View style={{ width: 44, alignItems: "center" }}>
             <Icon name="bots" color={t.muted} />
           </View>
         )}
@@ -382,16 +385,12 @@ function Shell() {
             style={{
               color: t.ink,
               fontWeight: "600",
-              fontSize: 20,
+              fontSize: 17,
             }}
           >
             {item.name || tr("New conversation")}
-            {needsApproval ? " · " + tr("Waiting for approval") : ""}
           </Text>
-          <Text numberOfLines={1} style={{fontSize:17,lineHeight:24,color:t.muted}}>
-            {workPreview || previews[item.id]?.text.replace(/\s+/g," ").trim() || (previews[item.id]?.attachments?.length ? tr("Attachment message") : "") || (typeof item.preview === "string" && item.preview) ||
-              (item.waiting ? tr("Waiting for your answer") : bot?.role || (room ? room.members.map(id => workspace.team.bots.find(b => b.id === id)?.name || id).join(" · ") : tr("DSH Agent")))}
-          </Text>
+          {!!subtitle && <Text numberOfLines={1} style={{fontSize:14,lineHeight:20,color:t.muted}}>{subtitle}</Text>}
         </View>
         <View style={{alignItems:"flex-end",alignSelf:"stretch",justifyContent:"space-between",paddingVertical:4,gap:10}}>
           {!!lastActivity && <Text style={{fontSize:14,color:t.muted}}>{new Date(lastActivity).toLocaleDateString() === new Date().toLocaleDateString()
@@ -441,7 +440,6 @@ function Shell() {
             <Notice error text={workspace.error || error}/>
             {!searching && homeScroll > 120 && unreadAbove.length > 0 && <Pressable accessibilityRole="button" accessibilityLabel={tr("{count} unread",{count:unreadAbove.length})} onPress={() => {const first=unreadAbove[0];homeList.current?.scrollTo({y:Math.max(0,rowPositions.current[first.id].y-110),animated:true});}} style={{position:"absolute",top:88,alignSelf:"center",zIndex:3,backgroundColor:t.accent,borderRadius:24,paddingHorizontal:14,minHeight:44,flexDirection:"row",alignItems:"center",gap:6}}><Icon name="up" size={18} color={t.accentText}/><Text style={{fontSize:18,fontWeight:"600",color:t.accentText}}>{tr("{count} unread",{count:unreadAbove.length})}</Text></Pressable>}
             <ScrollView ref={homeList} onScroll={event => setHomeScroll(event.nativeEvent.contentOffset.y)} scrollEventThrottle={80} contentContainerStyle={{paddingHorizontal:16,paddingTop:searching ? 0 : 80,paddingBottom:24}} keyboardShouldPersistTaps="handled">
-              {!query && chief && !classic && <Pressable accessibilityRole="button" accessibilityLabel={tr("Open {p0}",{p0:chief.name})} onPress={() => choose(chief.id)} onLongPress={() => {const item=workspace.conversations.find(c=>c.sessionId===chief.sessionId);if(item)details(item);}} style={{alignItems:"center",paddingTop:24,paddingBottom:28,gap:12}}><BotAvatar bot={chief} size={100}/><Text style={{fontSize:16,color:t.muted}}>{chief.name}</Text></Pressable>}
               {sorted.map(conversationRow)}
               {!sorted.length && <View style={{padding:24,gap:16}}><Label muted>{tr("No conversations found.")}</Label>{classic ? <Button title={tr("New DSH Agent")} disabled={creating || !workspace.online} onPress={addAgent}/> : <Button secondary title={tr("Reconnect")} onPress={workspace.refresh}/>}</View>}
             </ScrollView>
@@ -544,6 +542,12 @@ function Shell() {
             }}
             onLocaleChange={(value) => {
               void localPreferences({ locale: value }).catch((err) =>
+                setError(errorText(err)),
+              );
+            }}
+            fontScale={fontScale}
+            onFontScaleChange={(value) => {
+              void localPreferences({ fontScale: value }).catch((err) =>
                 setError(errorText(err)),
               );
             }}

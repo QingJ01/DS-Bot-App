@@ -1,5 +1,6 @@
+import { Text } from "./Typography";
 import React from 'react';
-import {Modal, ScrollView, Text, View} from 'react-native';
+import {Modal, ScrollView, View} from 'react-native';
 import { AnimatedPressable as Pressable } from "./Motion";
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useTheme} from '../theme';

@@ -1,8 +1,9 @@
+import { Text } from "../components/Typography";
 import { createMobileClient } from "../network/client";
 import { tr } from "../i18n";
 import { useI18n } from "../i18n";
 import React, { useEffect, useRef, useState } from "react";
-import { Platform, ScrollView, Switch, Text, View } from "react-native";
+import { Platform, ScrollView, Switch, View } from "react-native";
 import { BotAvatar, mainLook } from "../components/BotAvatar";
 import { PairingScanner } from "../components/PairingScanner";
 import { MobileClient, validateServerUrl } from "@ds-bot/mobile-sdk";
