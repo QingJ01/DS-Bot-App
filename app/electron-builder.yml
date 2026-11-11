@@ -35,8 +35,6 @@ win:
       arch: [x64]
   icon: assets/icon.ico
 nsis:
-  # Preserve the GUID derived from the legacy appId so installed copies upgrade in place.
-  guid: 32c46dfc-ed78-5d41-85a4-a3c7f083f2e0
   oneClick: false
   perMachine: false
   allowElevation: false

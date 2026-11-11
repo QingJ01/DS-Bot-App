@@ -23,7 +23,7 @@ services:
       PGID: "1000"
       # Add your NAS/LAN IP and host names, without ports.
       DSH_TRUSTED_HOST: "localhost,127.0.0.1"
-      DSH_HOST: "${DSH_HOST:-}"
+      DSH_HOST: "0.0.0.0"
       DSH_LISTEN_PORT: "3080"
       # DSH_TELEMETRY_DISABLED: "1"
     volumes:

@@ -56,6 +56,12 @@ test('the app has the version of ds-bot', () => {
   assert.equal(lock.packages['node_modules/ds-bot'].version, plugin.version)
 })
 
+test('the Windows installer uses the fork app id and default upgrade GUID', () => {
+  const config = parse(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'))
+  assert.equal(config.appId, 'io.github.qingj01.dsbotapp')
+  assert.equal(config.nsis?.guid, undefined)
+})
+
 // Tool processes (bash, scripts a Bot runs) connect to devices on the local network;
 // macOS blocks them outright when Info.plist has no NSLocalNetworkUsageDescription.
 test('the mac package asks macOS for local network access', () => {
