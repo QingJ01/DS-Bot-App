@@ -34,7 +34,9 @@
     "src/host/",
     "src/mobile/",
     "src/shared/",
+    "src/office/",
     "client.js",
+    "office.js",
     "web-search.js",
     "cordis.patch.yml",
     "README.md",
@@ -50,6 +52,7 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
     "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-scope": "*",
     "@deepseek-ai/dsh-tools": "*",
     "@deepseek-ai/dsh-web": "*",
     "@deepseek-ai/dsh-session-reference": "*"
@@ -63,11 +66,13 @@
     }
   },
   "devDependencies": {
+    "@xmldom/xmldom": "0.9.12",
     "esbuild": "0.28.2",
     "react": "19.1.0",
     "react-dom": "19.1.0"
   },
   "dependencies": {
+    "deep-view": "0.1.0",
     "qrcode": "1.5.4",
     "ws": "8.21.0"
   },
@@ -75,5 +80,4 @@
     "@deepseek-ai/dsh-session-reference": {
       "optional": true
     }
-  }
 }

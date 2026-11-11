@@ -48,6 +48,8 @@ const ACTIONS = {
   ...MANAGEMENT_ACTIONS,
 }
 export const MOBILE_ACTIONS = Object.freeze(Object.keys(ACTIONS))
+const BOT_FIELDS = ['id', 'name', 'role', 'color', 'instructions', 'model', 'sessionId', 'parts', 'waiting', 'avatar', 'appliedModel', 'effort', 'permission', 'workDir', 'pinned', 'hidden', 'capabilities', 'createdAt']
+const ROOM_FIELDS = ['id', 'name', 'admin', 'notice', 'mode', 'named', 'pinned', 'hidden', 'workDir', 'permission', 'relayLimit', 'relayLimitDefault', 'preview', 'createdAt']
 const error = (status, code, message) => Object.assign(new Error(message), { status, code })
 const unavailable = message => error(503, 'mobile/unavailable', message)
 const signalFor = signal => signal ?? AbortSignal.timeout(30_000)
@@ -205,16 +207,30 @@ export function createAdapter(rt) {
     // Explicit selection keeps future host-only administration fields off phones.
     const selected = Object.fromEntries(['revision', 'workspaceId', 'colors', 'modelsKey', 'mainBotId', 'mainBotIds', 'bots', 'rooms', 'models', 'defaultModel', 'questions',
       'activity', 'permissions', 'memory', 'memoryNews', 'memoryReviews', 'readOnly', 'prefs'].filter(key => value[key] !== undefined).map(key => [key, value[key]]))
-    selected.rooms = (value.rooms ?? []).map(room => ({ ...room, parts: [] }))
+    const bots = (value.bots ?? []).filter(bot => bot && bot.private !== true && validId(bot.id))
+    const botIds = new Set(bots.map(bot => bot.id))
+    selected.bots = bots.map(bot => Object.fromEntries(BOT_FIELDS.filter(key => bot[key] !== undefined).map(key => [key, bot[key]])))
+    selected.rooms = (value.rooms ?? []).map(room => ({
+      ...Object.fromEntries(ROOM_FIELDS.filter(key => room[key] !== undefined).map(key => [key, room[key]])),
+      members: (room.members ?? []).filter(id => botIds.has(id)),
+      ...(Array.isArray(room.paused) ? { paused: room.paused.filter(item => botIds.has(item.id)).map(item => ({ id: item.id, ...(typeof item.name === 'string' ? { name: item.name } : {}) })) } : {}),
+      parts: [],
+    }))
+    const roomIds = new Set(selected.rooms.map(room => room.id))
+    if (Array.isArray(value.mainBotIds)) selected.mainBotIds = value.mainBotIds.filter(id => botIds.has(id))
+    if (selected.mainBotId !== undefined && !botIds.has(selected.mainBotId)) delete selected.mainBotId
+    selected.activity = Object.fromEntries(Object.entries(value.activity ?? {}).filter(([id]) => botIds.has(id) || roomIds.has(id)))
+    selected.memoryNews = Object.fromEntries(Object.entries(value.memoryNews ?? {}).filter(([id]) => botIds.has(id) || roomIds.has(id)))
+    selected.memoryReviews = Object.fromEntries(Object.entries(value.memoryReviews ?? {}).filter(([id]) => botIds.has(id) || roomIds.has(id)))
     selected.agents = agentView(value.agents)
     const questionOwners = new Map([
-      ...(value.bots ?? []).flatMap(bot => [bot.id, bot.sessionId, ...(bot.parts ?? [])].map(id => [id, bot.id])),
-      ...(value.rooms ?? []).flatMap(room => [room.id, ...(room.parts ?? [])].map(id => [id, room.id])),
+      ...bots.flatMap(bot => [bot.id, bot.sessionId, ...(bot.parts ?? [])].map(id => [id, bot.id])),
+      ...selected.rooms.flatMap(room => [room.id, ...(room.parts ?? [])].map(id => [id, room.id])),
       ...selected.agents.flatMap(agent => agent.sessions.map(id => [id, `agent:${agent.id}:${id}`])),
     ])
     selected.questions = Object.fromEntries(Object.entries(value.questions ?? {}).filter(([id]) => questionOwners.has(id))
       .map(([sessionId, question]) => [sessionId, { ...question, sessionId, conversationId: questionOwners.get(sessionId) }]))
-    const botOwners = new Map((value.bots ?? []).flatMap(bot => [bot.id, bot.sessionId, ...(bot.parts ?? [])]
+    const botOwners = new Map(bots.flatMap(bot => [bot.id, bot.sessionId, ...(bot.parts ?? [])]
       .filter(validId).map(sessionId => [sessionId, bot.id])))
     selected.views = Object.fromEntries(Object.entries(value.views ?? {}).flatMap(([sessionId, pending]) => {
       const botId = botOwners.get(sessionId)
@@ -230,7 +246,7 @@ export function createAdapter(rt) {
     selected.sideChatAvailable = true
     selected.connectors = connectors(value.connectors)
     selected.secrets = (value.secrets ?? []).map(secretView).filter(Boolean)
-    selected.secretRequests = Object.fromEntries(Object.entries(value.secretRequests ?? {}).filter(([id]) => value.bots?.some(bot => bot.id === id))
+    selected.secretRequests = Object.fromEntries(Object.entries(value.secretRequests ?? {}).filter(([id]) => botIds.has(id))
       .map(([id, requests]) => [id, (Array.isArray(requests) ? requests : []).map(request => ({
         ...Object.fromEntries(['id', 'name', 'purpose', 'kind', 'status', 'callId', 'askedAt', 'createdAt', 'updatedAt', 'settledAt'].filter(key => request[key] !== undefined).map(key => [key, request[key]])),
         conversationId: id, ...(questionOwners.get(request.sessionId) === id ? { sessionId: request.sessionId } : {}),
@@ -241,8 +257,6 @@ export function createAdapter(rt) {
       ...(item.kind === 'mcp' ? { transport: item.transport === 'streamable-http' ? 'streamable-http' : 'stdio', approved: item.approved === true } : {}),
       ...(item.kind === 'pack' ? { items: (Array.isArray(item.items) ? item.items : []).filter(name => typeof name === 'string') } : {}),
     }))
-    const botIds = new Set((selected.bots ?? []).map(bot => bot.id))
-    const roomIds = new Set(selected.rooms.map(room => room.id))
     const waitingFor = (botId, roomId) => {
       const pending = value.work?.waiting?.[botId]
       if (!pending || typeof pending !== 'object') return undefined

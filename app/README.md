@@ -1,6 +1,6 @@
 # DS Bot App desktop app
 
-The Electron app for Windows, macOS and Linux. It installs a pinned DeepSeek Harness (DSH 0.2.1-rc.2) and the `ds-bot` plugin of this repository, boots its own DSH profile `ds-bot` through `@deepseek-ai/dsh/profile-boot`, and keeps its data in its own `DSH_HOME`. It never writes to `~/.dsh`. Its window shows DSH's Web front end with the plugin, as DSH Desktop does. The design is in [docs/plans/2026-10-16-desktop-app.md](../docs/plans/2026-10-16-desktop-app.md).
+The Electron app for Windows, macOS and Linux. It installs a pinned DeepSeek Harness (DSH 0.2.1-rc.4) and the `ds-bot` plugin of this repository, boots its own DSH profile `ds-bot` through `@deepseek-ai/dsh/profile-boot`, and keeps its data in its own `DSH_HOME`. It never writes to `~/.dsh`. Its window shows DSH's Web front end with the plugin, as DSH Desktop does. The design is in [docs/plans/2026-10-16-desktop-app.md](../docs/plans/2026-10-16-desktop-app.md).
 
 ## Run
 
@@ -11,6 +11,8 @@ npm start                               # starts the app
 ```
 
 When GitHub downloads are slow, set `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` before the Electron download. Unset `ELECTRON_RUN_AS_NODE` before `npm start` if your terminal has it (terminals inside some Electron-based editors do): with it, Electron runs as plain Node and the app does not start.
+
+`npm run runtime` downloads the runtime payload (Python with the document libraries, a standalone Node, the Office skill assets) into `build/runtime`. On Linux, run it before `npm start`: the Host uses this plain Node to keep sharp's libvips out of Electron's process. On macOS and Windows the payload is optional for source runs; without it only the Office skills are unavailable. `beforePack` prepares the payload for every package.
 
 npm installs `ds-bot` from `../ds-bot` as a copy of its package files (`install-links` in `.npmrc`), so the app runs the plugin of this checkout. Run `npm ci` again after you change `ds-bot` or merge a branch that changes it: while the version stays the same, `npm install` keeps the old copy. `overrides` in `package.json` pins the four peer dependencies of `ds-bot` to the DSH version: they are declared as `*`, and npm does not choose a pre-release to satisfy `*`.
 
@@ -43,13 +45,13 @@ The Host's profile `ds-bot` is in `profiles/ds-bot` in the data location. It sta
 | `@deepseek-ai/dsh-web-app` | DSH's Web front end, which the window shows, and the host services that it and ds-bot use |
 | `ds-bot` | The Bot team |
 
-At every start the Host puts these three bundles at the head of the profile's bundle list. Settings for one machine go into the profile's `cordis.patch.yml`, as in DSH. A profile from an earlier build that lists `deepseek-bot-engine` gets `@deepseek-ai/dsh-web-app` in its place.
+At every start the Host puts these three bundles at the head of the profile's bundle list. Settings for one machine go into the profile's `cordis.patch.yml`, as in DSH. A profile from an earlier build that lists `dsbot-engine` gets `@deepseek-ai/dsh-web-app` in its place.
 
 ## Check a change
 
-`npm test` checks the composition of the profile, the import on throwaway folders, the first-run check on a chat with a record that the pinned DSH does not know, and that every package the app runs on is a dependency (see [Package](#package)).
+`npm test` checks the composition of the profile, the import on throwaway folders, the first-run check on a chat with a record that the pinned DSH does not know, and that every package the app runs on is a dependency (see [Package](#package)). It also checks the window and the tray: the close hides the window, the tray opens it again, a window that is gone is built anew against the Host that runs, the application menu of macOS has no Quit of its own, the launch URL of the Host is used once, and the update waits for a window that is hidden. The main process runs there with the Electron parts as test doubles (`test/helpers/`), so that no display, no DSH and no data of the user are needed.
 
-`scripts/shot.mjs` starts the app on throwaway folders, saves a screenshot of its window, prints the page text, closes the window the way a user does and waits until the app exits. Use the mock model of the plugin, `../ds-bot/dev/mock-llm.mjs` (`MOCK_PORT=<port> node ../ds-bot/dev/mock-llm.mjs`).
+`scripts/shot.mjs` starts the app on throwaway folders, saves a screenshot of its window, prints the page text, closes the window the way a user does (it hides, and the app goes on) and ends the app the way the tray's Quit ends it. Use the mock model of the plugin, `../ds-bot/dev/mock-llm.mjs` (`MOCK_PORT=<port> node ../ds-bot/dev/mock-llm.mjs`).
 
 ```sh
 DS_BOT_HOME=<tmp>/home DS_BOT_SHELL_DATA=<tmp>/shell \
@@ -77,7 +79,7 @@ electron-builder packs only the packages that it finds through `dependencies` an
 
 The Windows installer installs for the current user only, without administrator rights, by default into `%LOCALAPPDATA%\Programs\DS Bot App` (`build/installer.nsh` skips the page that asks for all users or only for the current one). The uninstaller removes the program and keeps the data location and the app's own data. CI builds the Windows installer on every pull request, checks the packaged app, then installs it, checks the installed app and uninstalls it. For a change to `app/` or the workflows, it also updates the installed app before the uninstall (see [Updates](#updates)).
 
-Linux gets one AppImage for every distribution — it runs on any glibc system, updates itself, and needs no per-distribution packages — and a deb for Debian/Ubuntu, built in the same `npm run dist`. An AppImage mounts through FUSE 2 (`libfuse2t64` on Ubuntu 24.04+/Debian 13+, `libfuse2` on Ubuntu 22.04, `fuse-libs` on Fedora, `fuse2` on Arch; `--appimage-extract-and-run` works without it). Ubuntu 24.04 and later restrict the unprivileged user namespaces that Chromium's sandbox needs, so an AppImage can refuse to start there ("The SUID sandbox helper binary was found, but is not configured correctly"): the deb does not have this problem, since its post-install sets `chrome-sandbox` up (electron-builder 26 also writes an AppArmor profile). The binary and the deb's menu entry are `deepseek-bot` (`executableName`); the deb installs into `/opt/DeepSeek Bot`. CI builds the Linux packages on every pull request, checks the AppImage's self-update on a throwaway copy, and installs, checks, update-checks and removes the deb.
+Linux gets one AppImage for every distribution — it runs on any glibc system, updates itself, and needs no per-distribution packages — and a deb for Debian/Ubuntu, built in the same `npm run dist`. An AppImage mounts through FUSE 2 (`libfuse2t64` on Ubuntu 24.04+/Debian 13+, `libfuse2` on Ubuntu 22.04, `fuse-libs` on Fedora, `fuse2` on Arch; `--appimage-extract-and-run` works without it). Ubuntu 24.04 and later restrict the unprivileged user namespaces that Chromium's sandbox needs, so an AppImage can refuse to start there ("The SUID sandbox helper binary was found, but is not configured correctly"): the deb does not have this problem, since its post-install sets `chrome-sandbox` up (electron-builder 26 also writes an AppArmor profile). The binary and the deb's menu entry are `dsbot` (`executableName`); the deb installs into `/opt/DS Bot`. CI builds the Linux packages on every pull request, checks the AppImage's self-update on a throwaway copy, and installs, checks, update-checks and removes the deb.
 
 ## Updates
 
@@ -105,19 +107,37 @@ On macOS and for a Linux deb, pass the app executable and a version to mock a ne
 node scripts/check-update.mjs "<app executable>" 99.0.0
 ```
 
-The script serves a releases list with one release of that version that has this machine's package (the Mac's zip, or the `linux-amd64` deb), starts the app on throwaway folders with it, waits until the app logs the new version, and closes the window. It does not open a browser.
+The script serves a releases list with one release of that version that has this machine's package (the Mac's zip, or the `linux-amd64` deb), starts the app on throwaway folders with it, waits until the app logs the new version, and ends the app the way the tray's Quit ends it. It does not open a browser.
+
+## The tray and quitting
+
+The app builds a system tray icon on Windows, macOS and Linux (`src/shell.mjs`, `src/tray.mjs`); the icon is the app's own whale (`assets/tray.*`, drawn by `npm run icon`). The menu holds "Open DS Bot" and "Quit DS Bot". Whether the icon is visible belongs to the desktop: on Linux, GNOME and KDE draw it only with a tray extension.
+
+Closing the window hides it: the Host and the Bots go on working, and the Bot browsers' tabs stay. Starting the app again brings the window back, because the second copy hands itself to the one that runs. When the window is gone for good, the tray's Open builds a new one that talks to the Host that runs: it loads the Host's plain address, and the cookie of the first load still carries the session, so neither the launch token nor a second Host is needed.
+
+No window closed ends the app; the tray's Quit is the one ordinary way out. The first close asks once, because the app stays in the tray; the answer is kept in the app's own data (the `tray-close-acknowledged` file in its user data folder). A close during the first start's import or during a data move cancels that work, as it did before. An update that restarts the app, a data move that restarts it, a failed start and the end of the operating system's session close the window for good.
+
+The application menu of macOS has no Quit and no ⌘Q, for the same reason: the tray's Quit is the one ordinary way out. Only when the tray cannot be built does the menu carry a Quit, so that the app can still be ended.
+
+Without a tray (some Linux desktops have none), closing the window asks whether the app should end, and minimizes it when the answer is no: the window stays reachable, and the app does not vanish. This is the one exceptional path, and it is the only place where the app asks before it ends.
+
+The launch URL of the Host is good for one use only. When the first load never came through (the window died while it loaded), no window carries the token again: the new window loads the Host's plain address, and the Host refuses it when the cookie is not there. Starting the app again then gives a new token.
+
+`scripts/check-lifecycle.mjs` (`npm run check-lifecycle`) checks this in a real Electron with a fake Host: no DSH, no model, no data of the user. It keeps its data in `app/.dsh-test-tray-lifecycle` and removes it afterwards. It needs a desktop; the unit tests cover the same rules without one.
 
 ## Layout
 
 | File | What it does |
 |---|---|
 | `src/main.mjs` | Main process: one instance, the window, which loads the Host's loopback address as DSH Web does, and the sign-in page DSH opens, which goes to the system browser |
+| `src/shell.mjs`, `src/tray.mjs`, `src/background-notice.mjs` | The window and the tray: the window hides instead of closing, the tray opens it again and quits the app, and the one-time confirmation before the window hides |
+| `src/update-prompt.mjs` | An update prompt that waits for the window to be shown again |
 | `src/host-port.mjs` | The Host's port, kept between starts, since the page keeps its storage per address |
 | `src/preload.cjs` | Hands DS Bot's settings the data location and its move, and DS Bot's Bot browsers their webview leases and cookie imports. On Windows it marks the page for the frameless window and sends the caption buttons the colors of the surface under them |
 | `src/bot-browser.mjs` | The Bot browsers' webviews: only a leased one attaches, with fixed preferences; each Bot's logins stay on disk until the Bot is deleted; pages cannot reach the Host |
 | `src/cookie-parse.mjs`, `src/cookie-import.mjs`, `src/browser-sources.mjs` | Cookie imports: the cookie-file parser (Cookie-Editor JSON, Netscape, Playwright storageState), the write into a Bot's partition with read-back and flush, and the installed-browser profiles a source is cloned from — the source browser itself decrypts its own store over a CDP pipe; values never leave the main process |
 | `src/window-frame.mjs`, `src/mica.css` | The frameless Windows window: the caption band, when Mica is available (Windows 11 22H2 and later), and the stylesheet that lets Mica through the sidebar |
-| `src/host-process.mjs` | Starts the Host in Electron's Node mode and owns its exit |
+| `src/host-process.mjs` | Starts the Host in the bundled plain Node on Linux, Electron's Node mode elsewhere, and owns its exit |
 | `src/host.mjs` | The Host: boots the profile with `runProfile()` and reports the launch URL and the page injections; for the first-run check (`DS_BOT_CHECK`), the chats it cannot read |
 | `src/profile.mjs` | The profiles: the app's own and the first-run check's, their bundles, and their creation and update |
 | `src/session-check.mjs` | Which chats the pinned DSH refuses because a newer DSH wrote them |
@@ -125,13 +145,14 @@ The script serves a releases list with one release of that version that has this
 | `src/import.mjs` | The import of a Bot team from the user's DSH |
 | `src/move-data.mjs` | The move of the data location: which folders can take it, and the copy through a staging folder |
 | `src/updates.mjs` | The self-updates (Windows installer, Linux AppImage) and the release-page checks (macOS, Linux deb) |
-| `engine/` | On hold, not installed: the bundle `deepseek-bot-engine` for the app's own window in `ui/` |
-| `test/` | `npm test`: the composition of the profile, and the dependencies that the package needs |
+| `engine/` | On hold, not installed: the bundle `dsbot-engine` for the app's own window in `ui/` |
+| `test/` | `npm test`: the composition of the profile, the dependencies that the package needs, and the window and the tray (the main process runs there with the Electron parts as test doubles, in `test/helpers/`) |
 | `ui/` | On hold, not built or packaged: the app's own window. React, built with Vite (`vite.config.js`) into `ui/dist`. It draws the plugin's own Bot views from `../ds-bot/src/client/` (sidebar, chat rows, docks, dialogs and their stylesheets) and puts its own Markdown in place of DSH's. It uses ds-bot's `api/bot` channel and its live feed `api/bot/feed` |
-| `assets/` | The app icon: `icon.svg`, `icon.png` (1024 px) and `icon.ico` (Windows, 16 to 256 px). `npm run icon` (`scripts/icon.mjs`) draws them again from the Main Bot's whale in `../ds-bot` |
+| `assets/` | The app icon: `icon.svg`, `icon.png` (1024 px) and `icon.ico` (Windows, 16 to 256 px), and the tray marks: `tray.ico` (Windows), `tray.png` (Linux) and `trayTemplate.png` with its `@2x` (macOS). `npm run icon` (`scripts/icon.mjs`) draws them again from the Main Bot's whale in `../ds-bot` |
 | `electron-builder.yml`, `build/` | The package and the installers: app identity, files, icons, the Windows installer, the macOS zip and the Linux AppImage and deb |
 | `scripts/check-packed.mjs` | `npm run check-packed`: the check of a packaged app |
 | `scripts/check-update.mjs` | The check of a packaged app's update from a feed folder (Windows, AppImage) or a mocked release (macOS, deb) |
+| `scripts/check-lifecycle.mjs` | `npm run check-lifecycle`: the check of the window and the tray in a real Electron, with a fake Host |
 
 The Host installs plugins with the app's own pnpm (`node_modules/pnpm`).
 

@@ -77,11 +77,11 @@ function EffortRows({ reasoning, current, onPick }) {
     h('div', { className: 'bt-menu-sep', role: 'separator' }),
     h('div', { className: 'bt-model-group', role: 'presentation' }, t('Thinking level')),
     effortRows(reasoning).map(row => h('button', {
-      key: row.effort ?? 'default', type: 'button', role: 'menuitemradio', 'aria-checked': row.effort === current,
+      key: row.effort ?? 'default', type: 'button', role: 'menuitemradio', 'aria-checked': (row.effort ?? null) === (current ?? null),
       onClick: () => onPick(row.effort),
     },
     h('span', { className: 'bt-menu-label' }, row.label),
-    h('span', { className: 'bt-model-tick', 'aria-hidden': true }, row.effort === current ? h(CheckIcon) : null))))
+    h('span', { className: 'bt-model-tick', 'aria-hidden': true }, (row.effort ?? null) === (current ?? null) ? h(CheckIcon) : null))))
 }
 
 function ModelRows({ roster, current, onPick }) {
@@ -333,7 +333,8 @@ export const MODEL_CSS = `
 .bt-model-tick{flex:none;width:16px;height:16px;display:inline-flex;color:var(--bt-ink-2)}
 .bt-model-tick svg{animation:bt-check-pop ${SPRING_POP.duration}ms ${SPRING_POP.easing} 60ms backwards}
 .bt-model-none{padding:8px;font-size:13px;line-height:18px;color:var(--bt-ink-2)}
-.bt-model-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:0 0 10px;box-sizing:border-box;animation:bt-model-in ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
+/* DSH centers the message column inside its scroll padding, which can sit a few px off this dock's center; the side shadows keep the band over the column's edges. */
+.bt-model-dock{width:100%;max-width:var(--dsh-chat-content-width,748px);margin:0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:0 0 10px;box-sizing:border-box;background:var(--bt-main);box-shadow:-12px 0 0 var(--bt-main),12px 0 0 var(--bt-main);animation:bt-model-in ${SPRING_POP.duration}ms ${SPRING_POP.easing} backwards}
 .bt-model-chips{display:flex;flex-wrap:wrap;gap:6px;margin-left:30px;max-width:min(560px,calc(100% - 30px));max-height:min(240px,36vh);max-height:min(240px,36dvh);overflow-y:auto;scrollbar-width:thin}
 .bt-model-choice-group{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0}
 .bt-model-choice-provider{padding-top:4px;font-size:12px;line-height:16px;font-weight:500;color:var(--bt-ink-2);overflow-wrap:anywhere}

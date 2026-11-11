@@ -13,7 +13,7 @@ import { FolderMenu } from './folder-menu.js'
 import { MemoryRow } from './memory-panel.js'
 import { ScheduleSummary } from './schedules.js'
 import { useGlide, useMorph } from './motion.js'
-import { MemberApprovals, MemberState, StopMemberWork, useMemberWork, workState } from './member-status.js'
+import { MemberApprovals, MemberState, StopMemberWork, StopRoomWork, useMemberWork, workState } from './member-status.js'
 import { PermissionPicker, presetDanger, presetName } from './permission-picker.js'
 import { t } from './i18n.js'
 
@@ -74,7 +74,7 @@ function BrowserCards({ bot, sessionId, roster, actions, useBrowserTabs, useBrow
   const pages = useBrowserPages(map => map)
   useEffect(() => { actions.browserEnsure?.(bot.id) }, [bot.id])
   if (roster.browser !== true || !actions.browserShow) {
-    return h('div', { className: 'bt-muted' }, t('The browser is in DSH Desktop and the DeepSeek Bot app.'))
+    return h('div', { className: 'bt-muted' }, t('The browser is in DSH Desktop and the DS Bot app.'))
   }
   if (state.ids.length === 0) {
     return h('div', { className: 'bt-browser-empty-mark' },
@@ -158,7 +158,9 @@ function GroupOverview({ room, roster, actions, usage, useWork, openSettings }) 
       ? h(About, { key: 'notice', title: 'Notice', text: room.notice })
       : h('button', { key: 'notice', type: 'button', className: 'bt-more', onClick: openSettings }, t('Add a notice in group settings')),
     h('div', { key: 'members' },
-      h('div', { className: 'bt-section-title' }, t('Members · {count}', { count: members.length })),
+      h('div', { className: 'bt-members-head' },
+        h('div', { className: 'bt-section-title' }, t('Members · {count}', { count: members.length })),
+        h(StopRoomWork, { room, entries, actions })),
       h('div', { className: 'bt-members', role: 'list' }, members.map(member => h(MemberRow, {
         key: member.id, member, entry: entries.find(item => item.id === member.id), room, roster, actions,
       })))),

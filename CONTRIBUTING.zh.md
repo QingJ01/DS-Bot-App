@@ -96,7 +96,7 @@ npm run harness
 ```sh
 cd ..
 git clone https://github.com/deepseek-ai/deepseek-harness.git
-git -C deepseek-harness checkout dsh-v0.2.1-rc.2
+git -C deepseek-harness checkout dsh-v0.2.1-rc.3
 (cd deepseek-harness && pnpm install)
 ```
 

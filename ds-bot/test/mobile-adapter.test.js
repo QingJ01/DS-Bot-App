@@ -65,6 +65,28 @@ test('conversation activity timestamps come only from the owned public session s
   assert.equal(JSON.stringify(conversations).includes('do-not-expose'),false)
 })
 
+test('mobile state excludes private Bots and unallowlisted host fields', async () => {
+  const { view, adapter } = fixture()
+  view.bots[0].futureHostField = 'host-only'
+  view.bots.push({ id: 'private', name: 'Private', private: true, sessionId: 'private-session', archivePath: '/private' })
+  view.mainBotIds = ['b1', 'private']
+  view.activity.private = 'private activity'
+  view.memoryNews = { private: { text: 'private memory' } }
+  view.rooms[0].members.push('private')
+  view.rooms[0].hostOnly = 'host-only'
+  view.rooms[0].paused = [{ id: 'private', name: 'Private' }]
+  const state = await adapter.state()
+  assert.deepEqual(state.bots.map(bot => bot.id), ['b1', 'b2'])
+  assert.equal(state.bots[0].futureHostField, undefined)
+  assert.deepEqual(state.mainBotIds, ['b1'])
+  assert.deepEqual(state.rooms[0].members, ['b1', 'b2'])
+  assert.deepEqual(state.rooms[0].paused, [])
+  assert.equal(state.rooms[0].hostOnly, undefined)
+  assert.equal(state.activity.private, undefined)
+  assert.equal(state.memoryNews.private, undefined)
+  assert.equal(JSON.stringify(state).includes('/private'), false)
+})
+
 test('mobile resumes only an owned writable group and projects the returned state', async () => {
   const { rt, view, adapter, calls } = fixture()
   view.rooms[0].paused = [{ id: 'b1', name: 'Chief' }]
