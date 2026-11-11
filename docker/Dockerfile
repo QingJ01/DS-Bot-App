@@ -7,7 +7,7 @@
 FROM node:24-bookworm-slim AS build
 
 ARG NPM_REGISTRY=https://registry.npmjs.org/
-ARG DSH_VERSION=0.2.0-rc.2
+ARG DSH_VERSION=0.2.1-rc.4
 ARG PNPM_VERSION=12.14.0
 
 ENV COREPACK_HOME=/opt/corepack

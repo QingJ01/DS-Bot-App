@@ -44,3 +44,9 @@ Upstream npm/maintainer release machinery and issue-triage assets are excluded; 
 ### Validation
 
 Local gates passed: 797 plugin tests, 28 SDK tests, 78 App tests, 23 Python tests (7 skipped), 4 GitHub-install tests, 4 plugin-install tests (1 Windows-only skip), the r1 release check, TypeScript and generated-client checks, and lint (15 warnings). Mock-only host and mobile smoke passed 41 and 18 steps. Both Compose configurations and the Docker image build passed. `docker/test.mjs` did not pass: both runs timed out at the existing offline reinstall step while pnpm reported `Verifying lockfile against supply-chain policies (31 entries)...`; an isolated reproduction remained in that step. This is not counted as a pass. No native device/emulator UI acceptance, real-model behavior, public asset verification or CI result is claimed here.
+
+## Upstream v0.2.3–v0.2.6 sync
+
+Ported upstream `3f4442f1e4c29f48025436509a2bd5f4ccc6961f..5c514ad70d5f3fd1c3b72b2e76e530bef50989d7` onto the fork's `origin/main` line. The segment adds upstream Office/document handling, Deep View cards, private Bots, group-owned Session and import fixes, and related plugin, desktop, and test improvements.
+
+The upstream `mobile/**`, `link/**`, `.agents/skills/issue-triage/**`, release workflows, root README files, changelog, and upstream mobile-app plan were not imported. The fork keeps its own phone stack and desktop identity, `0.1.4` version line, storage migration, import isolation, serialized fail-closed permission updates, scheduler ownership/follow-up rules, immutable plugin pins, and Docker offline-install policy. Group-owned Sessions use the upstream behavior without cross-Session schedule migration; expired reminders remain current-part follow-ups. Upstream DSH pins are carried into the app, harness, and Docker while retaining the fork's offline pnpm cache and integrity/rollback metadata.

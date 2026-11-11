@@ -49,6 +49,12 @@ Fork 保留独立的 `0.1.2` 版本线、手机桥接、安装完整性规则、
 
 本地检查结果：插件 797 项、SDK 28 项、App 78 项、Python 23 项（跳过 7 项）、GitHub 安装 4 项、插件安装 4 项（Windows 专属检查跳过 1 项）、r1 发布检查、TypeScript 和生成客户端一致性通过；lint 通过（15 条 warning）。仅用 mock 的主机与移动 smoke 分别通过 41、18 步。两份 Compose 配置和 Docker 镜像构建通过。`docker/test.mjs` 未通过：两次运行均在既有的离线重装步骤超时，pnpm 输出 `Verifying lockfile against supply-chain policies (31 entries)...`；隔离复现仍停在该步骤，因此不计为通过。本轮未声称原生设备/模拟器界面验收、真实模型行为、公开发行资产验证或 CI 结果。
 
+## 同步上游 v0.2.3–v0.2.6
+
+将上游 `3f4442f1e4c29f48025436509a2bd5f4ccc6961f..5c514ad70d5f3fd1c3b72b2e76e530bef50989d7` 移植到 Fork 的 `origin/main`。本段包含上游 Office/文档处理、Deep View 卡片、私有 Bot、群聊自有 Session 与导入修复，以及相关插件、桌面端和测试更新。
+
+不导入上游 `mobile/**`、`link/**`、`.agents/skills/issue-triage/**`、发布工作流、根 README、CHANGELOG 和上游手机 App 计划文档。Fork 继续使用自己的手机栈、桌面身份、`0.1.4` 版本线、本地存储迁移、导入隔离、串行且失败关闭的权限更新、调度任务归属与后续转发规则、不可变插件 pin，以及 Docker 离线安装策略。群聊自有 Session 采用上游行为，但不跨 Session 迁移定时任务；过期提醒仍作为当前分段 follow-up 转发。上游 DSH pin 同步到 App、harness 和 Docker，同时保留 Fork 的离线 pnpm 缓存、完整性校验、回滚与元数据。
+
 ## 2026-10-13：同步正式 v0.1.4
 
 固定上游发布标签 [v0.1.4](https://github.com/Fei2411/DeepSeek-Bot/releases/tag/v0.1.4)，源码提交 `5c2726279d3bcabaad6aea403c46c88fcf9ba8d8`。从此前已移植的 `84571450a3ce91413f8c7cf005c84a7bc7754efd` 增量合并，保留移动桥接、HTTPS、原有通知与管理接口、签名和手机控件定制。本分支配套插件与 App 继续使用独立版本 `0.1.0`。
