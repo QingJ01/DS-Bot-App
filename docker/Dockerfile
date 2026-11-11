@@ -24,12 +24,15 @@ COPY ds-bot/ /src/ds-bot/
 
 # ds-bot has no build step at install (client.js is committed), so pack it as-is
 # and let `dsh plugin add` set up the web profile from dsh's own template.
+# Recheck online so pnpm's full metadata cache is available for offline reinstalls.
 RUN cd /src/ds-bot \
     && npm pack --pack-destination /tmp \
     && mv /tmp/ds-bot-*.tgz /tmp/ds-bot.tgz \
     && mkdir -p /opt/ds-bot \
     && cp /tmp/ds-bot.tgz /opt/ds-bot/ds-bot.tgz \
     && DSH_HOME=/opt/dsh-template dsh plugin --profile web add /tmp/ds-bot.tgz \
+    && DSH_HOME=/opt/dsh-template dsh plugin --profile web add /opt/ds-bot/ds-bot.tgz \
+    && rm -f /root/.cache/pnpm/lockfile-verified.jsonl \
     && DSH_HOME=/opt/dsh-template dsh plugin --profile web add /opt/ds-bot/ds-bot.tgz \
     && mkdir -p /pnpm-store/v11 \
     && cp -a "$(pnpm store path)/." /pnpm-store/v11/
