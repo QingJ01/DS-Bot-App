@@ -53,7 +53,7 @@ Fork 保留独立的 `0.1.2` 版本线、手机桥接、安装完整性规则、
 
 将上游 `3f4442f1e4c29f48025436509a2bd5f4ccc6961f..5c514ad70d5f3fd1c3b72b2e76e530bef50989d7` 移植到 Fork 的 `origin/main`。本段包含上游 Office/文档处理、Deep View 卡片、私有 Bot、群聊自有 Session 与导入修复，以及相关插件、桌面端和测试更新。
 
-不导入上游 `mobile/**`、`link/**`、`.agents/skills/issue-triage/**`、发布工作流、根 README、CHANGELOG 和上游手机 App 计划文档。Fork 继续使用自己的手机栈、桌面身份、`0.1.4` 版本线、本地存储迁移、导入隔离、串行且失败关闭的权限更新、调度任务归属与后续转发规则、不可变插件 pin，以及 Docker 离线安装策略。群聊自有 Session 采用上游行为，但不跨 Session 迁移定时任务；过期提醒仍作为当前分段 follow-up 转发。上游 DSH pin 同步到 App、harness 和 Docker，同时保留 Fork 的离线 pnpm 缓存、完整性校验、回滚与元数据。
+不导入上游 `mobile/**`、`link/**`、`.agents/skills/issue-triage/**`、发布工作流、根 README、CHANGELOG 和上游手机 App 计划文档。Fork 继续使用自己的手机栈、桌面身份、`0.1.4` 版本线、本地存储迁移、导入隔离、串行且失败关闭的权限更新、调度任务归属与后续转发规则、不可变插件 pin，以及 Docker 离线安装策略。群聊自有 Session 采用上游行为，但不跨 Session 迁移定时任务；过期提醒仍作为当前分段 follow-up 转发。上游 DSH pin 同步到 App、harness 和 Docker，同时保留 Fork 的离线 pnpm 缓存、完整性校验、回滚与元数据。配合 DSH `0.2.1-rc.4`，Docker 改为绑定容器的具体接口地址（没有外部接口时回退到 loopback），不再使用该版本拒绝的通配地址；离线缓存、策略元数据、完整性校验、归档 SHA 标记和 profile 回滚均予保留。
 
 ## 2026-10-13：同步正式 v0.1.4
 

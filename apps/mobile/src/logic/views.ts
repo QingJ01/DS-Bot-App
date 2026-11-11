@@ -1,4 +1,4 @@
-import { asText as sharedAsText, checkShownView, resolve as sharedResolve, validateViewAnswer as sharedValidateViewAnswer, viewScope as sharedViewScope } from "../../../../ds-bot/src/shared/views.js";
+import { asText as sharedAsText, checkShownView, resolve as sharedResolve, validateViewAnswer as sharedValidateViewAnswer, viewScope as sharedViewScope } from "deep-view/core";
 
 export type ViewNode = { type: string; [key: string]: any };
 export const viewScope = sharedViewScope as (view: ViewNode, values?: Record<string, unknown>) => (name: string) => unknown;

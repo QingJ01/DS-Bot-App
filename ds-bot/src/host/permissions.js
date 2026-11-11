@@ -41,8 +41,8 @@ export function install(rt) {
   // Returns the preset it set, or undefined when it set none.
   async function applyPermission(bot, sessionId, room = roomOfSession(sessionId)) {
     const name = () => room?.permission ?? bot?.permission
-    if (presets() === undefined) throw new Error('Permissions are not available in this DeepSeek Harness')
     if (!name()) return
+    if (presets() === undefined) throw new Error('Permissions are not available in this DeepSeek Harness')
     return setPreset(sessionId, name)
   }
 

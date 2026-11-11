@@ -112,15 +112,13 @@ if [ "$installed_ver" != "$image_ver" ] || [ "$installed_sha" != "$image_sha" ];
     echo "entrypoint: could not snapshot the web profile; skipping reinstall" >&2
   fi
 fi
-# This dsh release accepts only 127.0.0.1 for --host, so an overlay binds all
-# interfaces instead; the container's publish rule is the network boundary.
-# DSH_LISTEN_PORT only matters with network_mode: host — published ports
-# always map to 3080 inside.
-HOST=${DSH_HOST:-0.0.0.0}
+# DSH requires a concrete local address. Use the container interface, or
+# loopback when the container has no external interface.
+DEFAULT_HOST=$(node -e 'const os=require("node:os"); const address=Object.values(os.networkInterfaces()).flat().find(value => !value.internal && (value.family === "IPv4" || value.family === 4))?.address; process.stdout.write(address ?? "127.0.0.1")')
+HOST=${DSH_HOST:-$DEFAULT_HOST}
 LISTEN_PORT=${DSH_LISTEN_PORT:-3080}
 case "$HOST" in
-  0.0.0.0|127.0.0.1) ;;
-  *) echo "entrypoint: DSH_HOST must be 0.0.0.0 or 127.0.0.1 (got '$HOST')" >&2; exit 1 ;;
+  0.0.0.0|::) echo "entrypoint: DSH_HOST must be a concrete local address (got '$HOST')" >&2; exit 1 ;;
 esac
 case "$LISTEN_PORT" in
   ''|*[!0-9]*) echo "entrypoint: DSH_LISTEN_PORT must be a port number (got '$LISTEN_PORT')" >&2; exit 1 ;;

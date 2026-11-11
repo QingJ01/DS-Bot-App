@@ -219,12 +219,12 @@ test('the last preset asked for wins when two Bot changes overlap', async () => 
 test('a queued newer change applies after an earlier request fails', async () => {
   const { rt, releases, settle, drop } = runtime({ hold: true })
   const bot = { id: 'b1', name: 'Ada', permission: 'workspace-write' }
-  // Two windows ask for the same preset; the newer applies everywhere first.
+  // Two windows request the same preset while the first request resolves.
   const first = rt.setPermission(bot, 'danger-full-access')
   await new Promise(resolve => setImmediate(resolve))
   const second = rt.setPermission(bot, 'danger-full-access')
   assert.equal(releases.length, 1)
-  const refused = assert.rejects(first, /went away/)
+  const refused = assert.rejects(first, /Could not apply permissions/)
   await drop(0)
   await refused
   await new Promise(resolve => setImmediate(resolve))
@@ -240,12 +240,13 @@ test('a queued failed change leaves the last successfully applied preset in plac
   const first = rt.setPermission(bot, 'danger-full-access')
   await new Promise(resolve => setImmediate(resolve))
   const second = rt.setPermission(bot, 'danger-full-access')
-  const firstFails = assert.rejects(first, /went away/)
+  const firstFails = assert.rejects(first, /Could not apply permissions/)
   await drop(0)
   await firstFails
   await new Promise(resolve => setImmediate(resolve))
   control.fail = true
-  const secondFails = assert.rejects(second, /rejected/)
+  const secondFails = assert.rejects(second, error => error.message.includes('Could not apply permissions') && error.cause?.message === 'permission: rejected')
+  await settle(0)
   await settle(0)
   await secondFails
   assert.equal(bot.permission, 'workspace-write')
@@ -262,7 +263,8 @@ test('a failed latest change leaves Sessions on the last applied preset', async 
   await first
   await new Promise(resolve => setImmediate(resolve))
   control.fail = true
-  const refused = assert.rejects(second, /rejected/)
+  const refused = assert.rejects(second, error => error.message.includes('Could not apply permissions') && error.cause?.message === 'permission: rejected')
+  await settle(0)
   await settle(0)
   await refused
   assert.equal(bot.permission, 'workspace-write')

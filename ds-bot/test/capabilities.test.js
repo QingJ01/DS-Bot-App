@@ -149,7 +149,7 @@ test('Bot saves enforce approval and ownership, and deletion cascades', async t 
 test('explicit capability creates reject duplicates while edits and Bot tool saves upsert', async t => {
   const env = await setup()
   t.after(() => env.dispose())
-  const { rt, ctx } = env
+  const { rt } = env
   await rt.capabilitySave(mcp('echo'), { ui: true })
   await assert.rejects(
     rt.capabilitySave({ ...mcp('echo'), create: true, command: 'replacement' }, { ui: true }),
@@ -160,7 +160,7 @@ test('explicit capability creates reject duplicates while edits and Bot tool sav
   await rt.capabilitySave({ ...mcp('echo'), command: 'edited' }, { ui: true })
   assert.equal(rt.state.capabilities.items.echo.command, 'edited')
 
-  const save = ctx.registeredTools.get('save_capability')
+  const save = rt.teamTools.find(tool => tool.name === 'save_capability')
   await save.execute({ ...mcp('echo'), command: 'tool-updated' }, { agent: { id: 'chief' } })
   assert.equal(rt.state.capabilities.items.echo.command, 'tool-updated')
 })

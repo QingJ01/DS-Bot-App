@@ -54,7 +54,7 @@ export class FakeWindow extends EventEmitter {
     this.shown = 0
     this.focused = 0
     this.webContents = new FakeWebContents(this)
-    state.windows.push(this)
+    if (!options.webPreferences?.session) state.windows.push(this)
   }
 
   isDestroyed() { return this.destroyed }
@@ -77,7 +77,7 @@ export class FakeWindow extends EventEmitter {
   async loadURL(url) {
     this.url = url
     this.loaded.push(url)
-    if (state.rejectLoads || this.rejectLoads) throw new Error(`the page ${url} did not load`)
+    if ((state.rejectLoads || this.rejectLoads) && !this.options.webPreferences?.session) throw new Error(`the page ${url} did not load`)
     // The Host trades the token of the launch URL for a cookie of the browser's session.
     try {
       const parsed = new URL(url)
@@ -102,6 +102,7 @@ class FakeWebContents extends EventEmitter {
     this.getURL = () => this.win.url
     this.getTitle = () => 'DS Bot'
     this.send = () => {}
+    this.executeJavaScript = async (source) => source.includes('function readLegacyStorage') ? [] : undefined
     this.setWindowOpenHandler = () => {}
     this.insertCSS = async () => {}
     this.toggleDevTools = () => {}
@@ -184,6 +185,7 @@ export const nativeImage = {
 export const nativeTheme = { shouldUseDarkColors: false, themeSource: 'system' }
 
 export const powerMonitor = new EventEmitter()
+export const protocol = { registerSchemesAsPrivileged() {} }
 
 // The cookies of the browser: the Host's address keeps one after the launch URL was used.
 const cookieJar = {
@@ -194,9 +196,11 @@ const cookieJar = {
   },
 }
 
+const fakeProtocol = { handle() {}, unhandle() {} }
+const fakeSession = () => Object.assign(new EventEmitter(), { cookies: cookieJar, protocol: fakeProtocol, flushStorageData() {} })
 export const session = {
-  defaultSession: Object.assign(new EventEmitter(), { cookies: cookieJar }),
-  fromPartition: () => Object.assign(new EventEmitter(), { cookies: cookieJar }),
+  defaultSession: fakeSession(),
+  fromPartition: fakeSession,
 }
 
 export const ipcMain = {

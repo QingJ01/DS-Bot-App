@@ -131,27 +131,3 @@ test('a due reminder reaches a group as its prompts', () => {
   assert.equal(reminderText(batch), '[Scheduled task] One\n[Scheduled task] Two')
   assert.equal(reminderText('plain text'), 'plain text')
 })
-
-test('a failed task move can resume without losing identical remaining tasks', async (t) => {
-  const schedule = scheduleService()
-  const { ctx, home, rt } = setup({ schedule })
-  t.after(async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) })
-  await schedule.create('w2', { title: 'Ping', prompt: 'Check', every_seconds: 3600 })
-  await schedule.create('w2', { title: 'Ping', prompt: 'Check', every_seconds: 3600 })
-
-  const create = schedule.create
-  let attempts = 0
-  schedule.create = async (...args) => {
-    if (++attempts === 2) throw new Error('down')
-    return create(...args)
-  }
-  await assert.rejects(rt.moveSchedules('w2', 's9'), /down/)
-  const on = id => [...schedule.tasks.values()].filter(task => task.sessionId === id)
-  assert.equal(on('s9').length, 1)
-  assert.equal(on('w2').length, 1)
-
-  schedule.create = create
-  await rt.moveSchedules('w2', 's9')
-  assert.equal(on('s9').length, 2)
-  assert.equal(on('w2').length, 0)
-})

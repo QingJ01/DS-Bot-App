@@ -270,7 +270,7 @@ for (const failDelete of [false, true]) test(`part switches retain scheduled tas
   const current = agentOf(state().bots.b.sessionId)
   current.calls.length = 0
   const reminder = { id: 'due-message', role: 'user', content: [{ type: 'text', text: 'Report status' }], source: { kind: 'schedule' } }
-  assert.deepEqual(await preStep('b', [reminder]), { kind: 'reject' })
+  assert.deepEqual(await preStep('b', [reminder]), { kind: 'enter', messages: [] })
   assert.equal(current.calls.length, 1)
   const [kind, delivered] = current.calls[0]
   assert.equal(kind, 'followup', 'a due reminder must wake the current part, not just inject idle context')

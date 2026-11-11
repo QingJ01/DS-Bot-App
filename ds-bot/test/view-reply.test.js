@@ -226,7 +226,7 @@ test('dismiss-view drops the open view and leaves a question card alone', async 
 })
 
 test('dismiss-view with a stale ID leaves a replacement view open', async (t) => {
-  const { show, call, team, stop } = start()
+  const { show, call, team, stop } = await start()
   t.after(stop)
   await show('writer-now', { title: 'Pick', view: CHOICES })
   const pending = (await team()).views['writer-now']

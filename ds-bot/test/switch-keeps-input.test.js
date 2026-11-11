@@ -206,7 +206,7 @@ test('a failed preset keeps the old part and its input without starting the fres
   assert.equal(host.state().bots.b.sessionId, 'b')
   assert.equal(host.state().bots.b.permission, 'read-only')
   assert.deepEqual(host.agentOf('s1').calls, [])
-  assert.ok(host.archived.includes('s1'))
+  assert.ok(host.archived.some(([sessionId]) => sessionId === 's1'))
   assert.ok(host.agentOf('b').calls.some(([kind, message]) => kind === 'followup' && text(message) === 'Keep this input'))
 })
 
@@ -348,40 +348,22 @@ test('a marked part that stayed current is woken for its kept input, once, in or
   assert.deepEqual(second.state().switching, {})
 })
 
-// #571: archiving with stopActivity drops the tasks the earlier part still owns, so
-// the archive waits for the task move the switch started.
-test('an earlier part is stopped only after its tasks moved to the fresh part', async (t) => {
-  const host = await start({ services })
+test('a scheduled task keeps its original part active and reminders reach the current part', async (t) => {
+  const task = { id: 'reminder', sessionId: 'b', botId: 'b', status: 'active' }
+  const schedule = { catalog: async () => [task] }
+  const host = await start({ services: { ...services, schedule } })
   t.after(host.stop)
-  const order = []
-  let release
-  const moved = new Promise(resolve => { release = resolve })
-  host.rt.moveSchedules = async (from, to) => { order.push(['move', from, to]); await moved }
-  const archive = host.ctx.workspaceRegistry.archiveSession
-  host.ctx.workspaceRegistry.archiveSession = async (id, options) => { order.push(['archive', id]); return archive(id, options) }
   await moveWriter(host, [])
-  await until(() => order.length >= 1)
-  await settle()
-  assert.deepEqual(order, [['move', 'b', 's1']])
-  release()
-  await until(() => order.some(([kind]) => kind === 'archive'))
-  assert.deepEqual(order, [['move', 'b', 's1'], ['archive', 'b']])
-})
-
-test('a failed task move leaves the earlier part unarchived and marked for retry', async (t) => {
-  const host = await start({ services })
-  t.after(host.stop)
-  host.rt.moveSchedules = async () => { throw new Error('task storage unavailable') }
-  await moveWriter(host, [])
-  await until(() => host.warnings.some(line => line.includes('task storage unavailable')))
+  await until(() => host.state().bots.b.sessionId === 's1')
   await settle()
   assert.deepEqual(host.archived, [])
-  assert.deepEqual(host.state().switching, { b: { botId: 'b' } })
-
-  host.rt.moveSchedules = async () => {}
-  await host.rt.heldBack()
-  assert.deepEqual(host.archived, [['b', { stopActivity: true }]])
-  assert.deepEqual(host.state().switching, {})
+  assert.equal(host.rt.moveSchedules, undefined)
+  assert.equal((await host.rt.scheduleEndpoint('schedules')).tasks[0].sessionId, 'b')
+  const reminder = said('reminder-input', 'Check in')
+  reminder.source = { kind: 'schedule' }
+  assert.deepEqual(await host.preStep('b', [reminder], 1), { kind: 'enter', messages: [] })
+  assert.ok(host.agentOf('s1').calls.some(([kind, message]) => kind === 'followup' && text(message) === 'Check in'))
+  assert.deepEqual(host.archived, [])
 })
 
 test('unmarked earlier parts are never resolved by the restart pass', async (t) => {

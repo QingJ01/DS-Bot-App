@@ -1,4 +1,4 @@
-declare module "*ds-bot/src/shared/views.js" {
+declare module "deep-view/core" {
   export interface ViewNode { type: string; [key: string]: any }
   export function checkShownView(title: unknown, view: unknown): { error?: string; title?: string; view?: ViewNode; interactive?: boolean };
   export function viewScope(view: ViewNode, values?: Record<string, unknown>): (name: string) => unknown;

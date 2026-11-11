@@ -745,6 +745,14 @@ export function install(rt) {
   // A read-only process (another dsh holds the team) neither condenses nor switches.
   const readOnly = () => rt.readOnly() !== undefined
 
+  async function archivePart(sessionId) {
+    // A scheduled reminder still belongs to this Session and is forwarded from it.
+    const schedules = await rt.scheduleEndpoint?.('schedules')
+    if (schedules?.available && schedules.tasks.some(task => task.sessionId === sessionId)) return false
+    await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
+    return true
+  }
+
   // Input for an earlier part goes on in the current one: a browser may still show the
   // old part, and a turn stopped for a switch hands on what it claimed.
   async function forward(owner, messages) {
@@ -815,9 +823,7 @@ export function install(rt) {
         if (currentOf(owner) !== sessionId) {
           await forward(owner, held)
           for (const message of held) agent.inbox.remove(message.id)
-          // An interrupted switch may not have finished moving the tasks over; stop
-          // the earlier part only after they sit on the part that replaced it.
-          await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
+          await archivePart(sessionId)
             .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', sessionId, error))
         } else {
           try { wake(agent) } catch (error) { rt.warn('ds-bot: part %s could not be woken for its kept input: %s', sessionId, error) }
@@ -906,7 +912,7 @@ export function install(rt) {
     }
     if (job.moved) {
       rt.renewMemory(agent.id)
-      await ctx.workspaceRegistry.archiveSession(agent.id, { stopActivity: true })
+      await archivePart(agent.id)
         .catch(error => rt.warn('ds-bot: earlier part %s not archived: %s', agent.id, error))
     }
   }

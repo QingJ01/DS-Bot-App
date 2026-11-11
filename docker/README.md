@@ -63,21 +63,22 @@ so file ownership stays right.
 
 ## Network
 
-`dsh web` binds only loopback or all interfaces (`0.0.0.0`) — never a concrete
-LAN address — and its `--host` flag refuses `0.0.0.0`, so the entrypoint writes
-a config overlay that binds all interfaces. Inside a container the publish rule
-is the real boundary, and the trust fence below still applies. The UI checks
-the `Host` header of every `/api` request: loopback is always trusted, and
-every other name or IP you open it at must be listed in `DSH_TRUSTED_HOST`
-(no port — a bare entry trusts it on any port), or the API answers 403.
-`DSH_HOST=127.0.0.1` narrows the bind to loopback (e.g. a reverse proxy in the
-same network namespace); published ports then no longer reach it.
+This DSH release requires a concrete IP assigned to a local interface. The
+entrypoint chooses the container's first non-loopback IPv4 address, falling
+back to `127.0.0.1` when the container has no external interface. Docker's
+published port forwards to that container address, and the trust fence below
+still applies. The UI checks the `Host` header of every `/api` request:
+loopback is always trusted, and every other name or IP you open it at must be
+listed in `DSH_TRUSTED_HOST` (no port — a bare entry trusts it on any port), or
+the API answers 403. Set `DSH_HOST` to a different concrete address assigned
+to the container when needed; wildcard addresses such as `0.0.0.0` are not
+supported.
 
 Alternatives:
 
 - **Host network**: set `network_mode: host` in `compose.yml` and drop `ports:`.
-  The server then binds the NAS's interfaces directly on `DSH_LISTEN_PORT`
-  (default 3080); `DSH_HOST=127.0.0.1` narrows it to loopback again.
+  Set `DSH_HOST` to the specific NAS interface address to bind, and use
+  `DSH_LISTEN_PORT` (default 3080) for its port.
 - **Reverse proxy / HTTPS**: the proxy must preserve the browser-visible
   `Host` header and forward WebSocket upgrades; add the public host name to
   `DSH_TRUSTED_HOST`. The printed login URL is the container's — replace its
@@ -101,7 +102,7 @@ see `docker/.env.example` for its full list. The main variables are:
 | `DEEPSEEK_BASE_URL` | Override the endpoint (Anthropic-Messages-compatible) |
 | `DSH_TRUSTED_HOST` | Comma-separated host names / IPs the UI answers to |
 | `DSH_PORT` | Alternative `.env` deployment's host port (default 3080); edit `ports` directly in the root Compose file |
-| `DSH_HOST` | Bind address: `0.0.0.0` (default) or `127.0.0.1`; only relevant with `network_mode: host` |
+| `DSH_HOST` | Concrete IP address assigned to the container (default: first non-loopback IPv4, or `127.0.0.1` if none) |
 | `DSH_LISTEN_PORT` | Listen port inside the container (default 3080); only relevant with `network_mode: host` |
 | `PUID` / `PGID` | User/group the server runs as and new files belong to |
 | `DSH_TELEMETRY_DISABLED` | `1` turns off dsh's anonymous telemetry |
@@ -174,10 +175,9 @@ revision keeps the same version; failed reinstalls leave the prior plugin and
 retry on the next start. Reinstallations are bounded and transactional: a failed
 install restores the previous plugin profile and leaves its archive stamp
 unchanged. To force a fresh profile, stop the container and delete
-`DATA_DIR/profiles/web` (not the whole data dir). The image is built and tested
-with dsh `0.2.0-rc.2`, the version DS Bot is verified with; a `DSH_VERSION`
-build arg exists, but other releases are untested and newer ones change how
-the server binds.
+`DATA_DIR/profiles/web` (not the whole data dir). The image's default DSH pin
+is `0.2.1-rc.4`; other `DSH_VERSION` values are untested and newer releases may
+change how the server binds.
 
 This fork intentionally retains the archive-based offline reinstall and
 rollback behavior removed by the frozen upstream `dev` tree

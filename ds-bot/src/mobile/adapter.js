@@ -225,7 +225,8 @@ export function createAdapter(rt) {
     selected.agents = agentView(value.agents)
     const questionOwners = new Map([
       ...bots.flatMap(bot => [bot.id, bot.sessionId, ...(bot.parts ?? [])].map(id => [id, bot.id])),
-      ...selected.rooms.flatMap(room => [room.id, ...(room.parts ?? [])].map(id => [id, room.id])),
+      ...(value.rooms ?? []).filter(room => roomIds.has(room.id))
+        .flatMap(room => [room.id, ...(room.parts ?? [])].map(id => [id, room.id])),
       ...selected.agents.flatMap(agent => agent.sessions.map(id => [id, `agent:${agent.id}:${id}`])),
     ])
     selected.questions = Object.fromEntries(Object.entries(value.questions ?? {}).filter(([id]) => questionOwners.has(id))
