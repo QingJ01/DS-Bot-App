@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { validateViewAnswer } from '../src/shared/views.js'
+import { validateViewAnswer } from 'deep-view/core'
 import { projectHistoricalView, projectPendingView } from '../src/mobile/view-projection.js'
 
 const redact = text => text.replaceAll('SECRET', '[redacted]')
@@ -55,4 +55,24 @@ test('ordinary display redaction preserves answer semantics and sanitizer failur
   assert.deepEqual(projectPendingView('Card', { type: 'choice', id: 'pick', label: 'Pick', options: [{ label: 'safe' }] }, () => {
     throw new Error('redactor unavailable')
   }), { title: '[redacted]' })
+})
+
+test('mobile projections keep only an HTML summary and retain chart data for native tables', () => {
+  const html = projectPendingView('Report', {
+    type: 'html',
+    html: '<script>run()</script>',
+    summary: 'A safe summary SECRET',
+  }, redact)
+  assert.equal(html.view.html, '<p>HTML view is unavailable on mobile.</p>')
+  assert.equal(html.view.summary, 'A safe summary [redacted]')
+  assert.doesNotMatch(JSON.stringify(html), /<script>|SECRET/)
+
+  const chart = projectPendingView('Totals', {
+    type: 'chart', kind: 'bar', categories: ['A', 'B'],
+    series: [{ name: 'Count', values: [2, 3] }],
+  })
+  assert.deepEqual(chart.view, {
+    type: 'chart', kind: 'bar', categories: ['A', 'B'],
+    series: [{ name: 'Count', values: [2, 3] }],
+  })
 })

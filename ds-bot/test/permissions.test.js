@@ -199,65 +199,74 @@ test('the last preset asked for wins when two Bot changes overlap', async () => 
   const { rt, writes, releases, settle } = runtime({ hold: true })
   const bot = { id: 'b1', name: 'Ada' }
   const first = rt.setPermission(bot, 'workspace-write')
+  await new Promise(resolve => setImmediate(resolve))
   const second = rt.setPermission(bot, 'danger-full-access')
-  assert.equal(releases.length, 2)
-  await settle(1) // the later request applies to the chat, then to the group Session
-  await settle(1)
-  while (releases.length) await settle(0) // the earlier request writes nothing more
+  assert.equal(releases.length, 1)
+  await settle(0)
+  await settle(0)
   await first
+  await new Promise(resolve => setImmediate(resolve))
+  await settle(0)
+  await settle(0)
   await second
   assert.equal(bot.permission, 'danger-full-access')
-  assert.deepEqual(writes, ['b1-chat=danger-full-access', 'b1-group=danger-full-access'])
+  assert.deepEqual(writes, [
+    'b1-chat=workspace-write', 'b1-group=workspace-write',
+    'b1-chat=danger-full-access', 'b1-group=danger-full-access',
+  ])
 })
 
-test('a failed change does not roll back a newer one that already applied', async () => {
+test('a queued newer change applies after an earlier request fails', async () => {
   const { rt, releases, settle, drop } = runtime({ hold: true })
   const bot = { id: 'b1', name: 'Ada', permission: 'workspace-write' }
   // Two windows ask for the same preset; the newer applies everywhere first.
   const first = rt.setPermission(bot, 'danger-full-access')
+  await new Promise(resolve => setImmediate(resolve))
   const second = rt.setPermission(bot, 'danger-full-access')
-  assert.equal(releases.length, 2)
-  await settle(1) // the newer request applies to the chat, then to the group Session
-  await settle(1)
-  await second
+  assert.equal(releases.length, 1)
   const refused = assert.rejects(first, /went away/)
-  await drop(0) // the older request's apply resolves only now, and fails
+  await drop(0)
   await refused
+  await new Promise(resolve => setImmediate(resolve))
+  await settle(0)
+  await settle(0)
+  await second
   assert.equal(bot.permission, 'danger-full-access')
 })
 
-test('a failed change rolls back to the last applied preset, not to a failed request', async () => {
-  const { rt, releases, settle, drop, control } = runtime({ hold: true })
+test('a queued failed change leaves the last successfully applied preset in place', async () => {
+  const { rt, settle, drop, control } = runtime({ hold: true })
   const bot = { id: 'b1', name: 'Ada', permission: 'workspace-write' }
   const first = rt.setPermission(bot, 'danger-full-access')
+  await new Promise(resolve => setImmediate(resolve))
   const second = rt.setPermission(bot, 'danger-full-access')
   const firstFails = assert.rejects(first, /went away/)
-  await drop(0) // the superseded request fails and leaves the field to the newer one
+  await drop(0)
   await firstFails
+  await new Promise(resolve => setImmediate(resolve))
   control.fail = true
   const secondFails = assert.rejects(second, /rejected/)
-  while (releases.length) await settle(0) // the newest one fails too and rolls back
+  await settle(0)
   await secondFails
   assert.equal(bot.permission, 'workspace-write')
 })
 
-test('a superseded change leaves no Session on a preset that lost', async () => {
-  const { rt, writes, releases, settle, control } = runtime({ hold: true })
+test('a failed latest change leaves Sessions on the last applied preset', async () => {
+  const { rt, writes, settle, control } = runtime({ hold: true })
   const bot = { id: 'b1', name: 'Ada' }
   const first = rt.setPermission(bot, 'workspace-write')
-  await settle(0) // the older request sets the chat, then waits on the group Session
+  await new Promise(resolve => setImmediate(resolve))
   const second = rt.setPermission(bot, 'danger-full-access')
-  assert.equal(releases.length, 2)
-  await settle(0) // the older request's group apply resolves: a newer one owns it now
+  await settle(0)
+  await settle(0)
+  await first
+  await new Promise(resolve => setImmediate(resolve))
   control.fail = true
   const refused = assert.rejects(second, /rejected/)
-  await settle(0) // the newer request's chat apply fails and rolls the field back
-  control.fail = false
-  while (releases.length) await settle(0) // the rollback puts the restored preset back
+  await settle(0)
   await refused
-  await first
   assert.equal(bot.permission, 'workspace-write')
-  assert.deepEqual(writes, ['b1-chat=workspace-write', 'b1-chat=workspace-write', 'b1-group=workspace-write'])
+  assert.deepEqual(writes, ['b1-chat=workspace-write', 'b1-group=workspace-write'])
 })
 
 test('the last preset asked for wins when two group changes overlap', async () => {
@@ -266,15 +275,19 @@ test('the last preset asked for wins when two group changes overlap', async () =
   bots.b2 = { id: 'b2', name: 'Ben' }
   const room = { name: 'Ops', sessions: { b1: 's1', b2: 's2' } }
   const first = rt.setRoomPermission(room, 'workspace-write')
+  await new Promise(resolve => setImmediate(resolve))
   const second = rt.setRoomPermission(room, 'danger-full-access')
-  assert.equal(releases.length, 2)
-  await settle(1) // the later request reaches s1, then s2, before the earlier one does
-  await settle(1)
-  await settle(0) // the earlier request applies last and must not win
+  assert.equal(releases.length, 1)
+  await settle(0)
   await settle(0)
   await first
+  await new Promise(resolve => setImmediate(resolve))
+  await settle(0)
+  await settle(0)
   await second
   assert.equal(room.permission, 'danger-full-access')
-  assert.equal(writes.length, 4)
-  assert.ok(writes.every(write => write.endsWith('=danger-full-access')))
+  assert.deepEqual(writes, [
+    's1=workspace-write', 's2=workspace-write',
+    's1=danger-full-access', 's2=danger-full-access',
+  ])
 })
