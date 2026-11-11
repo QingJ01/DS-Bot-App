@@ -43,17 +43,20 @@ test('Linux leaves the Host and its dependencies readable by plain Node', () => 
 
 // A release is tagged with the version of ds-bot, and the installed apps compare their own
 // version with the one in the release's latest.yml.
-test('the app has the version of ds-bot', () => {
+test('the app lock records the ds-bot manifest', () => {
   const read = file => JSON.parse(readFileSync(new URL(file, import.meta.url), 'utf8'))
   const app = read('../package.json')
   const lock = read('../package-lock.json')
   const plugin = read('../../ds-bot/package.json')
+  const lockedPlugin = lock.packages['node_modules/ds-bot']
   assert.equal(app.name, 'ds-bot-app-desktop')
   assert.equal(app.productName, 'DS Bot App')
   assert.equal(app.version, plugin.version)
   assert.equal(lock.packages[''].name, app.name)
   assert.equal(lock.packages[''].version, app.version)
-  assert.equal(lock.packages['node_modules/ds-bot'].version, plugin.version)
+  assert.equal(lockedPlugin.version, plugin.version)
+  assert.deepEqual(lockedPlugin.dependencies, plugin.dependencies)
+  assert.deepEqual(lockedPlugin.peerDependencies, plugin.peerDependencies)
 })
 
 test('the Windows installer uses the fork app id and default upgrade GUID', () => {
