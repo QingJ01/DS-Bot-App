@@ -6,6 +6,8 @@ import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 
+let rt
+
 // #280: a switch that fails while the plugin is being unloaded must not lose the input
 // it carried — a turn's claimed messages and whatever the old part held. The old
 // part's durable inbox keeps them (the fake persists it across starts), a switch is
@@ -114,7 +116,7 @@ async function start({ fail = {}, services = {}, home: reuse } = {}) {
       list: () => [{ id: 'w1', path: team }],
       resolveByPath: async () => undefined,
       create: async path => ({ id: 'w-new', path }),
-      archiveSession: async (sessionId) => { archived.push(sessionId) },
+      archiveSession: async (sessionId, options) => { archived.push([sessionId, options]) },
     },
     sessionController: {
       create: async (options) => {
@@ -148,11 +150,11 @@ async function start({ fail = {}, services = {}, home: reuse } = {}) {
     route = options
     return register(options)
   }
-  const rt = createRuntime(ctx, { home })
+  rt = createRuntime(ctx, { home })
   const call = async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', {
     method: 'POST', body: JSON.stringify({ endpoint, payload }),
   }))).json()
-  const tool = (name, args, sessionId) => ctx.registeredTools.get(name).execute(args, { agent: agentOf(sessionId), name, callId: 'c1' })
+  const tool = (name, args, sessionId) => rt.teamTools.find(d => d.name === name).execute(args, { agent: agentOf(sessionId), name, callId: 'c1' })
   const preStep = (sessionId, messages = [], step = 1) => ctx.listeners.get('agent/pre-step').at(-1)(
     { agent: agentOf(sessionId), messages, step, signal: AbortSignal.timeout(60_000) }, async () => 'next')
   const state = () => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
@@ -204,7 +206,7 @@ test('a failed preset keeps the old part and its input without starting the fres
   assert.equal(host.state().bots.b.sessionId, 'b')
   assert.equal(host.state().bots.b.permission, 'read-only')
   assert.deepEqual(host.agentOf('s1').calls, [])
-  assert.ok(host.archived.includes('s1'))
+  assert.ok(host.archived.some(([sessionId]) => sessionId === 's1'))
   assert.ok(host.agentOf('b').calls.some(([kind, message]) => kind === 'followup' && text(message) === 'Keep this input'))
 })
 
@@ -318,7 +320,7 @@ test('a marked earlier part hands its kept input on after a restart, once, and i
   assert.equal(delivered.filter(id => id === 'e-carry').length, 0) // already pending — not sent twice
   assert.equal(delivered.filter(id => id === 'e-held').length, 1)
   assert.deepEqual(inboxTexts(second.agentOf('b')), [])
-  assert.ok(second.archived.includes('b'))
+  assert.deepEqual(second.archived, [['b', { stopActivity: true }]])
   assert.deepEqual(second.state().switching, {})
 })
 
@@ -344,6 +346,24 @@ test('a marked part that stayed current is woken for its kept input, once, in or
   ])
   assert.deepEqual(inboxTexts(second.agentOf('b')), [PAUSE, 'keep me', 'and me'])
   assert.deepEqual(second.state().switching, {})
+})
+
+test('a scheduled task keeps its original part active and reminders reach the current part', async (t) => {
+  const task = { id: 'reminder', sessionId: 'b', botId: 'b', status: 'active' }
+  const schedule = { catalog: async () => [task] }
+  const host = await start({ services: { ...services, schedule } })
+  t.after(host.stop)
+  await moveWriter(host, [])
+  await until(() => host.state().bots.b.sessionId === 's1')
+  await settle()
+  assert.deepEqual(host.archived, [])
+  assert.equal(host.rt.moveSchedules, undefined)
+  assert.equal((await host.rt.scheduleEndpoint('schedules')).tasks[0].sessionId, 'b')
+  const reminder = said('reminder-input', 'Check in')
+  reminder.source = { kind: 'schedule' }
+  assert.deepEqual(await host.preStep('b', [reminder], 1), { kind: 'enter', messages: [] })
+  assert.ok(host.agentOf('s1').calls.some(([kind, message]) => kind === 'followup' && text(message) === 'Check in'))
+  assert.deepEqual(host.archived, [])
 })
 
 test('unmarked earlier parts are never resolved by the restart pass', async (t) => {

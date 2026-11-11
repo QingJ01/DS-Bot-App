@@ -87,7 +87,7 @@ function stateHolder(log) {
     set: (next) => {
       state = next
       for (const listener of [...listeners]) {
-        try { listener(next) } catch (error) { log.error(`DeepSeek Bot: an update state listener failed: ${error instanceof Error ? error.message : String(error)}`) }
+        try { listener(next) } catch (error) { log.error(`DS Bot: an update state listener failed: ${error instanceof Error ? error.message : String(error)}`) }
       }
     },
     subscribe: (listener) => {

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { apply } from '../index.js'
+import { createRuntime } from '../index.js'
 import { fakeContext } from './fake-ctx.js'
 import { reminderText } from '../src/host/schedules.js'
 
@@ -29,8 +29,18 @@ function scheduleService() {
     tasks,
     async create(sessionId, request) {
       const id = `schedule-${next++}`
-      const kind = Object.keys(request).find(key => !['title', 'prompt'].includes(key))
-      const record = { id, kind, title: request.title, prompt: request.prompt, timing: request[kind], scheduledAt: '2030-01-01T01:00:00.000Z' }
+      const kind = { every_seconds: 'every' }[Object.keys(request).find(key => !['title', 'prompt'].includes(key))]
+        ?? Object.keys(request).find(key => !['title', 'prompt'].includes(key))
+      const record = {
+        id, kind, title: request.title, prompt: request.prompt,
+        timing: request[Object.keys(request).find(key => !['title', 'prompt'].includes(key))],
+        scheduledAt: request.at ?? '2030-01-01T01:00:00.000Z',
+        everySeconds: request.every_seconds,
+        time: request.daily?.time ?? request.weekly?.time,
+        timeZone: request.daily?.time_zone ?? request.weekly?.time_zone ?? request.cron?.time_zone,
+        weekdays: request.weekly?.weekdays,
+        expression: request.cron?.expression,
+      }
       tasks.set(id, { sessionId, record })
       return record
     },
@@ -50,9 +60,9 @@ function setup(services = {}) {
   const ctx = fakeContext({ services })
   const register = ctx.connection.fetch.register
   ctx.connection.fetch.register = (route) => { ctx.route = route; return register(route) }
-  apply(ctx, { home })
+  const rt = createRuntime(ctx, { home })
   const call = async (endpoint, payload) => (await ctx.route.fetch(new Request('http://localhost/api/bot', { method: 'POST', body: JSON.stringify({ endpoint, payload }) }))).json()
-  return { ctx, home, call }
+  return { ctx, home, call, rt }
 }
 
 test('without the schedule service the page says so and creating is refused', async (t) => {

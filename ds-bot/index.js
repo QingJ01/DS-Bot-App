@@ -8,11 +8,13 @@ import * as models from './src/host/models.js'
 import * as providers from './src/host/providers.js'
 import * as permissions from './src/host/permissions.js'
 import * as turns from './src/host/turns.js'
+import * as steer from './src/host/steer.js'
 import * as handoffs from './src/host/handoffs.js'
 import * as requests from './src/host/requests.js'
 import * as delivery from './src/host/delivery.js'
 import * as roster from './src/host/roster.js'
 import * as folders from './src/host/folders.js'
+import * as privacy from './src/host/privacy.js'
 import * as agents from './src/host/agents.js'
 import * as prompt from './src/host/prompt.js'
 import * as timeContext from './src/host/time-context.js'
@@ -24,11 +26,13 @@ import * as resume from './src/host/resume.js'
 import * as memory from './src/host/memory.js'
 import * as parts from './src/host/parts.js'
 import * as images from './src/host/images.js'
+import * as avatarLibrary from './src/host/avatar-library.js'
 import * as browser from './src/host/browser.js'
 import * as browserPlugins from './src/host/browser-plugins.js'
 import * as secrets from './src/host/secrets.js'
 import * as connectors from './src/host/connectors.js'
 import * as capabilities from './src/host/capabilities.js'
+import * as learning from './src/host/learning.js'
 import * as schedules from './src/host/schedules.js'
 import * as usage from './src/host/usage.js'
 import * as update from './src/host/update.js'
@@ -37,6 +41,7 @@ import * as thinking from './src/host/thinking.js'
 import * as channel from './src/host/channel.js'
 import * as mobile from './src/mobile/index.js'
 import * as feed from './src/host/feed.js'
+import * as officeSkills from './src/host/office-skills.js'
 
 export { COLORS } from './src/host/constants.js'
 
@@ -47,7 +52,9 @@ export const inject = ['llm', 'tools', 'systemPrompt', 'sessionController', 'ses
 // the functions other modules call; they call them through `rt` at run time, never during
 // install. Listeners run and tools are listed in registration order, so this order holds:
 // usage meters model requests after every listener that rewrites them.
-const MODULES = [diagnostics, store, models, providers, permissions, turns, handoffs, requests, delivery, roster, folders, agents, prompt, timeContext, tools, chatIndex, groups, approvals, resume, memory, parts, images, secrets, connectors, capabilities, schedules, browser, browserPlugins, usage, update, dshUpdate, thinking, feed, channel, mobile]
+// usage meters model requests after every listener that rewrites them. privacy checks a
+// call before the hooks of tools do, so a closed call never reaches a card they show.
+const MODULES = [diagnostics, store, models, providers, permissions, turns, steer, handoffs, requests, delivery, roster, folders, privacy, agents, prompt, timeContext, tools, chatIndex, groups, approvals, resume, memory, parts, images, avatarLibrary, secrets, connectors, capabilities, learning, schedules, browser, browserPlugins, usage, update, dshUpdate, thinking, feed, channel, officeSkills, mobile]
 
 export function apply(ctx, config = {}) {
   createRuntime(ctx, config)
@@ -62,6 +69,9 @@ export function createRuntime(ctx, config = {}) {
     dshHome,
     home,
     statePath: join(home, 'state.json'),
+    // The Bot-only tools each module defines; tools.js registers them in each
+    // Bot Session's own scope, never globally (see shareBotTools).
+    teamTools: [],
     defaults: {
       mainName: config.mainName ?? 'Chief',
       mainRole: config.mainRole ?? 'Chief of Staff',

@@ -1,4 +1,4 @@
-import { checkShownView } from '../shared/views.js'
+import { checkShownView } from 'deep-view/core'
 
 const HTML_PLACEHOLDER = '<p>HTML view is unavailable on mobile.</p>'
 const SUCCESS_RECEIPTS = new Set([

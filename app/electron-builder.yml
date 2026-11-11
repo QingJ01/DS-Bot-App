@@ -8,9 +8,22 @@ files:
   - package.json
   - src/**
   - assets/**
-# The Host runs pnpm as a separate Node process to install plugins, so it must be a plain file.
+# The Host runs pnpm as a separate Node process to install plugins, and the Office payload's
+# plain Node runs the LibreOffice Kit CLI: both must be plain files outside the asar.
 asarUnpack:
   - node_modules/pnpm/**
+  - node_modules/@deepseek-ai/libreoffice-kit/**
+  # The payload Node cannot read office.js through the asar.
+  - node_modules/ds-bot/office.js
+  # Automatic unpacking misses versioned Linux libraries such as libvips-cpp.so.8.18.7.
+  - node_modules/@img/sharp*/**
+# The Office payload that scripts/prepare-runtime.mjs writes in beforePack (see package.json's
+# `runtime` script). build/ is not in `files`, so nothing of it lands inside the asar.
+extraResources:
+  - from: build/runtime/primary-runtime
+    to: primary-runtime
+  - from: build/runtime/office-skills
+    to: office-skills
 # node-pty, sharp and koffi ship prebuilt binaries for each platform. A rebuild would compile
 # node-pty from source and needs a C++ toolchain.
 npmRebuild: false
@@ -37,7 +50,13 @@ mac:
   hardenedRuntime: false
   icon: assets/icon.png
   category: public.app-category.productivity
+  # Without this key macOS registers no Local Network entry for the app and
+  # blocks LAN connections from tool processes outright ("No route to host").
+  extendInfo:
+    NSLocalNetworkUsageDescription: DS Bot runs commands that connect to devices on your local network.
 linux:
+  # The Linux Host uses the payload's plain Node, which cannot read asar archives.
+  asar: false
   # One AppImage runs on every distribution and updates itself; the deb is for Debian/Ubuntu,
   # where it avoids Ubuntu 24.04's AppArmor question of an AppImage and adds a menu entry.
   target:

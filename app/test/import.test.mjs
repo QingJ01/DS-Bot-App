@@ -6,9 +6,8 @@ import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { after, before, describe, test } from 'node:test'
 import { parse } from 'yaml'
-import { findTeam, importTeam, newerSessions, sessionIdsOf, teamInUse, userDshHome } from '../src/import.mjs'
+import { copySessions, findTeam, importTeam, newerSessions, restoreSessions, sessionIdsOf, teamInUse, userDshHome } from '../src/import.mjs'
 import { createAuthStore } from '../../ds-bot/src/mobile/auth.js'
-import { copySessions } from '../src/import.mjs'
 
 const write = (path, text) => {
   mkdirSync(dirname(path), { recursive: true })
@@ -29,8 +28,8 @@ function treeHash(dir) {
   return hash.digest('hex')
 }
 
-// A user's DSH home: Chief in two parts, Writer, a group where Chief is in two parts, the
-// team's own files, two profiles and one that DSH cannot read.
+// A user's DSH home: Chief in two parts, Writer, a group where Chief is in two parts and
+// which has its own Session, the team's own files, two profiles and one that DSH cannot read.
 const TEAM = {
   version: 1,
   workspaceId: 'w-old',
@@ -40,15 +39,15 @@ const TEAM = {
     'session-b': { id: 'session-b', name: 'Writer', workDir: '/projects/site' },
   },
   rooms: {
-    r1: {
-      id: 'r1', name: 'Ops', members: ['session-a', 'session-b'],
+    'session-r1': {
+      id: 'session-r1', name: 'Ops', members: ['session-a', 'session-b'],
       sessions: { 'session-a': 'session-g', 'session-b': 'session-gone' },
       segments: { 'session-a': [{ sessionId: 'session-g0', endedAt: 1 }] },
     },
   },
   agents: { x: { id: 'x' } },
 }
-const TEAM_SESSIONS = [['--team--', 'session-a'], ['--team--', 'session-a2'], ['--team--', 'r1'], ['--team--', 'session-g'], ['--team--', 'session-g0'], ['--site--', 'session-b']]
+const TEAM_SESSIONS = [['--team--', 'session-a'], ['--team--', 'session-a2'], ['--team--', 'session-g'], ['--team--', 'session-g0'], ['--team--', 'session-r1'], ['--site--', 'session-b']]
 
 function oldHome(root) {
   const from = join(root, 'dsh')
@@ -90,7 +89,7 @@ describe('importTeam', () => {
     from = oldHome(root);
     ({ to, workspace } = newHome(root))
     oldTree = treeHash(from)
-    summary = await importTeam({ from, to, workspace, profile: 'desktop', dsh: '0.2.0-rc.2' })
+    summary = await importTeam({ from, to, workspace, profile: 'desktop', dsh: '0.2.1-rc.4' })
   })
   after(() => { rmSync(root, { recursive: true, force: true }) })
 
@@ -110,6 +109,10 @@ describe('importTeam', () => {
     assert.equal(summary.sessions, 6)
   })
 
+  test('copies the own Session of every group, so an imported group can be opened', () => {
+    assert.equal(readFileSync(join(to, 'sessions', '--team--', 'session-r1', 'session.v4.jsonl.zstd'), 'utf8'), 'session-r1')
+  })
+
   test('copies the attachments, the keys, and the model rows of the chosen profile', () => {
     assert.equal(readFileSync(join(to, 'attachments', 'ab', 'cdef'), 'utf8'), 'file')
     assert.equal(readFileSync(join(to, '.credentials.yaml'), 'utf8'), 'DEEPSEEK_API_KEY: fake\n')
@@ -127,7 +130,7 @@ describe('importTeam', () => {
   test('records the import, leaves nothing staged and changes nothing in the old home', () => {
     const record = readJson(join(to, 'bot', 'imported.json'))
     assert.deepEqual({ ...record, at: undefined }, {
-      from, at: undefined, dsh: '0.2.0-rc.2', bots: 2, rooms: 1, sessions: 6, missingSessions: ['session-gone'],
+      from, at: undefined, dsh: '0.2.1-rc.4', bots: 2, rooms: 1, sessions: 6, missingSessions: ['session-gone'],
       keys: ['.credentials.yaml', '.env'], modelSettings: 'desktop',
     })
     assert.deepEqual(readdirSync(to).filter(name => name.startsWith('.import-')), [])
@@ -263,6 +266,50 @@ describe('a copy that stopped', () => {
   })
 })
 
+describe('Sessions an earlier import left out', () => {
+  let root, from, to, ownSession
+  before(async () => {
+    root = mkdtempSync(join(tmpdir(), 'ds-bot-app-restore-'))
+    from = oldHome(root)
+    const home = newHome(root)
+    to = home.to
+    await importTeam({ from, to, workspace: home.workspace })
+    // An import before 0.2.3 did not copy the group's own Session.
+    ownSession = join(to, 'sessions', '--team--', 'session-r1')
+    rmSync(ownSession, { recursive: true, force: true })
+  })
+  after(() => { rmSync(root, { recursive: true, force: true }) })
+
+  test('copies the group\'s own Session from the old home, and changes nothing there', async () => {
+    const oldTree = treeHash(from)
+    const present = join(to, 'sessions', '--team--', 'session-a', 'session.v4.jsonl.zstd')
+    write(present, 'written here since')
+    write(join(to, '.restore-1', 'junk.txt'), 'left over')
+    assert.deepEqual(await restoreSessions(to), { copied: ['session-r1'], newer: [] })
+    assert.equal(readFileSync(join(ownSession, 'session.v4.jsonl.zstd'), 'utf8'), 'session-r1')
+    assert.equal(readFileSync(present, 'utf8'), 'written here since')
+    assert.deepEqual(readdirSync(to).filter(name => name.startsWith('.restore-')), [])
+    assert.equal(treeHash(from), oldTree)
+  })
+
+  test('copies nothing once every Session is there', async () => {
+    assert.deepEqual(await restoreSessions(to), { copied: [], newer: [] })
+  })
+
+  test('leaves a Session this DSH cannot read in the old home', async () => {
+    rmSync(ownSession, { recursive: true, force: true })
+    write(join(from, 'sessions', '--team--', 'session-r1', 'session.v99.jsonl.zstd'), 'newer')
+    assert.deepEqual(await restoreSessions(to), { copied: [], newer: ['session-r1'] })
+    assert.equal(existsSync(ownSession), false)
+    rmSync(join(from, 'sessions', '--team--', 'session-r1', 'session.v99.jsonl.zstd'))
+  })
+
+  test('does nothing for data that was not imported', async () => {
+    const { to: fresh } = newHome(join(root, 'fresh'))
+    assert.deepEqual(await restoreSessions(fresh), { copied: [], newer: [] })
+  })
+})
+
 describe('links in the old team workspace', () => {
   let root
   before(() => { root = mkdtempSync(join(tmpdir(), 'ds-bot-app-links-')) })
@@ -303,7 +350,12 @@ describe('finding the team', () => {
   })
 
   test('names each Session of the team once', () => {
-    assert.deepEqual(sessionIdsOf(TEAM), ['session-a', 'session-a2', 'session-b', 'r1', 'session-g', 'session-gone', 'session-g0'])
+    assert.deepEqual(sessionIdsOf(TEAM), ['session-a', 'session-a2', 'session-b', 'session-r1', 'session-g', 'session-gone', 'session-g0'])
+  })
+
+  test('names the own Session of every group, so an imported group can be opened', () => {
+    assert.ok(sessionIdsOf(TEAM).includes('session-r1'))
+    assert.deepEqual(sessionIdsOf({ bots: {}, rooms: { 'session-r2': { id: 'session-r2' } } }), ['session-r2'])
   })
 
   test('copies only the Sessions of the team for the check, and changes nothing in the old home', async () => {

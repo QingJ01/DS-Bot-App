@@ -14,7 +14,7 @@ runInNewContext(bundle.outputFiles[0].text, {
   module, exports: module.exports,
   require: (name) => {
     const platform = {
-      react: { createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }), useState: initial => [initial, () => {}], useEffect: () => {}, useRef: initial => ({ current: initial }), useLayoutEffect: () => {}, Fragment: 'fragment' },
+      react: { createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx }, useContext: ctx => ctx.value, useMemo: make => make(), useCallback: fn => fn, useId: () => 'dv-id', useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),  createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }), useState: initial => [initial, () => {}], useEffect: () => {}, useRef: initial => ({ current: initial }), useLayoutEffect: () => {}, Fragment: 'fragment' },
       'react-dom': {},
       '@deepseek-ai/dsh-client-ui-primitives': {},
     }
@@ -22,7 +22,7 @@ runInNewContext(bundle.outputFiles[0].text, {
     return platform[name]
   },
 })
-const { busyMembers, summaryText, MemberDock, MemberState, StopMemberWork } = module.exports
+const { busyMembers, summaryText, MemberDock, MemberState, StopMemberWork, StopRoomWork, memberWork } = module.exports
 // Values from the bundle's realm compare by content only.
 const plain = value => JSON.parse(JSON.stringify(value))
 // The dock's capsule in an element tree.
@@ -39,9 +39,10 @@ const capsuleOf = (node) => {
 test('the members line names who waits for an approval first, then who is at work', () => {
   const names = { a: 'Anvil', b: 'Flint', c: 'Prism', d: 'Quill', e: 'King', f: 'Comet' }
   const roster = { byId: Object.fromEntries(Object.entries(names).map(([id, name]) => [id, { id, name }])) }
-  const room = { members: ['e', 'd', 'a', 'b', 'c', 'f'] }
+  const room = { id: 'r1', members: ['e', 'd', 'a', 'b', 'c', 'f'] }
   const work = {
     bots: { d: { since: 1, tool: 'edit' }, a: { since: 1, tool: 'pwsh' }, f: { since: 1 } },
+    rooms: { r1: [{ botId: 'd', since: 1, tool: 'edit' }, { botId: 'f', since: 1 }] },
     approvals: [{ botId: 'a' }, { botId: 'b' }, { botId: 'c' }],
   }
   const busy = busyMembers(room, work, roster)
@@ -93,6 +94,35 @@ test('a failed stop is reported and never answers the approval', async () => {
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual(reported, [['connection lost', 'stop']])
 })
+// #592: DSH's own stop reaches only the round; a member the round moved on from kept working.
+test('the stop button of a group\'s details stops all work there, and shows only while work is here', async () => {
+  const stopped = []
+  const room = team.roomsById.r1
+  const actions = { stopRoomWork: id => stopped.push(id) }
+  const shown = work => StopRoomWork({ room, entries: memberWork(room, work), actions })
+  const button = shown({ bots: {}, rooms: { r1: [{ botId: 'a', since: 1, tool: 'pwsh' }] }, approvals: [] })
+  assert.equal(button.props['aria-label'], 'Stop all work in this group')
+  button.props.onClick()
+  await Promise.resolve()
+  assert.deepEqual(stopped, ['r1'])
+  // Members busy only in their own chats or in another group have nothing here to stop.
+  assert.equal(shown({ bots: { a: { since: 1, tool: 'pwsh' }, b: { since: 1, roomId: 'r2' } }, rooms: { r2: [{ botId: 'b', since: 1 }] }, approvals: [] }), null)
+  assert.equal(shown({ bots: {}, rooms: { r2: [{ botId: 'a', since: 1 }] }, approvals: [{ botId: 'a', roomId: 'r2', at: 1 }] }), null)
+  // A turn waiting for an approval here still holds its work.
+  assert.ok(shown({ bots: {}, rooms: { r1: [{ botId: 'a', since: 1 }] }, approvals: [{ botId: 'a', roomId: 'r1', at: 1 }] }))
+})
+
+test('a failed stop of a group\'s work is reported', async () => {
+  const reported = []
+  const room = team.roomsById.r1
+  const button = StopRoomWork({ room, entries: memberWork(room, { bots: {}, rooms: { r1: [{ botId: 'a', since: 1 }] }, approvals: [] }), actions: {
+    stopRoomWork: () => Promise.reject(new Error('connection lost')),
+    reportError: (error, action) => reported.push([error.message, action]),
+  } })
+  button.props.onClick()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(reported, [['connection lost', 'stop']])
+})
 // The capsule's label and what a click on it asks for.
 const dock = (sessionId, work) => {
   const calls = []
@@ -105,12 +135,13 @@ const dock = (sessionId, work) => {
 
 test('one capsule names who waits and who works, without the round\'s speaker, and opens the details', () => {
   const work = {
-    // Anvil runs in its own chat too; its work here wins.
+    // Anvil runs in its own chat too; its work here wins. Coral's work in r2 shows
+    // there and on its own chat, not here (#473).
     bots: { a: { since: 1, tool: 'pwsh' }, b: { since: 1, roomId: 'r2', tool: 'edit' } },
     rooms: { r1: [{ botId: 'a', since: 1, tool: 'write' }, { botId: 'd', since: 1, speaking: true }], r2: [{ botId: 'b', since: 1, tool: 'edit' }] },
     approvals: [{ botId: 'c', roomId: 'r1' }],
   }
-  assert.deepEqual(plain(dock('r1', work)), { label: 'Prism is waiting for your approval · Anvil · Writing changes… +1', calls: [['details', 'r1']] })
+  assert.deepEqual(plain(dock('r1', work)), { label: 'Prism is waiting for your approval · Anvil · Writing changes…', calls: [['details', 'r1']] })
   assert.equal(dock('r1', { bots: {}, rooms: { r1: [{ botId: 'd', since: 1, speaking: true }] }, approvals: [] }), null)
 })
 
@@ -136,7 +167,6 @@ test('a member\'s line runs a clock from its turn\'s start or its approval\'s', 
     : node.props.at !== undefined ? `{${node.props.at}}` : node.children.map(flat).join(''))
   const stateText = entry => flat(MemberState({ entry, bot: { id: 'a', name: 'Anvil' }, room: { id: 'r1' }, roster: team }))
   assert.equal(stateText({ state: 'work', doing: { roomId: 'r1', tool: 'pwsh', since: 1_000 } }), 'Running shell commands…{1000}')
-  assert.equal(stateText({ state: 'work', doing: { roomId: 'r2', tool: 'pwsh', since: 1_000 } }), 'Running shell commands… in Docs{1000}')
   assert.equal(stateText({ state: 'ask', approvals: [{ at: 2_000 }] }), 'Waiting for your approval{2000}')
   assert.equal(flat(MemberState({ entry: { state: 'idle' }, bot: { id: 'a', name: 'Anvil', role: 'Writer' }, room: { id: 'r1' }, roster: team })), 'Writer')
 })

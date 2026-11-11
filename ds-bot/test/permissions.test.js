@@ -5,12 +5,15 @@ import { install } from '../src/host/permissions.js'
 const PRESETS = { 'workspace-write': {}, 'danger-full-access': {} }
 const SESSION_ONLY = ['auto']
 
-function runtime({ presets = true, auto = false, fail = false } = {}) {
+function runtime({ presets = true, auto = false, fail = false, hold = false } = {}) {
   const writes = []
+  const releases = []
+  const bots = {}
+  const control = { fail }
   const service = {
     catalog: () => ({ options: [...Object.keys(PRESETS), ...(auto ? SESSION_ONLY : [])].map(value => ({ value, name: value })), defaultOptions: [], defaultPreset: 'workspace-write' }),
     resolve: (name) => { if (!(name in PRESETS) && !(auto && SESSION_ONLY.includes(name))) throw new Error(`permission: unknown preset "${name}"`); return PRESETS[name] },
-    set: (session, name) => { if (fail) throw new Error('permission: rejected'); writes.push(`${session}=${name}`) },
+    set: (session, name) => { if (control.fail) throw new Error('permission: rejected'); writes.push(`${session}=${name}`) },
   }
   const ctx = { get: name => (presets && name === 'permissionPresets' ? service : undefined) }
   const rt = {
@@ -19,11 +22,24 @@ function runtime({ presets = true, auto = false, fail = false } = {}) {
     groupSessionsOf: id => [`${id}-group`],
     groupOwners: new Map(),
     roomOf: () => undefined,
-    resolveAgent: async sessionId => ({ session: sessionId }),
+    botOf: id => bots[id],
+    resolveAgent: sessionId => (hold ? new Promise((resolve, reject) => releases.push({ sessionId, resolve, reject })) : Promise.resolve({ session: sessionId })),
     warn() {},
   }
   install(rt)
-  return { rt, writes }
+  // With `hold`, every Session's agent resolves only when its index here is settled,
+  // so an earlier request can be made to apply after a later one.
+  const settle = async (index) => {
+    const [{ sessionId, resolve }] = releases.splice(index, 1)
+    resolve({ session: sessionId })
+    await new Promise(done => setImmediate(done))
+  }
+  const drop = async (index) => {
+    const [{ reject }] = releases.splice(index, 1)
+    reject(new Error('permission: session went away'))
+    await new Promise(done => setImmediate(done))
+  }
+  return { rt, writes, releases, bots, settle, drop, control }
 }
 
 test('a Bot\'s preset is set on its chat and its group Sessions', async () => {
@@ -177,4 +193,103 @@ test('partial group permission writes report failure and even the saved preset c
   assert.equal(await rt.setRoomPermission(room, null), true)
   assert.equal(room.permission, undefined)
   assert.deepEqual(applied, { 'a-group': 'workspace-write', 'b-group': 'workspace-write' })
+})
+
+test('the last preset asked for wins when two Bot changes overlap', async () => {
+  const { rt, writes, releases, settle } = runtime({ hold: true })
+  const bot = { id: 'b1', name: 'Ada' }
+  const first = rt.setPermission(bot, 'workspace-write')
+  await new Promise(resolve => setImmediate(resolve))
+  const second = rt.setPermission(bot, 'danger-full-access')
+  assert.equal(releases.length, 1)
+  await settle(0)
+  await settle(0)
+  await first
+  await new Promise(resolve => setImmediate(resolve))
+  await settle(0)
+  await settle(0)
+  await second
+  assert.equal(bot.permission, 'danger-full-access')
+  assert.deepEqual(writes, [
+    'b1-chat=workspace-write', 'b1-group=workspace-write',
+    'b1-chat=danger-full-access', 'b1-group=danger-full-access',
+  ])
+})
+
+test('a queued newer change applies after an earlier request fails', async () => {
+  const { rt, releases, settle, drop } = runtime({ hold: true })
+  const bot = { id: 'b1', name: 'Ada', permission: 'workspace-write' }
+  // Two windows request the same preset while the first request resolves.
+  const first = rt.setPermission(bot, 'danger-full-access')
+  await new Promise(resolve => setImmediate(resolve))
+  const second = rt.setPermission(bot, 'danger-full-access')
+  assert.equal(releases.length, 1)
+  const refused = assert.rejects(first, /Could not apply permissions/)
+  await drop(0)
+  await refused
+  await new Promise(resolve => setImmediate(resolve))
+  await settle(0)
+  await settle(0)
+  await second
+  assert.equal(bot.permission, 'danger-full-access')
+})
+
+test('a queued failed change leaves the last successfully applied preset in place', async () => {
+  const { rt, settle, drop, control } = runtime({ hold: true })
+  const bot = { id: 'b1', name: 'Ada', permission: 'workspace-write' }
+  const first = rt.setPermission(bot, 'danger-full-access')
+  await new Promise(resolve => setImmediate(resolve))
+  const second = rt.setPermission(bot, 'danger-full-access')
+  const firstFails = assert.rejects(first, /Could not apply permissions/)
+  await drop(0)
+  await firstFails
+  await new Promise(resolve => setImmediate(resolve))
+  control.fail = true
+  const secondFails = assert.rejects(second, error => error.message.includes('Could not apply permissions') && error.cause?.message === 'permission: rejected')
+  await settle(0)
+  await settle(0)
+  await secondFails
+  assert.equal(bot.permission, 'workspace-write')
+})
+
+test('a failed latest change leaves Sessions on the last applied preset', async () => {
+  const { rt, writes, settle, control } = runtime({ hold: true })
+  const bot = { id: 'b1', name: 'Ada' }
+  const first = rt.setPermission(bot, 'workspace-write')
+  await new Promise(resolve => setImmediate(resolve))
+  const second = rt.setPermission(bot, 'danger-full-access')
+  await settle(0)
+  await settle(0)
+  await first
+  await new Promise(resolve => setImmediate(resolve))
+  control.fail = true
+  const refused = assert.rejects(second, error => error.message.includes('Could not apply permissions') && error.cause?.message === 'permission: rejected')
+  await settle(0)
+  await settle(0)
+  await refused
+  assert.equal(bot.permission, 'workspace-write')
+  assert.deepEqual(writes, ['b1-chat=workspace-write', 'b1-group=workspace-write'])
+})
+
+test('the last preset asked for wins when two group changes overlap', async () => {
+  const { rt, writes, releases, bots, settle } = runtime({ hold: true })
+  bots.b1 = { id: 'b1', name: 'Ada' }
+  bots.b2 = { id: 'b2', name: 'Ben' }
+  const room = { name: 'Ops', sessions: { b1: 's1', b2: 's2' } }
+  const first = rt.setRoomPermission(room, 'workspace-write')
+  await new Promise(resolve => setImmediate(resolve))
+  const second = rt.setRoomPermission(room, 'danger-full-access')
+  assert.equal(releases.length, 1)
+  await settle(0)
+  await settle(0)
+  await first
+  await new Promise(resolve => setImmediate(resolve))
+  await settle(0)
+  await settle(0)
+  await second
+  assert.equal(room.permission, 'danger-full-access')
+  assert.deepEqual(writes, [
+    's1=workspace-write', 's2=workspace-write',
+    's1=danger-full-access', 's2=danger-full-access',
+  ])
 })

@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
@@ -25,29 +26,34 @@ let renderRefs
 let refIndex = 0
 let layoutEffects
 const react = {
+  createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx },
+  useContext: ctx => ctx.value,
+  useCallback: fn => fn,
+  useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),
   createElement: (type, props, ...children) => ({ type, props: { ...props, children } }), Fragment: Symbol('Fragment'),
   useEffect() {}, useLayoutEffect: effect => layoutEffects?.push(effect), useState: initial => [initial, () => {}],
   useMemo: make => make(), useRef: current => renderRefs ? renderRefs[refIndex++] ??= { current } : { current }, useId: () => 'id',
 }
 const module = { exports: {} }
 const viewport = { innerWidth: 1280 }
-runInNewContext(outputFiles[0].text, {
+const sandbox = {
   module, exports: module.exports,
   require: name => (name === 'react' ? react : {}),
   window: viewport,
-})
+}
+runInNewContext(outputFiles[0].text, sandbox)
 const { SHELL_CSS, SIDEBAR_CSS, TeamSidebar } = module.exports
 
-function navigationSidebar(wide, { shell = true } = {}) {
+function navigationSidebar(wide, { leftDrawer = false } = {}) {
   const calls = []
   const refs = []
-  let collapsed = !wide
   const bot = { id: 'writer', name: 'Writer', createdAt: 1 }
   const room = { id: 'room', name: 'Team', members: [], createdAt: 2 }
   const agent = { id: 'agent', sessions: ['session'], createdAt: 3 }
   const roster = { bots: [bot], rooms: [room], agents: [agent], byId: { writer: bot }, ready: true }
   const actions = Object.fromEntries(['openSession', 'openAgent', 'openAgentSession', 'newAgentSession'].map(name => [name, id => { calls.push([name, id]); return id }]))
-  actions.toggleSidebar = () => { collapsed = !collapsed; calls.push(['toggleSidebar']) }
+  actions.toggleSidebar = () => { calls.push(['toggleSidebar']) }
+  actions.setLeftDrawer = (on) => { calls.push(['setLeftDrawer', on]) }
   const rows = []
   const walk = (node) => {
     if (Array.isArray(node)) { node.forEach(walk); return }
@@ -55,18 +61,14 @@ function navigationSidebar(wide, { shell = true } = {}) {
     if (['BotRow', 'RoomRow', 'AgentRow'].includes(node.type?.name)) rows.push(node)
     walk(node.props?.children)
   }
-  const render = (nextWide = shell ? wide : !collapsed) => {
+  const render = (nextWide = wide) => {
     wide = nextWide
-    // The public owner action closes over the shell's committed collapsed state;
-    // wide may still be true during the shell's 150ms content fade-out.
-    const committedCollapsed = collapsed
     renderRefs = refs
     refIndex = 0
     layoutEffects = []
     const tree = TeamSidebar({
       wide, actions,
-      ...(shell ? { expandSidebar: () => { if (committedCollapsed) actions.toggleSidebar() } } : {}),
-      useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+      useRoster: pick => pick(roster), useUi: pick => pick({ unread: {}, leftDrawer }), useRegistry: pick => pick({}),
       useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
     })
     renderRefs = undefined
@@ -77,12 +79,12 @@ function navigationSidebar(wide, { shell = true } = {}) {
     walk(tree)
   }
   render()
-  return { calls, rows, actions, render, get collapsed() { return collapsed } }
+  return { calls, rows, actions, render }
 }
 
 for (const width of [390, 1023, 1024, 1280]) {
   for (const wide of [false, true]) {
-    test(`sidebar navigation at ${width}px with ${wide ? 'expanded content' : 'a collapsed rail'} only closes an open mobile sidebar`, () => {
+    test(`sidebar navigation at ${width}px with ${wide ? 'expanded content' : 'our own column'} just navigates`, () => {
       viewport.innerWidth = width
       const initial = navigationSidebar(wide)
       assert.equal(initial.rows.length, 3)
@@ -91,77 +93,25 @@ for (const width of [390, 1023, 1024, 1280]) {
         for (const name of names) {
           const { rows, calls } = navigationSidebar(wide)
           assert.equal(rows[index].props.actions[name]('selected'), 'selected')
-          assert.deepEqual(calls, wide && width < 1024 ? [[name, 'selected'], ['toggleSidebar']] : [[name, 'selected']])
+          assert.deepEqual(calls, [[name, 'selected']])
         }
       }
     })
   }
 }
 
-test('repeated sidebar navigation before another commit closes only once', () => {
+test('a row picked from the floating drawer closes it', () => {
   viewport.innerWidth = 390
-  const side = navigationSidebar(true)
-  side.rows[0].props.actions.openAgent('first')
-  side.rows[1].props.actions.openSession('second')
-  assert.equal(side.collapsed, true)
-  assert.deepEqual(side.calls, [['openAgent', 'first'], ['toggleSidebar'], ['openSession', 'second']])
+  const side = navigationSidebar(false, { leftDrawer: true })
+  side.rows[0].props.actions.openSession('picked')
+  assert.deepEqual(side.calls, [['openSession', 'picked'], ['setLeftDrawer', false]])
 })
 
-test('the standalone UI can navigate without a shell expansion action', () => {
+test('a row picked outside the drawer leaves it alone', () => {
   viewport.innerWidth = 390
-  // app/ui passes its actual wide state directly, without the DSH owner action.
-  const side = navigationSidebar(true, { shell: false })
-  side.rows[1].props.actions.openSession('first')
-  side.rows[2].props.actions.openSession('second')
-  assert.equal(side.collapsed, true)
-  assert.deepEqual(side.calls, [['openSession', 'first'], ['toggleSidebar'], ['openSession', 'second']])
-  side.render()
-  side.calls.length = 0
-  side.rows[1].props.actions.openSession('from-rail')
-  assert.deepEqual(side.calls, [['openSession', 'from-rail']])
-  side.actions.toggleSidebar()
-  side.render()
-  side.rows[2].props.actions.openSession('after-expansion')
-  assert.equal(side.collapsed, true)
-})
-
-test('navigation during the shell fade-out keeps the already collapsed sidebar closed', () => {
-  viewport.innerWidth = 390
-  const side = navigationSidebar(true)
-  side.rows[0].props.actions.openAgentSession('first')
-  assert.equal(side.collapsed, true)
-  side.render(true)
-  side.calls.length = 0
-  side.rows[1].props.actions.openSession('during-fade')
-  assert.equal(side.collapsed, true, 'wide remains true until the content fade settles')
-  assert.equal(side.calls.filter(([name]) => name === 'openSession').length, 1)
-})
-
-test('a sidebar reopened before wide becomes false still closes on the next navigation', () => {
-  viewport.innerWidth = 390
-  const side = navigationSidebar(true)
-  side.rows[0].props.actions.openAgent('first')
-  side.render(true)
-  side.actions.toggleSidebar()
-  side.render(true)
-  assert.equal(side.collapsed, false)
-  side.rows[1].props.actions.openSession('after-reopen')
-  assert.equal(side.collapsed, true)
-})
-
-test('the navigation guard resets across a full collapse and expansion cycle', () => {
-  viewport.innerWidth = 390
-  const side = navigationSidebar(true)
-  side.rows[0].props.actions.newAgentSession('first')
-  side.render(false)
-  side.calls.length = 0
-  side.rows[1].props.actions.openSession('from-rail')
-  assert.equal(side.collapsed, true)
-  assert.deepEqual(side.calls, [['openSession', 'from-rail']])
-  side.actions.toggleSidebar()
-  side.render(true)
-  side.rows[1].props.actions.openSession('after-expansion')
-  assert.equal(side.collapsed, true)
+  const side = navigationSidebar(false)
+  side.rows[0].props.actions.openSession('picked')
+  assert.deepEqual(side.calls, [['openSession', 'picked']])
 })
 
 // A Bot working in its own chat previews what it is doing, the way a group row does
@@ -256,6 +206,50 @@ test('an idle Bot\'s sidebar row keeps the message preview', () => {
   assert.equal(previews.length, 0)
 })
 
+// The rail shows avatars only, and a group's name can be 60 characters long: a row whose
+// name is not on screen in full shows it on hover.
+test('a sidebar row shows its name on hover when the name is hidden or cut', () => {
+  viewport.innerWidth = 1280
+  const bot = { id: 'writer', name: 'Writer', createdAt: 1 }
+  const room = { id: 'room', name: 'Launch plan for the spring release', members: ['writer'], createdAt: 2 }
+  const roster = { bots: [bot], rooms: [room], agents: [], byId: { writer: bot }, roomsById: { room }, ready: true, exchangeTurns: {} }
+  const rowsOf = (pref) => {
+    const rows = []
+    const walk = (node) => {
+      if (Array.isArray(node)) { node.forEach(walk); return }
+      if (!node || typeof node !== 'object') return
+      if (['BotRow', 'RoomRow'].includes(node.type?.name)) rows.push(node)
+      walk(node.props?.children)
+    }
+    walk(TeamSidebar({
+      useSidebarPref: pick => pick(pref),
+      actions: Object.fromEntries(['openSession', 'openMenu', 'openPalette', 'openNewChat', 'toggleSidebar', 'clearUnread'].map(name => [name, () => {}])),
+      useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+      useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+      useSessionStatus: pick => pick(new Map()), useSessionRetainInfo: () => null,
+      useActivity: pick => pick({}), useWork: pick => pick({ waiting: {}, rooms: {}, approvals: [] }),
+    }))
+    return Object.fromEntries(rows.map(row => [row.type.name, row.type(row.props)]))
+  }
+  const rail = rowsOf('rail')
+  assert.equal(rail.BotRow.props.title, 'Writer')
+  assert.equal(rail.RoomRow.props.title, 'Launch plan for the spring release')
+  const wide = rowsOf('open')
+  assert.equal(wide.RoomRow.props.title, undefined)
+  // jsdom lays nothing out, so the name's widths are set by hand.
+  const { document } = new JSDOM('<button title="stale"><span class="bt-row-title">Launch plan for the spring release</span></button>').window
+  const button = document.querySelector('button')
+  const name = button.firstChild
+  Object.defineProperty(name, 'clientWidth', { value: 120 })
+  Object.defineProperty(name, 'scrollWidth', { value: 120, configurable: true })
+  wide.RoomRow.props.onMouseEnter({ currentTarget: button })
+  assert.equal(button.hasAttribute('title'), false)
+  Object.defineProperty(name, 'scrollWidth', { value: 260 })
+  wide.RoomRow.props.onMouseEnter({ currentTarget: button })
+  assert.equal(button.title, 'Launch plan for the spring release')
+  assert.equal(wide.BotRow.props.onMouseEnter, wide.RoomRow.props.onMouseEnter)
+})
+
 test('preparing sidebar navigation leaves actions elsewhere unchanged', () => {
   viewport.innerWidth = 390
   const { actions, calls } = navigationSidebar(true)
@@ -277,9 +271,10 @@ function rulesOf(css) {
     at = end
   }
 }
-const SHELL_PARTS = /_logoRow|_brand|_toggle|_newSession|_footArea|_collapsed|_topStrip|bt-side-collapse/
+const SHELL_PARTS = /_logoRow|_brand|_toggle|_newSession|_footArea|_collapsed|_topStrip|bt-side-collapse|bt-title-toggle/
 const rules = [...rulesOf(SHELL_CSS), ...rulesOf(SIDEBAR_CSS)].filter(rule => SHELL_PARTS.test(rule.selector))
 const hiding = rules.filter(rule => /display:none/.test(rule.body))
+const showing = rules.filter(rule => /display:inline-flex/.test(rule.body))
 
 // The shell sidebar's own markup (dsh-client-ui-sidebar SidebarRoot), reduced to what the
 // team view reshapes: the switch is in the logo row, except in a macOS desktop window,
@@ -292,6 +287,7 @@ function shell({ platform, collapsed }) {
       <div class="x_root${collapsed ? ' x_collapsed' : ''}">
         ${darwin ? `<div class="x_topStrip">${toggle}</div>` : ''}
         <div class="x_logoRow">${collapsed ? '' : '<button class="x_brand x_wide"></button>'}${darwin ? '' : toggle}</div>
+      <button class="bt-title-toggle"></button>
         <div class="x_newSession"></div>
         <div class="team">${collapsed ? '' : '<div class="bt-side-top"><button class="bt-round bt-side-collapse"></button></div>'}</div>
         <div class="x_footArea"><span class="bt-foot-account"></span></div>
@@ -300,39 +296,61 @@ function shell({ platform, collapsed }) {
   const { document } = new JSDOM(html).window
   const hidden = (node) => {
     for (let at = node; at && at.nodeType === 1; at = at.parentElement) {
-      if (hiding.some(rule => at.matches(rule.selector))) return true
+      if (hiding.some(rule => at.matches(rule.selector)) && !showing.some(rule => at.matches(rule.selector))) return true
     }
     return false
   }
-  const switches = [...document.querySelectorAll('.x_toggle, .bt-side-collapse')].filter(node => !hidden(node))
+  const switches = [...document.querySelectorAll('.x_toggle, .bt-side-collapse, .bt-title-toggle')].filter(node => !hidden(node))
   return { document, hidden, switches }
 }
 
-for (const platform of ['web', 'windows', 'mac']) {
-  for (const collapsed of [false, true]) {
-    test(`${collapsed ? 'a collapsed' : 'an open'} sidebar on ${platform} shows exactly one sidebar switch`, () => {
-      const { document, hidden, switches } = shell({ platform, collapsed })
-      assert.equal(switches.length, 1, `switches shown: ${switches.map(node => node.className).join(' | ') || 'none'}`)
-      const [shown] = switches
-      // An open sidebar on the web has the team's own button; everywhere else the shell's
-      // switch stays where the shell puts it.
-      assert.equal(shown.classList.contains('bt-side-collapse'), platform === 'web' && !collapsed)
-      // What the team view replaces stays out of sight.
+// The switch is always ours. Under a Windows title bar it is the title-band
+// button and the shell's own is hidden (left to the shell, it would expand the
+// shell's sidebar before we pull it back, a flash); elsewhere it is the column's
+// top-row button, or the floating one while the column is hidden.
+for (const collapsed of [false, true]) {
+  test(`${collapsed ? 'a collapsed' : 'an open'} shell sidebar under a Windows title bar shows only our switch`, () => {
+    const { switches } = shell({ platform: 'windows', collapsed })
+    assert.deepEqual(switches.map(node => node.className), ['bt-title-toggle'])
+  })
+}
+
+test('off a Windows title bar the column\'s top row and the floating switch are never hidden by style', () => {
+  for (const platform of ['web', 'mac']) {
+    const { document, hidden } = shell({ platform, collapsed: false })
+    assert.equal(hidden(document.querySelector('.bt-side-collapse')), false, platform)
+    assert.equal(hidden(document.querySelector('.bt-title-toggle')), false, platform)
+  }
+})
+
+test('what the team view replaces in the shell sidebar stays out of sight', () => {
+  for (const platform of ['web', 'windows', 'mac']) {
+    for (const collapsed of [false, true]) {
+      const { document, hidden } = shell({ platform, collapsed })
       assert.equal(hidden(document.querySelector('.x_newSession')), true)
       const brand = document.querySelector('.x_brand')
       if (brand) assert.equal(hidden(brand), true)
-    })
+    }
   }
-}
+})
 
-test('an open sidebar has a button that collapses it; the rail leaves that to the shell', () => {
+// The shell's collapsed sidebar keeps no track in the Bot view, so a hidden
+// column leaves nothing behind; the shell's right column keeps its own geometry.
+test('the shell\'s collapsed sidebar keeps no track while its right column is closed', () => {
+  const frame = [...rulesOf(SHELL_CSS), ...rulesOf(SIDEBAR_CSS)].find(rule => rule.selector.includes('[data-sidebar-collapsed][data-rightbar-collapsed]'))
+  assert.match(frame?.body ?? '', /grid-template-columns:0px/)
+})
+
+test('the column\'s top row hides it, on the rail too, and its edge is a drag grip', () => {
+  viewport.innerWidth = 1280
   const calls = []
   const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
-  const props = wide => ({
-    wide,
+  const props = pref => ({
+    wide: false,
     useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
     useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
-    actions: { toggleSidebar: () => calls.push('toggle') },
+    useSidebarPref: pick => pick(pref),
+    actions: { toggleLeftHidden: () => calls.push('toggle'), toggleSidebar: () => {} },
   })
   const find = (node, match) => {
     if (Array.isArray(node)) return node.map(child => find(child, match)).find(Boolean)
@@ -340,11 +358,21 @@ test('an open sidebar has a button that collapses it; the rail leaves that to th
     return match(node) ? node : find(node.props?.children, match)
   }
   const collapse = node => node.type === 'button' && node.props['aria-label'] === 'Collapse sidebar'
-  const button = find(TeamSidebar(props(true)), collapse)
-  assert.ok(button?.props.className.split(' ').includes('bt-side-collapse'))
-  button.props.onClick()
-  assert.deepEqual(calls, ['toggle'])
-  assert.equal(find(TeamSidebar(props(false)), collapse), undefined)
+  for (const pref of ['open', 'rail']) {
+    const tree = TeamSidebar(props(pref))
+    const button = find(tree, collapse)
+    assert.ok(button?.props.className.split(' ').includes('bt-side-collapse'), pref)
+    button.props.onClick()
+    const column = find(tree, node => node.type?.name === 'LeftColumn')
+    assert.equal(column.props.mode, pref)
+    assert.equal(typeof column.props.onGrip, 'function')
+  }
+  assert.deepEqual(calls, ['toggle', 'toggle'])
+  // Hidden, there is no column at all; the floating switch brings it back.
+  const hidden = TeamSidebar(props('hidden'))
+  assert.equal(find(hidden, node => node.type?.name === 'LeftColumn'), undefined)
+  const toggle = find(hidden, node => node.type?.name === 'TitleToggle')
+  assert.equal(toggle.props.hidden, true)
 })
 
 test('the logo row takes no room in an open sidebar under a Windows title bar', () => {
@@ -374,6 +402,150 @@ test('the shell footer is a grid wherever the shell shows it', () => {
       assert.equal(grid, !(platform === 'windows' && collapsed), `${platform} ${collapsed ? 'collapsed' : 'open'}`)
     }
   }
+})
+
+// #452: the footer lost its Connect plugins button; the account menu and the
+// entries other plugins add keep the places they had.
+test('the Bot footer lays out the account, another plugin\'s entry and the settings trigger', () => {
+  const html = `<!doctype html><html><body><div class="x_root"><div class="x_footArea">
+    <div class="x_footerActions">
+      <div><span class="bt-foot-account"></span></div>
+      <div><span class="x_other-plugin"></span></div>
+    </div>
+    <div class="x_settingsArea"><button class="x_trigger"><span class="x_label">Settings</span></button></div>
+  </div></div></body></html>`
+  const { document } = new JSDOM(html).window
+  // The last rule that places a node is the one that counts, as in the cascade.
+  const columnOf = node => {
+    const placed = rules.filter(rule => node.matches(rule.selector) && /grid-column:/.test(rule.body))
+    assert.ok(placed.length > 0, `no grid placement for ${node.className}`)
+    return placed[placed.length - 1].body.match(/grid-column:([^;]+)/)[1]
+  }
+  // The account menu keeps the left of the row.
+  assert.equal(columnOf(document.querySelector('.bt-foot-account')), '1')
+  // Another plugin's entry takes a row of its own, above the Bot row.
+  assert.equal(columnOf(document.querySelector('.x_other-plugin')), '1/-1')
+  // The settings trigger keeps the right of the row.
+  assert.equal(columnOf(document.querySelector('.x_settingsArea')), '3')
+})
+
+// #452: the Connect plugins button left the footer; what DS Bot puts there is
+// the account menu and the way back from Agent mode.
+test('the Bot footer holds the account and the return button only', () => {
+  const source = readFileSync(new URL('../src/client/index.js', import.meta.url), 'utf8')
+  const ids = [...source.matchAll(/shadow\('sidebar\.footer\.action',\s*\{[^}]*?id:\s*['"]([^'"]+)['"]/g)].map(match => match[1])
+  assert.deepEqual(ids.sort(), ['bot-account', 'bot-return'])
+})
+
+// The edge drag writes the column and the chat's margins straight into the page, so these
+// run it on a jsdom page with real timers. The sandbox gets the page and the timers only
+// while a drag runs; the release then re-renders the sidebar at the state it stored.
+async function edgeDrag({ start, reduced = false }, run) {
+  const dom = new JSDOM('<!doctype html><body><div class="x_centerCol"></div><div class="bt-leftcol"><div class="bt-leftcol-grip"></div></div></body>')
+  const { document } = dom.window
+  const column = document.querySelector('.bt-leftcol')
+  const grip = column.querySelector('.bt-leftcol-grip')
+  const center = document.querySelector('.x_centerCol')
+  const frame = { viewport: 1280, sidebarWidth: start.width, collapsedWidth: 0, collapsed: false }
+  const stored = { pref: start.pref }
+  const roster = { bots: [], rooms: [], agents: [], byId: {}, ready: true }
+  const actions = {
+    setPanelYield() {}, setLeftDrawer() {}, toggleSidebar() {}, toggleLeftHidden() {},
+    setSidebarWidth: (width) => { frame.sidebarWidth = width },
+    setSidebarPref: (pref) => { stored.pref = pref },
+  }
+  const render = () => TeamSidebar({
+    wide: false, actions,
+    useRoster: pick => pick(roster), useUi: pick => pick({ unread: {} }), useRegistry: pick => pick({}),
+    useSessions: pick => pick({ ids: [], byId: {} }), useUpdate: () => ({}),
+    useFrame: pick => pick(frame), useSidebarPref: pick => pick(stored.pref),
+  })
+  const leftColumn = () => {
+    const find = (node) => {
+      if (Array.isArray(node)) return node.map(find).find(Boolean)
+      if (!node || typeof node !== 'object') return undefined
+      return node.type?.name === 'LeftColumn' ? node : find(node.props?.children)
+    }
+    return find(render()).props
+  }
+  const globals = { document, performance, setTimeout, clearTimeout, requestAnimationFrame: next => setTimeout(next, 0), cancelAnimationFrame: clearTimeout, CSS: { escape: value => value } }
+  Object.assign(sandbox, globals)
+  viewport.innerWidth = 1280
+  if (reduced) viewport.matchMedia = () => ({ matches: true })
+  const pointer = (type, clientX) => grip.dispatchEvent(new dom.window.MouseEvent(type, { clientX }))
+  try {
+    return await run({
+      column, center, leftColumn,
+      press: () => leftColumn().onGrip({ button: 0, pointerId: 1, currentTarget: grip, preventDefault() {} }),
+      move: clientX => pointer('pointermove', clientX),
+      release: clientX => pointer('pointerup', clientX),
+      settle: ms => new Promise(resolve => setTimeout(resolve, ms)),
+    })
+  } finally {
+    for (const name of Object.keys(globals)) delete sandbox[name]
+    delete viewport.matchMedia
+  }
+}
+
+// After the drag ends the column's own width must be the one the sidebar renders for the
+// state it stored, or the edge sits at the CSS fallback (57px on the rail).
+test('a drag that ends on the rail leaves the column at the rail width', async () => {
+  await edgeDrag({ start: { pref: 'open', width: 350 } }, async ({ column, leftColumn, press, move, release, settle }) => {
+    press()
+    for (const x of [300, 250, 200, 150, 100]) move(x)
+    release(100)
+    await settle(800)
+    assert.equal(leftColumn().mode, 'rail')
+    assert.equal(leftColumn().width, 88)
+    assert.equal(column.style.width, '88px')
+    assert.equal(column.hasAttribute('data-folding'), false)
+  })
+})
+
+test('a reduced-motion drag that unfolds the rail lands at the dragged width', async () => {
+  await edgeDrag({ start: { pref: 'rail', width: 280 }, reduced: true }, async ({ column, leftColumn, press, move, release }) => {
+    press()
+    for (const x of [120, 160, 200, 260, 330]) move(x)
+    release(330)
+    assert.equal(leftColumn().mode, 'open')
+    assert.equal(leftColumn().width, 330)
+    assert.equal(column.style.width, '330px')
+    assert.equal(column.hasAttribute('data-folding'), false)
+  })
+})
+
+// The spring rides the snap switch only: after it settles the same drag follows the cursor
+// frame by frame, and the chat's margin takes no transition of its own.
+test('after a snap the spring stops and the drag follows the cursor', async () => {
+  await edgeDrag({ start: { pref: 'rail', width: 280 } }, async ({ column, center, leftColumn, press, move, release, settle }) => {
+    press()
+    move(200)
+    assert.equal(column.dataset.folding, '')
+    await settle(800)
+    assert.equal(column.hasAttribute('data-folding'), false)
+    assert.equal(center.style.getPropertyValue('transition'), 'none')
+    for (const x of [280, 300, 330]) {
+      move(x)
+      assert.equal(column.style.width, `${x}px`)
+    }
+    release(330)
+    await settle(800)
+    assert.equal(leftColumn().width, 330)
+    assert.equal(column.style.width, '330px')
+  })
+})
+
+test('the expanded account footer keeps the phone entry beside the account and the rail stacks it', () => {
+  const expanded = rules.find(rule => rule.selector === '[class*="_footArea"]:has(.bt-foot-account:not([data-rail]))')
+  assert.match(expanded?.body ?? '', /grid-template-columns:autominmax\(0,1fr\)auto/)
+
+  const rail = rules.find(rule => rule.selector === '[class*="_footArea"]:has(.bt-foot-account[data-rail])')
+  assert.match(rail?.body ?? '', /grid-template-columns:minmax\(0,1fr\)/)
+  assert.match(rail?.body ?? '', /justify-items:center/)
+  assert.match(rail?.body ?? '', /row-gap:6px/)
+
+  const phone = rules.filter(rule => /bt-mobile-launcher/.test(rule.selector))
+  assert.ok(phone.length > 0)
 })
 
 test('the expanded account footer uses three columns and the rail stacks a centered column', () => {

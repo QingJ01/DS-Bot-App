@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
+import { join, resolve } from 'node:path'
+import { FileMatcher } from 'app-builder-lib/out/fileMatcher.js'
+import { parse } from 'yaml'
 
 // npm installs the peers that the DSH packages ask for, but electron-builder packs only the
 // dependencies it finds through `dependencies` and `optionalDependencies`. A package that npm
@@ -13,17 +16,59 @@ test('every package that the app runs on is a dependency, not only a peer', () =
   assert.deepEqual(peerOnly, [], `add these to "dependencies" in app/package.json: ${peerOnly.join(' ')}`)
 })
 
+test('sharp native modules and versioned libvips libraries are unpacked together', () => {
+  const config = parse(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'))
+  const root = resolve('app-fixture')
+  const filter = new FileMatcher(root, root, value => value, config.asarUnpack).createFilter()
+  const stat = { isDirectory: () => false }
+  for (const file of [
+    '@img/sharp-linux-x64/lib/sharp-linux-x64-0.35.5.node',
+    '@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.18.7',
+    '@img/sharp-linux-arm64/lib/sharp-linux-arm64.node',
+    '@img/sharp-libvips-linux-arm64/lib/libvips-cpp.so.8.18.7',
+    '@img/sharp-libvips-linuxmusl-x64/lib/libvips-cpp.so.8.18.7',
+    '@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.7.dylib',
+    '@img/sharp-win32-x64/lib/libvips-42.dll',
+    'pnpm/bin/pnpm.cjs',
+  ]) assert.equal(filter(join(root, 'node_modules', file), stat), true, file)
+  assert.equal(filter(join(root, 'node_modules/yaml/dist/index.js'), stat), false)
+})
+
+test('Linux leaves the Host and its dependencies readable by plain Node', () => {
+  const config = parse(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'))
+  assert.equal(config.linux.asar, false)
+  assert.notEqual(config.mac.asar, false)
+  assert.notEqual(config.win.asar, false)
+})
+
 // A release is tagged with the version of ds-bot, and the installed apps compare their own
 // version with the one in the release's latest.yml.
-test('the app has the version of ds-bot', () => {
+test('the app lock records the ds-bot manifest', () => {
   const read = file => JSON.parse(readFileSync(new URL(file, import.meta.url), 'utf8'))
   const app = read('../package.json')
   const lock = read('../package-lock.json')
   const plugin = read('../../ds-bot/package.json')
+  const lockedPlugin = lock.packages['node_modules/ds-bot']
   assert.equal(app.name, 'ds-bot-app-desktop')
   assert.equal(app.productName, 'DS Bot App')
   assert.equal(app.version, plugin.version)
   assert.equal(lock.packages[''].name, app.name)
   assert.equal(lock.packages[''].version, app.version)
-  assert.equal(lock.packages['node_modules/ds-bot'].version, plugin.version)
+  assert.equal(lockedPlugin.version, plugin.version)
+  assert.deepEqual(lockedPlugin.dependencies, plugin.dependencies)
+  assert.deepEqual(lockedPlugin.peerDependencies, plugin.peerDependencies)
+})
+
+test('the Windows installer uses the fork app id and default upgrade GUID', () => {
+  const config = parse(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'))
+  assert.equal(config.appId, 'io.github.qingj01.dsbotapp')
+  assert.equal(config.nsis?.guid, undefined)
+})
+
+// Tool processes (bash, scripts a Bot runs) connect to devices on the local network;
+// macOS blocks them outright when Info.plist has no NSLocalNetworkUsageDescription.
+test('the mac package asks macOS for local network access', () => {
+  const config = parse(readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8'))
+  assert.equal(typeof config.mac?.extendInfo?.NSLocalNetworkUsageDescription, 'string')
+  assert.notEqual(config.mac.extendInfo.NSLocalNetworkUsageDescription.trim(), '')
 })

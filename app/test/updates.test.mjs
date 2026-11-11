@@ -322,7 +322,7 @@ describe('watchReleases', () => {
     assert.equal(await none.latest(), null)
     assert.deepEqual(none.state(), { phase: 'current' })
 
-    const page = 'https://github.com/Fei2411/DeepSeek-Bot/releases/tag/v0.1.9'
+    const page = 'https://github.com/Fei2411/DS-Bot/releases/tag/v0.1.9'
     const found = watchReleases({
       current: '0.1.7', arch: 'arm64', fetch: async () => releaseResponse([release('0.1.9', { page })]), log: quietLog(),
     })

@@ -10,6 +10,7 @@ import { dateLocale, t } from './i18n.js'
 import { SPRING_POP, SPRING_SHAPE, spring } from './motion.js'
 import { useDockHold } from './card-hold.js'
 import { heldCardKey } from './sources.js'
+import { CellEmpty } from './cell-empty.js'
 
 const MIN_VALUE = 4
 const NONE = {}
@@ -153,10 +154,10 @@ function RequestView({ sessionId, bot, request, roster, actions }) {
 // The card at its request_secret call; a key that was already there gets one line.
 export function SecretToolCell({ sessionId, callId, name, done, content, roster, actions, heldCards = NONE }) {
   const bot = roster.byId[sessionId]
-  if (!bot) return null
+  if (!bot) return h(CellEmpty)
   // Call ids repeat across a Bot's chat parts.
   const request = (roster.secretRequests?.[bot.id] ?? []).find(entry => entry.callId === callId && (entry.sessionId ?? sessionId) === sessionId)
-  if (request?.status === 'pending' && heldCards[heldCardKey('secret', request.id)] > 0) return null
+  if (request?.status === 'pending' && heldCards[heldCardKey('secret', request.id)] > 0) return h(CellEmpty)
   if (request) return h('div', { className: 'bt-q-inline' }, h(RequestView, { sessionId, bot, request, roster, actions }))
   if (done && /already saved/.test(contentText(content))) {
     return h('div', { className: 'bt-event' }, h('span', { className: 'bt-secret-event' }, h(KeyIcon), t('{bot} is using {name}', { bot: bot.name, name: name ?? t('a saved key') })))
@@ -166,7 +167,7 @@ export function SecretToolCell({ sessionId, callId, name, done, content, roster,
   if (done && contentText(content).startsWith('No card can be shown now')) {
     return h('div', { className: 'bt-event' }, h('span', { className: 'bt-secret-event' }, h(KeyIcon), t('{bot} could not ask for a key: this window can only view the team', { bot: bot.name })))
   }
-  return null
+  return h(CellEmpty)
 }
 
 // A card whose call the transcript does not draw (an earlier part of the chat, a
@@ -306,7 +307,7 @@ export const SECRET_CSS = `
 .bt-secret-field{align-items:center;min-height:36px}
 .bt-secret-input{flex:1;width:100%;min-width:0;margin:0;padding:0;border:0;outline:none;background:transparent;color:var(--bt-ink);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:20px;letter-spacing:.04em}
 .bt-secret-input[data-masked]{-webkit-text-security:disc}
-.bt-secret-input::placeholder{color:var(--bt-ink-3);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;letter-spacing:0}
+.bt-secret-input::placeholder{color:var(--bt-ink-3);font-family:var(--bt-font);letter-spacing:0}
 .bt-secret-scope{position:relative;display:inline-grid;grid-template-columns:1fr 1fr;align-self:flex-start;padding:2px;border-radius:999px;background:var(--bt-hover)}
 .bt-secret-glide{position:absolute;top:2px;bottom:2px;left:2px;width:calc(50% - 2px);border-radius:999px;background:var(--bt-main);box-shadow:0 1px 3px rgba(20,20,20,.08),inset 0 0 0 .5px color-mix(in srgb,var(--bt-ink) 6%,transparent);transition:${spring(SPRING_SHAPE, 'transform')}}
 .bt-secret-glide[data-at="1"]{transform:translateX(100%)}

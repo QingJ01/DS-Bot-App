@@ -27,18 +27,23 @@ export function install(rt) {
 
   const roomOfSession = sessionId => rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
 
+  // `name` may be a function: it is read once the agent resolves, so a change asked
+  // for while the resolve ran wins over the one still being applied.
   async function setPreset(sessionId, name) {
     const agent = await rt.resolveAgent(sessionId)
-    await presets().set(agent.session, name)
+    const wanted = typeof name === 'function' ? name() : name
+    if (wanted) await presets().set(agent.session, wanted)
+    return wanted
   }
 
   // Sets the preset on one of the Bot's Sessions: its group's there, else its own; a Bot
   // without one keeps DSH's default. `room` is for a group Session not indexed yet.
+  // Returns the preset it set, or undefined when it set none.
   async function applyPermission(bot, sessionId, room = roomOfSession(sessionId)) {
-    const name = room?.permission ?? bot.permission
-    if (!name) return
+    const name = () => room?.permission ?? bot?.permission
+    if (!name()) return
     if (presets() === undefined) throw new Error('Permissions are not available in this DeepSeek Harness')
-    await setPreset(sessionId, name)
+    return setPreset(sessionId, name)
   }
 
   function checkPreset(name, whose) {
