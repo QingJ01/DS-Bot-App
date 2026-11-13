@@ -295,7 +295,14 @@ jobs:
           cp out/dsbot-android-arm64/DeepSeekBot.cer release/
           cp out/dsbot-android-arm64/dsbot-android-arm64.apk "release/dsbot-android-arm64-$RELEASE_TAG.apk"
           cp out/dsbot-android-x86_64/dsbot-android-x86_64.apk "release/dsbot-android-x86_64-$RELEASE_TAG.apk"
-          notes="$GITHUB_WORKSPACE/$notes_file"
+          notes="$GITHUB_WORKSPACE/release-notes.md"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const commit = process.env.GITHUB_SHA;
+          if (!/^[a-f0-9]{40}$/.test(commit || '')) throw new Error('A full release source commit is required');
+          const { notesFile } = require('./release-target.json');
+          fs.writeFileSync('release-notes.md', fs.readFileSync(notesFile, 'utf8').replaceAll('<40-character-source-commit>', commit));
+          NODE
           cd release
           if [[ -z "$revision" ]]; then
             desktop_assets=( ./*.exe ./*.blockmap ./*.zip latest.yml ./*.AppImage ./*.deb latest-linux.yml )

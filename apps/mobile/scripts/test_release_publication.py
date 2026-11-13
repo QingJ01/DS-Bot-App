@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 @unittest.skipUnless(shutil.which("node") and shutil.which("bash"), "Node and Bash are required")
 class ReleasePublicationTests(unittest.TestCase):
-    def run_publication(self, tag, published=False, bad_checksum=False, partial=False, stable_published=False):
+    def run_publication(self, tag, published=False, bad_checksum=False, partial=False, stable_published=False, missing_linux=False, source_commit="a" * 40):
         with tempfile.TemporaryDirectory(prefix="dsbot-release-test-") as directory:
             task = Path(directory)
             (task / "scripts").mkdir()
@@ -31,6 +31,10 @@ class ReleasePublicationTests(unittest.TestCase):
                 (destination / "DeepSeekBot.cer").write_bytes(b"unchanged certificate")
             (task / "out/dsbot-plugin").mkdir()
             (task / "out/dsbot-plugin/ds-bot-0.1.1.tgz").write_bytes(b"revised plugin")
+            (task / "docs/releases").mkdir(parents=True)
+            (task / f"docs/releases/{tag}.md").write_text(
+                "Install: github:QingJ01/DS-Bot-App#<40-character-source-commit>&path:ds-bot\n"
+            )
             desktop_assets = {
                 "dsbot-desktop-windows": [
                     "DS-Bot-App-0.1.1-win-x64.exe",
@@ -40,6 +44,12 @@ class ReleasePublicationTests(unittest.TestCase):
                 "dsbot-desktop-macos-arm64": ["DS-Bot-App-0.1.1-mac-arm64.zip"],
                 "dsbot-desktop-macos-x64": ["DS-Bot-App-0.1.1-mac-x64.zip"],
             }
+            if not missing_linux:
+                desktop_assets["dsbot-desktop-linux"] = [
+                    "DS-Bot-App-0.1.1-linux-x86_64.AppImage",
+                    "DS-Bot-App-0.1.1-linux-amd64.deb",
+                    "latest-linux.yml",
+                ]
             for directory, assets in desktop_assets.items():
                 destination = task / "out" / directory
                 destination.mkdir(parents=True)
@@ -61,7 +71,11 @@ elif args[:2]==['release','view']:
         print('ds-bot-0.1.1-r2.tgz' if os.environ.get('REVISION_PUBLISHED')=='partial' else 'SHA256SUMS-r2' if os.environ.get('REVISION_PUBLISHED')=='1' else 'SHA256SUMS')
     elif os.environ.get('STABLE_RELEASE_EXISTS') != '1':
         sys.exit(1)
-elif args[:2] not in [['release','upload'],['release','edit'],['release','create']]:sys.exit(2)
+elif args[:2] in [['release','edit'],['release','create']]:
+    notes=Path(args[args.index('--notes-file')+1]).read_text()
+    if '<40-character-source-commit>' in notes or ('#'+os.environ['GITHUB_SHA']+'&path:ds-bot') not in notes:
+        sys.exit('Release notes must contain the immutable installation pin')
+elif args[:2]!=['release','upload']:sys.exit(2)
 ''')
             script.chmod(0o755)
             workflow = (ROOT / ".github/workflows/build.yml").read_text()
@@ -69,6 +83,7 @@ elif args[:2] not in [['release','upload'],['release','edit'],['release','create
             program = "\n".join(line[10:] for line in block.splitlines())
             environment = dict(os.environ, PATH=str(task / "bin") + os.pathsep + os.environ["PATH"],
                                RELEASE_TAG=tag, REPOSITORY="owner/repo", GITHUB_WORKSPACE=str(task),
+                               GITHUB_SHA=source_commit,
                                REVISION_PUBLISHED="partial" if partial else "1" if published else "0",
                                STABLE_RELEASE_EXISTS="1" if stable_published else "0")
             result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", program], cwd=task,
@@ -97,9 +112,20 @@ elif args[:2] not in [['release','upload'],['release','edit'],['release','create
         create = next(call for call in calls if call[:2] == ["release", "create"])
         self.assertIn("ds-bot-0.1.1.tgz", create)
         self.assertIn("--verify-tag", create)
-        for extension in [".exe", ".blockmap", ".zip", "latest.yml"]:
+        for extension in [".exe", ".blockmap", ".zip", "latest.yml", ".AppImage", ".deb", "latest-linux.yml"]:
             self.assertTrue(any(asset.endswith(extension) for asset in create), extension)
         self.assertFalse(any(call[:2] == ["release", "upload"] for call in calls))
+
+    def test_missing_linux_assets_stop_stable_publication(self):
+        code, calls, _ = self.run_publication("v0.1.1", missing_linux=True)
+        self.assertNotEqual(code, 0)
+        self.assertFalse(any(call[:2] == ["release", "create"] for call in calls))
+
+    def test_missing_source_commit_stops_publication(self):
+        code, calls, error = self.run_publication("v0.1.1", source_commit="")
+        self.assertNotEqual(code, 0)
+        self.assertIn("A full release source commit is required", error)
+        self.assertFalse(any(call[:2] == ["release", "create"] for call in calls))
 
     def test_published_revision_cannot_be_overwritten(self):
         code, calls, _ = self.run_publication("v0.1.1-r2", published=True)

@@ -35,20 +35,20 @@
 
 每个 PR 和 main 构建都会执行 `node scripts/check-release.cjs`，在打标签前检查插件、App、Expo 和锁文件的版本是否一致；标签构建还要求对应发布说明。私有 mobile SDK 使用独立版本，不单独发布。
 
-插件更新检查支持固定完整提交的 GitHub 安装。发现更高语义版本时，选择该版本最高的完整修订（插件包和修订校验和均存在），解析为完整提交并保留包的子目录。同版本 `rN` 修复仍需使用发布说明中的新安装文本，不当作自动语义版本升级。给旧版本追加修订不会强制将其设为 GitHub 最新版。
+插件更新检查使用本 fork 的 GitHub Releases，将最高的完整修订（插件包和修订校验和均存在）解析为完整提交并保留包的子目录。既支持检测新版本，也支持同版本 `rN` 修订；安装由用户点击触发，开发检出不会被替换。给旧版本追加修订不会强制将其设为 GitHub 最新版。
 
 ## 下载与标签发布
 
 在成功运行底部的 Artifacts 下载并解压。ARM64 给手机、x86_64 给模拟器，主机安装同一提交的 `dsbot-plugin`。普通 main 构建只上传 Actions artifacts，不创建 Release。
 
-需要发布时，先检查签名 Secret、两个 APK 和插件均通过。将 `ds-bot/package.json`、`apps/mobile/package.json`、两份锁文件及 `apps/mobile/app.json` 的版本更新为标签对应版本，并在 `docs/releases/v主版本.次版本.修订版本.md` 写双语说明。标签校验会在构建前拒绝缺少签名配置、版本不一致或缺少说明的发布。然后创建唯一的正式版本标签，例如：
+需要发布时，先检查签名 Secret、两个 APK 和插件均通过。将 `ds-bot/package.json`、`apps/mobile/package.json`、`app/package.json`、对应锁文件（包括桌面锁文件内的 `ds-bot` 版本）及 `apps/mobile/app.json` 的版本更新为标签对应版本，并在 `docs/releases/v主版本.次版本.修订版本.md` 写双语说明。标签校验会在构建前拒绝缺少签名配置、版本不一致或缺少说明的发布。然后创建唯一的正式版本标签，例如：
 
 ```sh
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.4
+git push origin v0.1.4
 ```
 
-标签工作流重新构建并创建正式 Release，附配套 `.tgz`、两种已签名 APK（例如 `dsbot-android-arm64-v0.1.1.apk`）、公开证书与总校验和。如果缺少签名 Secret，标签校验失败，不会把未签名包发布成可安装版本。签名密码、私密备份、原生数据与 DSH_HOME 不会作为产物上传。
+标签工作流在插件、两个 Android 架构及所有桌面构建均通过后创建正式 Release，附配套 `.tgz`、两种已签名 APK、Windows 安装包和更新元数据、macOS arm64/x64 ZIP、Linux AppImage/deb 和更新元数据、公开证书及总校验和。发布说明中的 `<40-character-source-commit>` 会替换为本次标签构建的完整提交，插件安装文本可直接复制。如果缺少签名 Secret，标签校验失败，不会把未签名包发布成可安装版本。签名密码、私密备份、原生数据与 DSH_HOME 不会作为产物上传。
 
 Artifacts 有 GitHub 保留期限，需要长期保存的版本使用 Releases。Release 的校验和按下载后的平铺文件名记录；Linux 在下载目录执行 `sha256sum -c SHA256SUMS`，macOS 用 `shasum -a 256 -c SHA256SUMS`，Windows 用 PowerShell `Get-FileHash 文件名 -Algorithm SHA256` 核对。
 
